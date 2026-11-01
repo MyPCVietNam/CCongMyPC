@@ -27,11 +27,29 @@ type Diag = {
   indicator_vi?: string;
 };
 
+type QualityDiag = {
+  vendor_spec?: { max_resolution?: string; status?: string };
+  decoded_measured?: {
+    status?: string;
+    width?: number | null;
+    height?: number | null;
+    fps_measured?: number | null;
+    clock_trust?: string | null;
+    pixel_sha256?: string | null;
+  };
+  auto_enhance?: { requested?: string; effective?: string; note_vi?: string };
+  camera_lab_pass?: boolean;
+  provenance?: string | null;
+  config_revision?: string | null;
+};
+
 export function CameraPage() {
   const [cams, setCams] = useState<Cam[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [diag, setDiag] = useState<Diag | null>(null);
+  const [quality, setQuality] = useState<QualityDiag | null>(null);
+  const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [roi, setRoi] = useState({ x: 0.3, y: 0.05, w: 0.4, h: 0.25 });
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -98,6 +116,98 @@ export function CameraPage() {
     }
   }
 
+  async function loadQuality() {
+    if (selected == null) return;
+    setError("");
+    try {
+      const q = await api<QualityDiag>(`/api/v1/cameras/${selected}/quality/diagnostics`);
+      setQuality(q);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi");
+    }
+  }
+
+  async function analyzeOnce() {
+    if (selected == null) return;
+    setAnalyzeMsg("");
+    try {
+      const r = await api<{
+        original_unchanged: boolean;
+        enhancement_status: string;
+        applied_methods: string[];
+        note_vi: string;
+      }>(`/api/v1/cameras/${selected}/quality/analyze-once`, {
+        method: "POST",
+        body: "{}",
+      });
+      setAnalyzeMsg(
+        `${r.note_vi} · gốc giữ nguyên=${r.original_unchanged ? "có" : "không"} · ${r.enhancement_status} · ${r.applied_methods.join(",") || "không xử lý"}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi");
+    }
+  }
+
+  async function revertAuto() {
+    if (selected == null) return;
+    try {
+      const r = await api<{ effective_mode: string }>(
+        `/api/v1/cameras/${selected}/quality/settings`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            requested_mode: "AUTO",
+            revert: true,
+            reverted_reason: "OPERATOR_ROLLBACK",
+          }),
+        }
+      );
+      setAnalyzeMsg(`Đã khôi phục cấu hình an toàn · hiệu lực=${r.effective_mode}`);
+      await loadQuality();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi");
+    }
+  }
+
+  async function exportReport() {
+    if (selected == null) return;
+    try {
+      const r = await api<Record<string, unknown>>(
+        `/api/v1/cameras/${selected}/quality/report`
+      );
+      setAnalyzeMsg(
+        `Báo cáo đã ẩn thông tin nhạy cảm · label=${String(r.diagnostic_label)} · lab=${String(r.camera_lab_pass)}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi");
+    }
+  }
+
+  async function configureLive() {
+    if (selected == null) return;
+    setError("");
+    if (!form.rtsp_url_override.trim()) {
+      setError("Cần URI RTSP (không nhúng mật khẩu vào URI).");
+      return;
+    }
+    try {
+      await api(`/api/v1/cameras/gateway/live/configure`, {
+        method: "POST",
+        body: JSON.stringify({
+          camera_id: selected,
+          rtsp_uri: form.rtsp_url_override,
+          username: form.username,
+          password: form.password,
+          profile: "MAIN",
+        }),
+      });
+      setAnalyzeMsg("Đã gắn gateway LIVE (CAMERA_LAB_PASS vẫn chưa đạt).");
+      await loadQuality();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi");
+    }
+  }
+
   async function saveRoi() {
     if (selected == null) return;
     try {
@@ -113,9 +223,13 @@ export function CameraPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-display">Camera & Vùng nhận diện</h1>
+        <h1 className="text-2xl font-display">Camera & Chất lượng hình ảnh</h1>
         <p className="text-sm text-muted mt-1">
-          ONVIF theo danh sách hãng ≠ đã kiểm chứng RTSP. Không suy đoán URL ch1/main.
+          Thông số hãng (VENDOR_SPEC) ≠ kích thước đã giải mã (DECODED_MEASURED). Preview đã thu nhỏ không
+          thay thế ảnh gốc. Chế độ “Tự động” hiện hành: AUTO_TEST_ONLY (ảnh gốc chính thức).{" "}
+          <a className="text-brand underline" href="https://mypc.vn" target="_blank" rel="noreferrer">
+            MyPC Viet Nam
+          </a>
         </p>
       </header>
 
@@ -225,7 +339,7 @@ export function CameraPage() {
               </label>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={saveRoi}
@@ -238,9 +352,45 @@ export function CameraPage() {
               onClick={runDiag}
               className="rounded-md bg-brand/15 border border-brand/40 text-brand px-3 py-1.5 text-sm"
             >
-              Kiểm tra kết nối
+              Kiểm tra camera
+            </button>
+            <button
+              type="button"
+              onClick={configureLive}
+              className="rounded-md border border-line px-3 py-1.5 text-sm"
+            >
+              Gắn nguồn LIVE
+            </button>
+            <button
+              type="button"
+              onClick={loadQuality}
+              className="rounded-md border border-line px-3 py-1.5 text-sm"
+            >
+              Đo chất lượng ảnh
+            </button>
+            <button
+              type="button"
+              onClick={analyzeOnce}
+              className="rounded-md border border-line px-3 py-1.5 text-sm"
+            >
+              So sánh nhận diện (shadow)
+            </button>
+            <button
+              type="button"
+              onClick={revertAuto}
+              className="rounded-md border border-line px-3 py-1.5 text-sm"
+            >
+              Khôi phục cấu hình
+            </button>
+            <button
+              type="button"
+              onClick={exportReport}
+              className="rounded-md border border-line px-3 py-1.5 text-sm"
+            >
+              Xuất báo cáo đã ẩn thông tin nhạy cảm
             </button>
           </div>
+          {analyzeMsg && <p className="text-xs text-muted">{analyzeMsg}</p>}
         </div>
 
         <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
@@ -270,6 +420,33 @@ export function CameraPage() {
                 ))}
               </ul>
             </>
+          )}
+
+          <h2 className="font-medium pt-2">Chất lượng hình ảnh</h2>
+          {!quality && <p className="text-sm text-muted">Chưa đo — nhấn “Đo chất lượng ảnh”.</p>}
+          {quality && (
+            <div className="text-sm space-y-2">
+              <p>
+                VENDOR_SPEC tối đa: {quality.vendor_spec?.max_resolution || "—"} (
+                {quality.vendor_spec?.status || "—"})
+              </p>
+              <p>
+                DECODED_MEASURED:{" "}
+                {quality.decoded_measured?.width && quality.decoded_measured?.height
+                  ? `${quality.decoded_measured.width}×${quality.decoded_measured.height}`
+                  : "Chưa xác minh"}{" "}
+                · FPS đo: {quality.decoded_measured?.fps_measured ?? "—"} · Đồng hồ:{" "}
+                {quality.decoded_measured?.clock_trust || "—"}
+              </p>
+              <p>
+                Provenance: {quality.provenance || "—"} · Hiệu lực xử lý ảnh:{" "}
+                {quality.auto_enhance?.effective || "OFF"}
+              </p>
+              <p className="text-xs text-muted">{quality.auto_enhance?.note_vi}</p>
+              <p className="text-xs font-mono break-all text-muted">
+                SHA256 gốc: {quality.decoded_measured?.pixel_sha256 || "—"}
+              </p>
+            </div>
           )}
         </div>
       </div>

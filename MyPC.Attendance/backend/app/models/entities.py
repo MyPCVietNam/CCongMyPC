@@ -185,3 +185,62 @@ class AuditLog(Base):
     reason: Mapped[str] = mapped_column(Text, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     request_id: Mapped[str] = mapped_column(String(64), default="")
+
+
+class CameraStreamProfile(Base):
+    """MAIN/SUB stream profile metadata — no raw URI/secrets."""
+
+    __tablename__ = "camera_stream_profiles"
+    __table_args__ = (UniqueConstraint("camera_id", "profile", name="uq_camera_stream_profile"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), nullable=False)
+    profile: Mapped[str] = mapped_column(String(32), default="MAIN")  # MAIN|SUB|UNKNOWN
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    vendor_max_w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vendor_max_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decoded_w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decoded_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    codec: Mapped[str] = mapped_column(String(64), default="")
+    fps_measured: Mapped[float | None] = mapped_column(Float, nullable=True)
+    health_json: Mapped[str] = mapped_column(Text, default="{}")  # aggregated, no faces/URI
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CameraQualitySettings(Base):
+    """Versioned auto-enhance policy per camera — default AUTO_TEST_ONLY."""
+
+    __tablename__ = "camera_quality_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), unique=True, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    requested_mode: Mapped[str] = mapped_column(String(32), default="AUTO")  # OFF|AUTO
+    effective_mode: Mapped[str] = mapped_column(String(32), default="AUTO_TEST_ONLY")
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    validated_by: Mapped[str] = mapped_column(String(128), default="")
+    reverted_reason: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AbEvaluationRun(Base):
+    """Aggregated A/B metrics only — no face crops/embeddings/names."""
+
+    __tablename__ = "ab_evaluation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    camera_id: Mapped[int | None] = mapped_column(ForeignKey("camera_devices.id"), nullable=True)
+    run_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    source_mix: Mapped[str] = mapped_column(String(64), default="")  # MOCK|REPLAY|LIVE mix label
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+    blockers_json: Mapped[str] = mapped_column(Text, default="[]")
+    can_auto_enable: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_status: Mapped[str] = mapped_column(String(32), default="PENDING")  # PENDING|REJECTED|APPROVED
+    approved_by: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    note_vi: Mapped[str] = mapped_column(Text, default="")

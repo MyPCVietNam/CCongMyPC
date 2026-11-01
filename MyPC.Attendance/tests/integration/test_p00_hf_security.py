@@ -145,7 +145,9 @@ def test_live_preview_no_silent_mock_substitute(app_client):
     prev = client.get(f"/api/v1/cameras/{cam['id']}/preview")
     assert prev.status_code == 503
     detail = prev.json()["detail"]
-    assert detail["code"] == "LIVE_NOT_IMPLEMENTED"
+    # P02-HF: live camera without registry bind must fail closed (no silent MOCK)
+    assert detail["code"] == "LIVE_NOT_CONFIGURED"
+    assert detail.get("camera_lab_pass") is False
 
 
 def test_csrf_two_sessions_independent(app_client):

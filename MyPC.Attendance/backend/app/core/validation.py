@@ -102,31 +102,25 @@ def validate_camera_host(host: str, *, allow_empty: bool = True) -> str:
 
 
 def validate_rtsp_url(url: str, *, allow_empty: bool = True) -> str:
+    """Stored override must pass the same live RTSP policy (no secrets/query)."""
     url = (url or "").strip()
     if not url:
         if allow_empty:
             return ""
         raise ValidationErrorVi("URL RTSP trống")
-    parsed = urlparse(url)
-    if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
-        raise ValidationErrorVi("Chỉ chấp nhận URL rtsp:// hoặc rtsps://")
-    if not parsed.hostname:
-        raise ValidationErrorVi("URL RTSP thiếu host")
-    # Reject credentials embedded in URL for logging safety — store separately
-    if parsed.username or parsed.password:
-        raise ValidationErrorVi(
-            "Không nhúng tài khoản/mật khẩu vào URL RTSP. Nhập riêng trong phần bảo mật."
-        )
-    validate_camera_host(parsed.hostname, allow_empty=False)
-    if parsed.port is not None and not (1 <= parsed.port <= 65535):
-        raise ValidationErrorVi("Cổng RTSP không hợp lệ")
-    return url
+    # Delegate to single strict policy used by LIVE configure
+    from app.vision.camera.rtsp_policy import validate_live_rtsp_uri
+
+    endpoint = validate_live_rtsp_uri(url)
+    return f"{endpoint.scheme}://{endpoint.host}:{endpoint.port}{endpoint.path}"
 
 
 def redact_url(url: str) -> str:
+    """Safe display — never echo userinfo, path, query, or fragment."""
     if not url:
         return ""
     parsed = urlparse(url)
     host = parsed.hostname or ""
     port = f":{parsed.port}" if parsed.port else ""
-    return f"{parsed.scheme}://{host}{port}{parsed.path or ''}"
+    scheme = parsed.scheme or "rtsp"
+    return f"{scheme}://{host}{port}/<redacted>"

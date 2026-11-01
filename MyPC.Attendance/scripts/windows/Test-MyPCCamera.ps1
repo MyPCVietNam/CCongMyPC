@@ -54,12 +54,14 @@ foreach ($pair in @(@{n="tcp_onvif"; p=$OnvifPort}, @{n="tcp_rtsp"; p=$RtspPort}
 }
 
 Add-Step "onvif_auth" "BLOCKED" "Nhập credential trong Cài đặt camera của ứng dụng (không ghi mật khẩu vào JSON này)."
-Add-Step "rtsp_uri" "BLOCKED" "Cấu hình RTSP URI trong app; gateway LIVE dùng /api/v1/cameras/gateway/live/configure — URI trả về đã che mật khẩu."
-Add-Step "rtsp_decode" "BLOCKED" "CAMERA_LAB_PASS chỉ đạt khi giải mã được khung hình thật trên máy Windows này (ffmpeg/OpenCV)."
-Add-Step "native_resolution" "BLOCKED" "Ghi width×height khung native sau khi decode thành công."
-Add-Step "face_pixel_quality" "BLOCKED" "Đo face width / inter-eye tại vị trí đứng đăng ký; không phóng to kỹ thuật số rồi tuyên bố đạt."
+Add-Step "rtsp_uri" "BLOCKED" "Cấu hình RTSP URI trong app (KHÔNG nhúng mật khẩu vào URI). Dùng /api/v1/cameras/gateway/live/configure — response chỉ có diagnostic_label REDACTED."
+Add-Step "rtsp_decode" "BLOCKED" "TCP PASS ≠ RTSP decode. CAMERA_LAB_PASS chỉ khi giải mã khung hình thật trên máy Windows này (ffmpeg/OpenCV)."
+Add-Step "native_resolution" "BLOCKED" "Ghi DECODED_MEASURED width×height từ frame.shape (VENDOR_SPEC 2880×1620 không phải bằng chứng LIVE)."
+Add-Step "face_pixel_quality" "BLOCKED" "Đo face width / inter-eye trên pixel gốc; không phóng to 2×/4× rồi tuyên bố đạt cổng ≥120px."
+Add-Step "auto_enhance_shadow" "BLOCKED" "Chế độ hiệu lực mặc định AUTO_TEST_ONLY — ảnh gốc chính thức; enhanced chỉ A/B bóng đến khi pilot LIVE phê duyệt."
 Add-Step "body_geometry" "BLOCKED" "Nếu góc cao không thấy đủ đầu–chân → BODY_CAPTURE_BLOCKED (đúng, không bịa)."
-Add-Step "live_preview" "BLOCKED" "Xem /api/v1/cameras/gateway/health — provenance phải là CAMERA_LIVE, không phải MOCK."
+Add-Step "live_preview" "BLOCKED" "Preview phải cùng registry với gateway LIVE; provenance=CAMERA_LIVE; không thay MOCK ẩn."
+Add-Step "evening_ir" "BLOCKED" "Kiểm tra DAY/DUSK/NIGHT_IR tại vị trí đánh dấu tầng 1 — cần owner chạy trên LAN công ty."
 Add-Step "camera_lab_pass" "BLOCKED" "Giữ false cho đến khi đủ bằng chứng trên máy này."
 
 $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $ReportPath -Encoding UTF8

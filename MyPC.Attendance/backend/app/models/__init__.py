@@ -1,9 +1,12 @@
 """ORM models."""
 
 from app.models.entities import (
+    AbEvaluationRun,
     AttendanceEvent,
     AuditLog,
     CameraDevice,
+    CameraQualitySettings,
+    CameraStreamProfile,
     ConfigRevision,
     Employee,
     LeaveRequest,
@@ -22,4 +25,7 @@ __all__ = [
     "LeaveRequest",
     "ConfigRevision",
     "AuditLog",
+    "CameraStreamProfile",
+    "CameraQualitySettings",
+    "AbEvaluationRun",
 ]

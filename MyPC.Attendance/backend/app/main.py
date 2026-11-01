@@ -27,6 +27,7 @@ from app.core.clock import SystemClock
 from app.core.database import Base, create_db_engine, make_session_factory
 from app.core.settings import AppSettings
 from app.models import biometric as _biometric_models  # noqa: F401 — register tables
+from app.models import entities as _entity_models  # noqa: F401 — register P02Q tables
 from app.services.attendance_service import AttendanceService
 from app.services.bootstrap import ensure_admin, write_first_run_secret_file
 from app.services.config_service import ConfigService
@@ -35,6 +36,7 @@ from app.services.enrollment_service import EnrollmentService
 from app.services.secrets_store import SecretsStore
 from app.vision.body.person_detector import PersonDetector
 from app.vision.camera.gateway import MockFrameGateway
+from app.vision.camera.registry import CameraSourceRegistry
 from app.vision.faces.pipeline import FacePipeline, FacePipelineConfig
 from app.vision.faces.template_store import FaceTemplateStore
 from app.vision.mock_camera import MockCameraGateway
@@ -87,6 +89,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         enrollment_service=enrollment_service,
         auto_enrollment_service=auto_enrollment_service,
         camera_gateway=MockFrameGateway(camera_id="default-mock"),
+        camera_registry=CameraSourceRegistry(),
     )
 
     with session_factory() as session:
@@ -109,6 +112,21 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
 
     app = FastAPI(title=APP_NAME, version=__version__, docs_url="/api/docs", redoc_url=None)
     app.state.container = container
+
+    @app.on_event("shutdown")
+    def _shutdown_camera_sources() -> None:
+        reg = getattr(container, "camera_registry", None)
+        if reg is not None:
+            try:
+                reg.shutdown_all()
+            except Exception:
+                pass
+        gw = getattr(container, "camera_gateway", None)
+        if gw is not None:
+            try:
+                gw.stop()
+            except Exception:
+                pass
 
     app.add_middleware(
         CORSMiddleware,

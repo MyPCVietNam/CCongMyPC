@@ -36,7 +36,8 @@ class AppState:
     template_store: Any = None
     enrollment_service: Any = None
     auto_enrollment_service: Any = None
-    camera_gateway: Any = None  # CameraGateway | None — live/recorded/mock
+    camera_gateway: Any = None  # legacy singleton pointer
+    camera_registry: Any = None  # CameraSourceRegistry — per-camera LIVE/REPLAY/MOCK
 
 
 def get_app_state(request: Request) -> AppState:
