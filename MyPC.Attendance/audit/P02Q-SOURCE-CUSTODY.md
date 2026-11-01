@@ -12,6 +12,7 @@ Repo: https://github.com/MyPCVietNam/CCongMyPC
 | `main` at review | LICENSE-only / not merged — **never used as code base** |
 | Working branch | `cursor/p02hf-p02q-camera-quality-83a8` |
 | Parent of first P02Q commit | `42c75d3f1e5052580d01bae410875f7ac8a26551` |
+| P02Q implementation HEAD | `0ebda0e87555275f17d6b0223dfce14c09fcef9b` |
 
 ## Custody actions
 
