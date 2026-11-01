@@ -13,8 +13,9 @@ frontend/dist/
 
 .env
 .DS_Store
-release/*.zip
+# release/*.zip  — phase audit ZIPs are committed for delivery
 release/*.exe
+
 *.egg-info/
 .coverage
 htmlcov/
