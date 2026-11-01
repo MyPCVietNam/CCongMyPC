@@ -1,10 +1,10 @@
-"""P01.5 guided auto-enrollment API — full-frame, no mandatory ROI."""
+"""P01.5-HF guided auto-enrollment API — fixtures rejected in production."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,29 @@ def _svc(state: AppState):
     return state.auto_enrollment_service
 
 
+def _reject_synthetic_if_needed(state: AppState, body_fixture: str | None, force_slot: str | None = None) -> None:
+    settings = state.settings
+    if body_fixture and not settings.synthetic_fixtures_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "SYNTHETIC_FIXTURE_DENIED",
+                "message_vi": (
+                    "Không được dùng identity_fixture_key trên môi trường production. "
+                    "Chỉ chấp nhận ảnh thật hoặc upload được ủy quyền."
+                ),
+            },
+        )
+    if force_slot and not settings.force_slot_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORCE_SLOT_DENIED",
+                "message_vi": "force_slot chỉ dành cho môi trường kiểm thử tường minh.",
+            },
+        )
+
+
 @router.post(
     "/api/v1/employees/{employee_id}/enrollment/auto/start",
     dependencies=[Depends(require_csrf)],
@@ -57,12 +80,14 @@ def auto_start(
     user: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
 ) -> dict:
     if body.source == "REAL_CAMERA":
+        # LIVE connectivity ≠ CAMERA_LAB_PASS
         raise HTTPException(
             status_code=503,
             detail={
                 "code": "CAMERA_LAB_BLOCKED",
                 "message_vi": (
-                    "Đăng ký tự động từ camera thật chưa mở — CAMERA_LAB_PASS chưa đạt."
+                    "Đăng ký tự động từ camera thật chưa mở — CAMERA_LAB_PASS chưa đạt. "
+                    "Kết nối LIVE (nếu có) chỉ là điều kiện cần, không phải phê duyệt pilot."
                 ),
             },
         )
@@ -109,14 +134,15 @@ def auto_events(
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
 ) -> dict:
-    """Polling-friendly event snapshot (SSE/WebSocket can wrap later)."""
     svc = _svc(state)
     row = svc.get(db, session_id)
     if row is None or row.employee_id != employee_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên")
     import json
 
-    progress = json.loads(row.progress_json or "{}")
+    from app.services.progress_sanitize import scrub_progress
+
+    progress = scrub_progress(json.loads(row.progress_json or "{}"))
     return {
         "session_id": session_id,
         "ui_state": row.ui_state,
@@ -140,6 +166,7 @@ def auto_frame(
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
 ) -> dict:
+    _reject_synthetic_if_needed(state, body.identity_fixture_key, body.force_slot)
     svc = _svc(state)
     row = svc.get(db, session_id)
     if row is None or row.employee_id != employee_id:
@@ -154,6 +181,11 @@ def auto_frame(
             force_slot=body.force_slot,
             declare_body_geometry_blocked=body.declare_body_geometry_blocked,
         )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "SYNTHETIC_FIXTURE_DENIED", "message_vi": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -241,6 +273,7 @@ def auto_activate(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
 ) -> dict:
+    _reject_synthetic_if_needed(state, body.identity_fixture_key)
     svc = _svc(state)
     row = svc.get(db, session_id)
     if row is None or row.employee_id != employee_id:
@@ -249,7 +282,7 @@ def auto_activate(
     if body.image_base64:
         verification_image = _decode_image_or_fixture(body.image_base64)
     elif body.identity_fixture_key:
-        verification_image = _fixture_canvas(body.identity_fixture_key)
+        verification_image = _fixture_canvas(body.identity_fixture_key + "::verify")
     try:
         return svc.validate_and_activate(
             db,
@@ -258,8 +291,41 @@ def auto_activate(
             identity_fixture_key=body.identity_fixture_key,
             verification_image=verification_image,
         )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "SYNTHETIC_FIXTURE_DENIED", "message_vi": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/v1/employees/{employee_id}/enrollment/auto/{session_id}/samples/{sample_uid}/image",
+)
+def auto_sample_image(
+    employee_id: int,
+    session_id: str,
+    sample_uid: str,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
+) -> Response:
+    """Authorized preview of encrypted face crop / body reference — ENROLLMENT_MANAGE only."""
+    svc = _svc(state)
+    row = svc.get(db, session_id)
+    if row is None or row.employee_id != employee_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên")
+    try:
+        samp, plain = svc.get_sample_image(db, session_id, sample_uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media = "image/jpeg" if plain[:3] == b"\xff\xd8\xff" else "image/png"
+    return Response(
+        content=plain,
+        media_type=media,
+        headers={"Cache-Control": "no-store", "X-Sample-Slot": samp.slot, "X-Sample-Kind": samp.kind},
+    )
 
 
 @router.post(

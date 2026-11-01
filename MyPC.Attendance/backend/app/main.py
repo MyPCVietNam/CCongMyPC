@@ -34,6 +34,7 @@ from app.services.auto_enrollment_service import AutoEnrollmentService
 from app.services.enrollment_service import EnrollmentService
 from app.services.secrets_store import SecretsStore
 from app.vision.body.person_detector import PersonDetector
+from app.vision.camera.gateway import MockFrameGateway
 from app.vision.faces.pipeline import FacePipeline, FacePipelineConfig
 from app.vision.faces.template_store import FaceTemplateStore
 from app.vision.mock_camera import MockCameraGateway
@@ -70,6 +71,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         template_store,
         enrollment_service,
         person_detector=PersonDetector(),
+        settings=settings,
     )
 
     container = AppState(
@@ -84,6 +86,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         template_store=template_store,
         enrollment_service=enrollment_service,
         auto_enrollment_service=auto_enrollment_service,
+        camera_gateway=MockFrameGateway(camera_id="default-mock"),
     )
 
     with session_factory() as session:

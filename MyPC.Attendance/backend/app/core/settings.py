@@ -84,6 +84,13 @@ class AppSettings(BaseSettings):
     require_password_change: bool = True
     cors_origins: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:8765"])
     models_dir: Path = Path("./models/weights")
+    # Synthetic fixture keys / force_slot only when explicitly enabled (CI/dev).
+    # Production must keep this False even for ENROLLMENT_MANAGE operators.
+    allow_synthetic_fixtures: bool = False
+    allow_force_slot: bool = False
+    # Live RTSP/ONVIF gateway (still distinct from CAMERA_LAB_PASS)
+    camera_gateway_enabled: bool = True
+    go2rtc_enabled: bool = False  # optional localhost restreamer; never bind to LAN by default
 
     @field_validator("data_dir", "models_dir", mode="before")
     @classmethod
@@ -96,11 +103,24 @@ class AppSettings(BaseSettings):
         db_path = self.data_dir / "mypc_attendance.sqlite3"
         return f"sqlite:///{db_path.resolve()}"
 
+    def is_production(self) -> bool:
+        return self.app_env == "production" and not self.demo_mode
+
     def mock_ingest_allowed(self) -> bool:
         """Production never allows mock observation ingest into attendance."""
-        if self.app_env == "production" and not self.demo_mode:
+        if self.is_production():
             return False
         return bool(self.allow_mock_observation or self.demo_mode or self.app_env == "development")
+
+    def synthetic_fixtures_allowed(self) -> bool:
+        if self.is_production():
+            return False
+        return bool(self.allow_synthetic_fixtures or self.demo_mode or self.app_env in {"development", "demo", "test"})
+
+    def force_slot_allowed(self) -> bool:
+        if self.is_production():
+            return False
+        return bool(self.allow_force_slot or self.synthetic_fixtures_allowed())
 
 
 

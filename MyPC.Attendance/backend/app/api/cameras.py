@@ -160,6 +160,77 @@ def diagnostics(
     }
 
 
+@router.get("/gateway/health")
+def gateway_health(
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """P02 camera gateway health — never claims CAMERA_LAB_PASS without lab evidence."""
+    gw = state.camera_gateway
+    if gw is None:
+        return {
+            "ready": False,
+            "camera_lab_pass": False,
+            "detail_vi": "Gateway chưa khởi tạo.",
+            "code": "GATEWAY_NOT_CONFIGURED",
+        }
+    h = gw.health()
+    return {
+        "ready": h.decoder_status.value in {"OK", "STALE"},
+        "provenance": h.provenance.value,
+        "decoder_status": h.decoder_status.value,
+        "native_width": h.native_width,
+        "native_height": h.native_height,
+        "fps_estimate": h.fps_estimate,
+        "dropped_frames": h.dropped_frames,
+        "stale_frames": h.stale_frames,
+        "reconnect_count": h.reconnect_count,
+        "last_frame_at": h.last_frame_at.isoformat() if h.last_frame_at else None,
+        "detail_vi": h.detail_vi,
+        "camera_lab_pass": False,  # hard: only Windows lab evidence may flip this elsewhere
+        "extras": {k: v for k, v in (h.extras or {}).items() if "password" not in k.lower()},
+    }
+
+
+@router.post("/gateway/live/configure", dependencies=[Depends(require_csrf)])
+def configure_live_gateway(
+    body: dict[str, Any],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """
+    Configure LiveRTSPGateway from local credentials/URI.
+    Password is accepted once, never echoed back. Does NOT set CAMERA_LAB_PASS.
+    """
+    from app.vision.camera.gateway import LiveRTSPGateway, sanitize_rtsp_for_log
+
+    uri = (body.get("rtsp_uri") or "").strip()
+    camera_id = str(body.get("camera_id") or "live-0")
+    if not uri:
+        raise HTTPException(status_code=422, detail="Thiếu rtsp_uri")
+    # Basic SSRF-ish guard: require rtsp/rtsps scheme
+    if not uri.lower().startswith(("rtsp://", "rtsps://")):
+        raise HTTPException(status_code=422, detail="Chỉ chấp nhận URI rtsp:// hoặc rtsps://")
+    if state.camera_gateway is not None:
+        try:
+            state.camera_gateway.stop()
+        except Exception:
+            pass
+    gw = LiveRTSPGateway(uri, camera_id=camera_id)
+    gw.start()
+    state.camera_gateway = gw
+    return {
+        "ok": True,
+        "sanitized_uri": sanitize_rtsp_for_log(uri),
+        "camera_lab_pass": False,
+        "message_vi": (
+            "Đã cấu hình gateway LIVE. Trạng thái giải mã xem /gateway/health. "
+            "CAMERA_LAB_PASS vẫn BLOCKED cho đến khi lab Windows xác nhận."
+        ),
+        "operator": user.username,
+    }
+
+
 @router.get("/{camera_id}/preview")
 def preview(
     camera_id: int,

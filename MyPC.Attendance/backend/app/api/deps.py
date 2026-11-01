@@ -36,6 +36,7 @@ class AppState:
     template_store: Any = None
     enrollment_service: Any = None
     auto_enrollment_service: Any = None
+    camera_gateway: Any = None  # CameraGateway | None — live/recorded/mock
 
 
 def get_app_state(request: Request) -> AppState:

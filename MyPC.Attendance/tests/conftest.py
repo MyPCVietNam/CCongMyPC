@@ -45,6 +45,8 @@ def app_client(tmp_path, frozen_clock):
         app_env="development",
         demo_mode=True,
         allow_mock_observation=True,
+        allow_synthetic_fixtures=True,
+        allow_force_slot=True,
         database_url=f"sqlite:///{(tmp_path / 'test.sqlite3').resolve()}",
     )
     application = create_app(settings=settings, clock=frozen_clock)

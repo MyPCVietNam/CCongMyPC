@@ -48,15 +48,30 @@ MIN_BODY_HEIGHT_PX = 400
 class PersonDetector:
     def __init__(self, model_path=None, expected_sha256: str | None = None) -> None:
         self._path = model_path
-        self.info = PersonDetectorInfo(
-            model_id="synthetic_person_v1",
-            model_hash="SYNTHETIC",
-            backend="synthetic_fixture",
-            ready=True,
-            license_note="No YOLOX weights bundled yet — DEMO/synthetic geometry only. "
-            "Do not claim BODY_REFERENCE_CAPTURE PASS on real camera until model+lab verified.",
-        )
-        # Real YOLOX load would go here after license/hash audit
+        self._net = None
+        # Production must fail closed without audited weights. DEMO/testing_mode may use synthetic.
+        if model_path is not None and getattr(model_path, "exists", lambda: False)():
+            # Placeholder: real ONNX person detector load after license + SHA256 audit of the
+            # exact weight file. Ultralytics AGPL is NOT used by default.
+            self.info = PersonDetectorInfo(
+                model_id="pending_licensed_person_detector",
+                model_hash="UNVERIFIED",
+                backend="unavailable",
+                ready=False,
+                license_note="Weight path provided but loader not activated until license audit PASS.",
+            )
+        else:
+            self.info = PersonDetectorInfo(
+                model_id="synthetic_person_v1",
+                model_hash="SYNTHETIC",
+                backend="synthetic_fixture",
+                ready=True,
+                license_note=(
+                    "No YOLOX/person weights bundled — DEMO/synthetic geometry only. "
+                    "Do not claim BODY_REFERENCE_CAPTURE PASS on real camera until "
+                    "licensed model + SHA256 + CAMERA_LAB verified."
+                ),
+            )
 
     def detect(self, image: np.ndarray) -> list[PersonBox]:
         h, w = image.shape[:2]

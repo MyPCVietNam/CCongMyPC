@@ -3,49 +3,34 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.clock import Clock
 from app.models.biometric import FaceTemplate
-from app.vision.faces.embedder import packing_floats, unpacking_floats
+from app.vision.faces.crypto_media import MediaCrypto
 
 
 class FaceTemplateStore:
     def __init__(self, data_dir: Path, clock: Clock) -> None:
-        self._dir = data_dir / "secrets"
-        self._dir.mkdir(parents=True, exist_ok=True)
         self._clock = clock
-        self._key_path = self._dir / "face_templates.key"
-        self._key = self._load_or_create_key()
-        self.key_version = 1
-
-    def _load_or_create_key(self) -> bytes:
-        if self._key_path.exists():
-            return self._key_path.read_bytes()
-        key = AESGCM.generate_key(bit_length=256)
-        self._key_path.write_bytes(key)
-        try:
-            os.chmod(self._key_path, 0o600)
-        except OSError:
-            pass
-        return key
+        self._crypto = MediaCrypto(data_dir)
+        self.key_version = self._crypto.key_version
 
     def encrypt_embedding(self, vec: np.ndarray, aad: bytes = b"mypc-face-v1") -> tuple[bytes, bytes]:
-        aes = AESGCM(self._key)
-        nonce = os.urandom(12)
-        ct = aes.encrypt(nonce, packing_floats(vec), aad)
-        return ct, nonce
+        return self._crypto.encrypt_embedding(vec, aad)
 
     def decrypt_embedding(self, ciphertext: bytes, nonce: bytes, aad: bytes = b"mypc-face-v1") -> np.ndarray:
-        aes = AESGCM(self._key)
-        plain = aes.decrypt(nonce, ciphertext, aad)
-        return unpacking_floats(plain)
+        return self._crypto.decrypt_embedding(ciphertext, nonce, aad)
+
+    def encrypt_image(self, data: bytes, aad: bytes = b"mypc-body-ref-v1") -> tuple[bytes, bytes]:
+        return self._crypto.encrypt_image(data, aad)
+
+    def decrypt_image(self, ciphertext: bytes, nonce: bytes, aad: bytes = b"mypc-body-ref-v1") -> bytes:
+        return self._crypto.decrypt_image(ciphertext, nonce, aad)
 
     def save_template(
         self,

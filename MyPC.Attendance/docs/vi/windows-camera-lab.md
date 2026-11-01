@@ -1,42 +1,33 @@
-# Phòng thí nghiệm Camera Windows — MyPC Attendance
+# Hướng dẫn lab camera Windows (tiếng Việt)
+
+**Phát triển bởi [MyPC Viet Nam](https://mypc.vn).**
 
 ## Mục tiêu
 
-Kiểm tra camera EZVIZ H8 Pro (CS-H8-R100-1J5WKFL, firmware V5.3.8 build 240329) trên máy Windows 10/11 x64 **mà không** đưa mật khẩu vào Git hay tham số dòng lệnh.
+Chứng minh (hoặc bác bỏ trung thực) việc giải mã RTSP/ONVIF từ EZVIZ H8 Pro trên **máy Windows công ty**. TCP mở cổng không đủ để đánh `CAMERA_LAB_PASS`.
 
-**Lưu ý:** Camera nằm trong danh sách ONVIF của hãng **không** đồng nghĩa RTSP đã phát được trên máy bạn.
+## Bước nhanh
 
-## Chuẩn bị
+1. Clone nhánh `cursor/p015-hf-p02-camera-gateway-83a8`, cài `.venv`, `pip install -r requirements.txt`, build UI (`cd frontend && npm ci && npm run build`).
+2. Đặt weights YuNet/SFace vào `models/weights` theo `models/manifest.json` (không commit ONNX lên Git công khai nếu chính sách cấm).
+3. Chạy `scripts/windows/Start-MyPCAttendance.ps1` (mặc định `127.0.0.1:8765`).
+4. Trong UI: nhập IP/URI RTSP **cục bộ** (không dán mật khẩu vào chat/Git).
+5. Gọi API cấu hình gateway LIVE (operator có `CAMERA_MANAGE`) — phản hồi chỉ trả URI đã che mật khẩu.
+6. Xem `/api/v1/cameras/gateway/health`: provenance `CAMERA_LIVE`, kích thước native, reconnect.
+7. Chạy `scripts/windows/Test-MyPCCamera.ps1 -CameraHost <IP>` và lưu JSON dưới `%ProgramData%\MyPC\Attendance\camera-lab\`.
+8. Chỉ khi decode + chất lượng face/body tại vị trí đứng được đo xong mới được đề xuất `CAMERA_LAB_PASS` (review người).
 
-1. Cài Python 3.12, tạo `.venv`, `pip install -r backend/requirements.txt`.
-2. (Tuỳ chọn) `npm install && npm run build` trong `frontend/`.
-3. Chạy `scripts/windows/Start-MyPCAttendance.ps1` (mặc định production, loopback).
-4. Đăng nhập, **đổi mật khẩu** nếu có tệp `FIRST_RUN_ADMIN.txt`, rồi xóa tệp đó.
+## Cổng kết quả
 
-## Kiểm tra camera (thứ tự bắt buộc)
-
-1. Chạy `Test-MyPCCamera.ps1 -CameraHost <IP_LAN>` — ghi TCP ONVIF/RTSP.
-2. Trong UI **Camera & Vùng nhận diện**: thêm camera, nhập credential cục bộ, bấm **Kiểm tra kết nối**.
-3. Chỉ khi có khung hình **CAMERA THẬT (LIVE)** mới cân nhắc `CAMERA_LAB_PASS`.
-4. Lỗi LIVE sẽ trả `LIVE_NOT_IMPLEMENTED` / `CAMERA_UNAVAILABLE` — **không** tự thay bằng ảnh mô phỏng.
-5. Vẽ ROI nhận diện; ROI ra về tách riêng và phải hiệu chỉnh lại khi đổi góc máy.
-
-## Đăng ký khuôn mặt
-
-- Chỉ nhân viên tham gia, có xác nhận thông báo sinh trắc học.
-- Trên CI/Linux dùng nguồn DEMO/fixture; **REAL_CAMERA** bị chặn đến khi lab thật đạt.
-- Có phương án chấm công không sinh trắc học (PIN/timekeeper — mở rộng P02+).
-
-## Cổng trạng thái
-
-| Cổng | Ý nghĩa |
-|------|---------|
-| WINDOWS_RUNTIME | Script chạy được trên Windows host |
-| CAMERA_LAB | Đã giải mã khung hình LIVE thật |
-| FACE_PILOT | Pilot khuôn mặt có kiểm soát tại cửa hàng |
-| EXIT_VERIFICATION | Theo dõi hướng ra về — hiện BLOCKED |
+| Gate | Điều kiện PASS |
+|------|----------------|
+| CAMERA_LAB | Decode RTSP thật trên Windows + bằng chứng kích thước/FPS/reconnect |
+| FACE_PILOT | Sau CAMERA_LAB + đăng ký thật có giám sát |
+| WINDOWS_RUNTIME | Ứng dụng chạy ổn định trên Win11 x64 lab |
+| INSTALLER | File `.exe` đã biên dịch và kiểm thử — launcher PowerShell **không** đủ |
 
 ## Bảo mật
 
-- Không commit `data/`, `secrets/`, ảnh khuôn mặt, embedding, mật khẩu.
-- go2rtc chỉ bind `127.0.0.1` (xem `gateway/go2rtc.yaml.template`).
+- Không ghi mật khẩu vào log/ZIP/diagnostic.
+- Không mở go2rtc/API camera ra LAN mặc định.
+- Production: `MYPC_ALLOW_SYNTHETIC_FIXTURES=false`.
