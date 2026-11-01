@@ -56,6 +56,8 @@ class FaceTemplateStore:
         quality_score: float,
         quality_metadata: dict,
         vector_version: str,
+        active: bool = False,
+        pose_slot: str = "",
     ) -> FaceTemplate:
         ct, nonce = self.encrypt_embedding(vec)
         row = FaceTemplate(
@@ -67,7 +69,8 @@ class FaceTemplateStore:
             quality_score=quality_score,
             quality_metadata=json.dumps(quality_metadata, ensure_ascii=False),
             created_at=self._clock.now_utc(),
-            active=True,
+            active=active,
+            pose_slot=pose_slot or str(quality_metadata.get("pose_slot") or ""),
         )
         session.add(row)
         session.flush()
@@ -91,6 +94,34 @@ class FaceTemplateStore:
             vec = self.decrypt_embedding(tmpl.encrypted_embedding, tmpl.nonce)
             out.append((tmpl, vec, enr.employee_id))
         return out
+
+    def load_enrollment_templates(
+        self,
+        session: Session,
+        enrollment_id: int,
+        *,
+        include_inactive: bool = False,
+    ) -> list[tuple[FaceTemplate, np.ndarray]]:
+        q = select(FaceTemplate).where(
+            FaceTemplate.enrollment_id == enrollment_id,
+            FaceTemplate.deleted_at.is_(None),
+        )
+        if not include_inactive:
+            q = q.where(FaceTemplate.active.is_(True))
+        rows = session.scalars(q).all()
+        return [(r, self.decrypt_embedding(r.encrypted_embedding, r.nonce)) for r in rows]
+
+    def activate_enrollment_templates(self, session: Session, enrollment_id: int) -> int:
+        rows = session.scalars(
+            select(FaceTemplate).where(
+                FaceTemplate.enrollment_id == enrollment_id,
+                FaceTemplate.deleted_at.is_(None),
+            )
+        ).all()
+        for r in rows:
+            r.active = True
+        session.flush()
+        return len(rows)
 
     def deactivate_enrollment_templates(self, session: Session, enrollment_id: int) -> int:
         rows = session.scalars(

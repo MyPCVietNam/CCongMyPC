@@ -1,10 +1,10 @@
-"""P01 face matcher / quality / encryption unit tests."""
+"""P01/P01.5 face matcher / quality / encryption unit tests (synthetic)."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from app.vision.faces.embedder import FaceEmbedder
+from app.vision.faces.embedder import EmbeddingError, FaceEmbedder
 from app.vision.faces.matcher import match_embedding
 from app.vision.faces.quality import evaluate_face_quality
 from app.vision.faces.types import FaceBox, MatchOutcome
@@ -31,7 +31,6 @@ def test_unknown_face():
 
 def test_ambiguous_close_scores():
     emb = FaceEmbedder(None)
-    # Force nearly identical gallery vectors
     base = emb.embed_identity_fixture("twin-base")
     twin = base.copy()
     twin[0] += 0.001
@@ -43,12 +42,23 @@ def test_ambiguous_close_scores():
 
 
 def test_quality_rejects_small_and_multi():
+    img = np.full((360, 640, 3), 120, dtype=np.uint8)
     box = FaceBox(10, 10, 20, 20)
-    q = evaluate_face_quality(640, 360, box, min_face_px=40, face_count=1)
+    q = evaluate_face_quality(img, 640, 360, box, min_face_px=120, face_count=1)
     assert q.ok is False
-    q2 = evaluate_face_quality(640, 360, FaceBox(100, 100, 80, 80), face_count=2)
+    assert q.hard_fail is True
+    q2 = evaluate_face_quality(img, 640, 360, FaceBox(100, 100, 160, 160), face_count=2)
     assert q2.ok is False
-    assert "nhiều khuôn mặt" in q2.reasons_vi[0].lower() or "nhiều" in q2.reasons_vi[0]
+    assert "nhiều" in q2.reasons_vi[0].lower()
+
+
+def test_embed_forbids_synthetic_byte_fallback_without_flag():
+    emb = FaceEmbedder(None)
+    try:
+        emb.embed(b"raw-bytes", aligned_crop=None, allow_synthetic_bytes=False)
+        assert False, "should raise"
+    except EmbeddingError as exc:
+        assert exc.code == "SYNTHETIC_FALLBACK_FORBIDDEN"
 
 
 def test_template_encryption_roundtrip(tmp_path):
@@ -65,7 +75,6 @@ def test_template_encryption_roundtrip(tmp_path):
     store = FaceTemplateStore(tmp_path, clock)
     emb = FaceEmbedder(None).embed_identity_fixture("sec")
     with factory() as session:
-        # Need enrollment row FK — create minimal
         from app.models.biometric import BiometricEnrollment
         from app.models.entities import Employee
 
@@ -91,9 +100,9 @@ def test_template_encryption_roundtrip(tmp_path):
             quality_score=0.9,
             quality_metadata={},
             vector_version="synth",
+            active=True,
         )
         session.commit()
-        # Cleartext should not appear in encrypted blob
         assert b"sec" not in tmpl.encrypted_embedding
         restored = store.decrypt_embedding(tmpl.encrypted_embedding, tmpl.nonce)
         assert np.allclose(restored, emb, atol=1e-5)

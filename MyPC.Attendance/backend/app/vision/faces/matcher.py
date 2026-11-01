@@ -20,8 +20,9 @@ def match_embedding(
     model_id: str = "",
 ) -> VerificationResult:
     """
-    gallery: list of (employee_id, embedding)
-    Ambiguous when top1-top2 < margin even if top1 >= threshold.
+    gallery: list of (employee_id, embedding) — multiple templates per employee allowed.
+    Scores are aggregated best-by-identity; margin is applied between top-two identities
+    (not between two templates of the same person).
     """
     if not gallery:
         return VerificationResult(
@@ -34,12 +35,15 @@ def match_embedding(
             threshold=threshold,
         )
 
-    scored: list[tuple[float, int]] = []
+    best_by_emp: dict[int, float] = {}
     for emp_id, vec in gallery:
-        scored.append((cosine_similarity(probe, vec), emp_id))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    best_sim, best_id = scored[0]
-    second = scored[1][0] if len(scored) > 1 else -1.0
+        sim = cosine_similarity(probe, vec)
+        if emp_id not in best_by_emp or sim > best_by_emp[emp_id]:
+            best_by_emp[emp_id] = sim
+
+    ranked = sorted(best_by_emp.items(), key=lambda x: (-x[1], x[0]))
+    best_id, best_sim = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else -1.0
 
     if best_sim < threshold:
         return VerificationResult(
