@@ -8,6 +8,7 @@ const links = [
   { to: "/cham-cong", label: vi.nav.attendance },
   { to: "/tang-ca", label: vi.nav.overtime },
   { to: "/nhan-vien", label: vi.nav.employees },
+  { to: "/dang-ky-khuon-mat", label: "Đăng ký khuôn mặt" },
   { to: "/don-nghi", label: vi.nav.leave },
   { to: "/bao-cao", label: vi.nav.reports },
   { to: "/camera", label: vi.nav.camera },

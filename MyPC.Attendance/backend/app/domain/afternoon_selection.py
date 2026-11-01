@@ -185,9 +185,14 @@ def select_afternoon_reference(
         AfternoonSelectionStatus.AFTERNOON_LATE_FALLBACK: "Đã ghi nhận điểm danh chiều — Cần đối soát",
     }[status]
 
-    # Never rewrite to 18:00
+    # Never rewrite an observation timestamp to the 18:00 anchor.
     assert selected is not None
-    assert selected.observed_at_local.astimezone(LOCAL_TZ) != anchor or True  # real stamp kept
+    selected_local = selected.observed_at_local.astimezone(LOCAL_TZ)
+    if status == AfternoonSelectionStatus.EXACT_REFERENCE:
+        assert selected_local.replace(microsecond=0) == anchor.replace(microsecond=0)
+    else:
+        # Selected stamp must remain the real capture time (not forced to 18:00).
+        assert selected_local.replace(microsecond=0) != anchor.replace(microsecond=0)
 
     return AfternoonSelectionResult(
         status=status,

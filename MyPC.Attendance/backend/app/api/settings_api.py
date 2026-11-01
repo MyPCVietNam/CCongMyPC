@@ -9,9 +9,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AppState, get_app_state, get_current_user, get_db, require_csrf
+from app.api.deps import (
+    AppState,
+    get_app_state,
+    get_current_user,
+    get_db,
+    require_csrf,
+    require_permission,
+)
+from app.core.permissions import SETTINGS_APPLY
 from app.core.settings import OperationalConfig
-from app.models.entities import ConfigRevision
+from app.models.entities import ConfigRevision, User
 from app.services.config_service import ConfigConflictError
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -49,6 +57,7 @@ def save_draft(
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(SETTINGS_APPLY))],
 ) -> dict:
     try:
         rev = state.config_service.save_draft(
@@ -69,6 +78,7 @@ def apply_settings(
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(SETTINGS_APPLY))],
 ) -> dict:
     try:
         cfg, ok, msg = state.config_service.apply(

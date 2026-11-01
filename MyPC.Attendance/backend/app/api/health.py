@@ -46,10 +46,11 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         "config_ack_at": (
             state.config_service.ack_at.isoformat() if state.config_service.ack_at else None
         ),
-        "ai_models": {
-            "yunet": "PENDING_DOWNLOAD_VERIFY",
-            "sface": "PENDING_DOWNLOAD_VERIFY",
-        },
+        "ai_models": (
+            state.face_pipeline.status() if state.face_pipeline else {"ready": False}
+        ),
+        "app_env": state.settings.app_env,
+        "demo_mode": state.settings.demo_mode,
         "camera": {
             "fsm": state.camera.state.fsm.value,
             "mock_mode": state.camera.state.mock_mode,
@@ -58,7 +59,7 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             "rtsp_tested": False,
             "camera_lab_pass": False,
             "note_vi": (
-                "Tương thích ONVIZ theo danh sách hãng không đồng nghĩa đã kiểm chứng "
+                "Tương thích ONVIF theo danh sách hãng không đồng nghĩa đã kiểm chứng "
                 "luồng RTSP trên môi trường này."
             ),
         },
@@ -66,8 +67,12 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         "gates": {
             "UNIT": "see test report",
             "MOCK_INTEGRATION": "see test report",
+            "P00_SECURITY": "see test report",
+            "MODEL_INTEGRITY": "see models/manifest.json",
             "CAMERA_LAB_PASS": False,
+            "FACE_PILOT_PASS": False,
             "EXIT_VERIFICATION_GATE": state.config_service.active.exit_verification_gate,
+            "WINDOWS_RUNTIME": False,
             "WINDOWS_INSTALL_PASS": False,
         },
         "afternoon_window": {

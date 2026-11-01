@@ -1,4 +1,4 @@
-"""Camera setup, diagnostics, preview, ROI."""
+"""Camera setup, diagnostics, preview, ROI — CAMERA_MANAGE + SSRF/ROI guards."""
 
 from __future__ import annotations
 
@@ -6,13 +6,30 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AppState, get_app_state, get_current_user, get_db, require_csrf
+from app.api.deps import (
+    AppState,
+    get_app_state,
+    get_current_user,
+    get_db,
+    require_csrf,
+    require_permission,
+)
 from app.core.clock import SystemClock
-from app.models.entities import CameraDevice, RecognitionRegion
+from app.core.permissions import CAMERA_MANAGE
+from app.core.validation import (
+    ValidationErrorVi,
+    redact_url,
+    validate_camera_host,
+    validate_roi,
+    validate_rtsp_url,
+)
+from app.models.entities import CameraDevice, RecognitionRegion, User
 
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
 
@@ -36,6 +53,15 @@ class RegionIn(BaseModel):
     w: float = 0.4
     h: float = 0.25
 
+    @field_validator("x", "y", "w", "h")
+    @classmethod
+    def _finite(cls, v: float) -> float:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError("Tọa độ ROI không hợp lệ")
+        if math.isnan(v) or math.isinf(v):
+            raise ValueError("Tọa độ ROI không được NaN/Infinity")
+        return float(v)
+
 
 @router.get("")
 def list_cameras(
@@ -51,26 +77,31 @@ def create_camera(
     body: CameraIn,
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
+    try:
+        host = validate_camera_host(body.host, allow_empty=True)
+        rtsp = validate_rtsp_url(body.rtsp_url_override, allow_empty=True)
+    except ValidationErrorVi as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     now = SystemClock().now_utc()
     row = CameraDevice(
         name=body.name,
-        host=body.host,
+        host=host,
         model=body.model,
         firmware=body.firmware,
-        rtsp_url_override=body.rtsp_url_override,
+        rtsp_url_override=rtsp,
         mock_mode=body.mock_mode,
         enabled=body.enabled,
         created_at=now,
-        last_health_status="CHUA_CAU_HINH" if not body.host else "CHO_KIEM_TRA",
+        last_health_status="CHUA_CAU_HINH" if not host else "CHO_KIEM_TRA",
     )
     db.add(row)
     db.flush()
     if body.username and body.password:
         ref = state.secrets.put_camera_secret(row.id, body.username, body.password)
         row.secret_ref = ref
-    # default ROI
     db.add(
         RecognitionRegion(
             camera_id=row.id,
@@ -87,7 +118,7 @@ def diagnostics(
     camera_id: int,
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
     row = db.get(CameraDevice, camera_id)
     if row is None:
@@ -100,6 +131,7 @@ def diagnostics(
         return {
             "camera_id": row.id,
             "mock": True,
+            "live": False,
             "fsm": st.fsm.value,
             "indicator_vi": "Dữ liệu mô phỏng",
             "stages": [s.__dict__ for s in st.stages],
@@ -111,15 +143,16 @@ def diagnostics(
     stages = state.camera.run_live_diagnostics(row.host, has_secret)
     row.last_health_at = SystemClock().now_utc()
     row.last_health_status = "CHO_KIEM_TRA_THAT"
-    # Redact: never include credentials
     return {
         "camera_id": row.id,
         "mock": False,
+        "live": False,
         "fsm": state.camera.state.fsm.value,
         "stages": [s.__dict__ for s in stages],
         "camera_lab_pass": False,
         "onvif_listed": True,
         "rtsp_tested": False,
+        "rtsp_override_redacted": redact_url(row.rtsp_url_override),
         "note_vi": (
             "Camera nằm trong danh sách ONVIF của hãng, nhưng luồng RTSP "
             "chưa được kiểm chứng trên môi trường hiện tại."
@@ -134,20 +167,42 @@ def preview(
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[dict[str, Any], Depends(get_current_user)],
 ) -> dict:
+    """
+    Mock cameras return DEMO frames.
+    Live cameras return LIVE frame only when actually STREAMING with a real decoder;
+    otherwise explicit CAMERA_UNAVAILABLE / LIVE_NOT_IMPLEMENTED — never silent mock substitute.
+    """
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
-    if not row.mock_mode and state.camera.state.fsm.value != "STREAMING":
-        # Fall back to mock frame with explicit indicator — never silent substitute claim
-        frame = state.camera.next_frame_png_base64()
-        frame["live"] = False
-        frame["indicator_vi"] = "Dữ liệu mô phỏng (camera thật chưa STREAMING)"
-        return frame
+
     if row.mock_mode:
         state.camera.connect_mock()
-    frame = state.camera.next_frame_png_base64()
-    frame["live"] = False
-    return frame
+        frame = state.camera.next_frame_png_base64()
+        frame["live"] = False
+        frame["source"] = "DEMO"
+        frame["indicator_vi"] = "Dữ liệu mô phỏng"
+        return frame
+
+    # Live path — do not fall back to mock frames
+    live = state.camera.try_live_frame(row.host, row.rtsp_url_override)
+    if live is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "LIVE_NOT_IMPLEMENTED",
+                "message_vi": (
+                    "Camera thật chưa có khung hình LIVE đã giải mã. "
+                    "Không thay thế bằng dữ liệu mô phỏng. "
+                    "Chạy Kiểm tra kết nối / Windows Camera Lab."
+                ),
+                "camera_lab_pass": False,
+            },
+        )
+    live["live"] = True
+    live["source"] = "REAL_CAMERA"
+    live["indicator_vi"] = "CAMERA THẬT (LIVE)"
+    return live
 
 
 @router.put("/{camera_id}/regions", dependencies=[Depends(require_csrf)])
@@ -155,28 +210,33 @@ def put_regions(
     camera_id: int,
     body: RegionIn,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    try:
+        rect = validate_roi(body.x, body.y, body.w, body.h)
+    except ValidationErrorVi as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     region = db.scalar(
         select(RecognitionRegion).where(
             RecognitionRegion.camera_id == camera_id, RecognitionRegion.name == body.name
         )
     )
-    payload = json.dumps({"x": body.x, "y": body.y, "w": body.w, "h": body.h})
+    payload = json.dumps(rect)
     if region is None:
         region = RecognitionRegion(camera_id=camera_id, name=body.name, norm_rect_json=payload)
         db.add(region)
     else:
         region.norm_rect_json = payload
         region.calibration_version += 1
-        region.exit_calibration_valid = False  # invalidate on ROI change
+        region.exit_calibration_valid = False
     db.flush()
     return {
         "ok": True,
-        "region": json.loads(region.norm_rect_json),
+        "region": rect,
         "calibration_version": region.calibration_version,
         "exit_calibration_valid": region.exit_calibration_valid,
         "message_vi": "Đã lưu vùng nhận diện — cần hiệu chỉnh lại xác minh ra về",
@@ -191,6 +251,7 @@ def _cam_out(r: CameraDevice) -> dict:
         "model": r.model,
         "firmware": r.firmware,
         "has_rtsp_override": bool(r.rtsp_url_override),
+        "rtsp_override_redacted": redact_url(r.rtsp_url_override),
         "has_secret": bool(r.secret_ref),
         "mock_mode": r.mock_mode,
         "enabled": r.enabled,

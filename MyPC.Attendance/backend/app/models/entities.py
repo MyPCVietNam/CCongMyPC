@@ -46,6 +46,7 @@ class User(Base):
     permissions_json: Mapped[str] = mapped_column(Text, default="[]")
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -83,6 +84,9 @@ class RecognitionRegion(Base):
 
 class RawObservation(Base):
     __tablename__ = "raw_observations"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_raw_observation_idempotency"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     camera_id: Mapped[int | None] = mapped_column(ForeignKey("camera_devices.id"), nullable=True)
@@ -94,6 +98,7 @@ class RawObservation(Base):
     source: Mapped[str] = mapped_column(String(64), default="MOCK")
     quality: Mapped[float] = mapped_column(Float, default=1.0)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     immutable_metadata: Mapped[str] = mapped_column(Text, default="{}")
 
 

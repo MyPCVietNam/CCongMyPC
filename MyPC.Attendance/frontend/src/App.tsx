@@ -12,6 +12,7 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { CameraPage } from "./pages/CameraPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LogsPage } from "./pages/LogsPage";
+import { EnrollmentPage } from "./pages/EnrollmentPage";
 
 type User = {
   id: number;
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/cham-cong" element={<AttendancePage />} />
         <Route path="/tang-ca" element={<OvertimePage />} />
         <Route path="/nhan-vien" element={<EmployeesPage />} />
+        <Route path="/dang-ky-khuon-mat" element={<EnrollmentPage />} />
         <Route path="/don-nghi" element={<LeavePage />} />
         <Route path="/bao-cao" element={<ReportsPage />} />
         <Route path="/camera" element={<CameraPage />} />

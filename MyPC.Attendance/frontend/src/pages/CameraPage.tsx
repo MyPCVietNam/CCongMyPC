@@ -55,12 +55,18 @@ export function CameraPage() {
 
   useEffect(() => {
     if (selected == null) return;
-    const t = setInterval(() => {
+    const load = () =>
       api<Preview>(`/api/v1/cameras/${selected}/preview`)
-        .then(setPreview)
-        .catch(() => undefined);
-    }, 1000);
-    api<Preview>(`/api/v1/cameras/${selected}/preview`).then(setPreview).catch(() => undefined);
+        .then((p) => {
+          setPreview(p);
+          setError("");
+        })
+        .catch((e) => {
+          setPreview(null);
+          setError(e.message);
+        });
+    load();
+    const t = setInterval(load, 1500);
     return () => clearInterval(t);
   }, [selected]);
 

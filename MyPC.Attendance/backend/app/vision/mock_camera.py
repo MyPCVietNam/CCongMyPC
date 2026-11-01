@@ -143,6 +143,17 @@ class MockCameraGateway:
             "indicator_vi": "Dữ liệu mô phỏng",
         }
 
+    def try_live_frame(self, host: str, rtsp_url: str) -> dict | None:
+        """
+        Attempt a genuine live decoded frame.
+        Returns None when live decode is unavailable — callers must NOT substitute mock.
+        P00/P01 on Linux CI: always None (CAMERA_LAB_PASS remains BLOCKED).
+        """
+        _ = (host, rtsp_url)
+        # Live OpenCV/FFmpeg RTSP decode is Windows-lab gated; do not fake STREAMING PASS.
+        self.state.fsm = CameraFSM.DISCONNECTED
+        return None
+
 
 def _synthetic_png(width: int, height: int, frame: int) -> bytes:
     """Minimal valid PNG without external deps (pure Python)."""

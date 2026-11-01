@@ -34,10 +34,14 @@ export async function api<T = Json>(
     data = { detail: text };
   }
   if (!res.ok) {
-    const detail =
-      typeof data === "object" && data && "detail" in data
-        ? String((data as { detail: unknown }).detail)
-        : res.statusText;
+    let detail = res.statusText;
+    if (typeof data === "object" && data && "detail" in data) {
+      const d = (data as { detail: unknown }).detail;
+      if (typeof d === "string") detail = d;
+      else if (d && typeof d === "object" && "message_vi" in d) {
+        detail = String((d as { message_vi: string }).message_vi);
+      } else detail = JSON.stringify(d);
+    }
     throw new Error(detail || `HTTP ${res.status}`);
   }
   return data as T;

@@ -69,17 +69,23 @@ class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MYPC_", env_file=".env", extra="ignore")
 
     app_name: str = "MyPC Attendance"
-    app_version: str = "0.1.0-p00"
+    app_version: str = "0.2.0-p01"
     spec_version: str = "1.5"
+    # production | development | demo — mock observation only in development/demo
+    app_env: str = "production"
+    demo_mode: bool = False
+    allow_mock_observation: bool = False
     data_dir: Path = Path("./data")
     database_url: str = ""
     secret_key: str = "dev-only-change-me-in-production-32b"
     session_max_age_seconds: int = 60 * 60 * 8
     bootstrap_password: str = ""  # only for first-run / tests via env
     bootstrap_username: str = "admin"
+    require_password_change: bool = True
     cors_origins: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:8765"])
+    models_dir: Path = Path("./models/weights")
 
-    @field_validator("data_dir", mode="before")
+    @field_validator("data_dir", "models_dir", mode="before")
     @classmethod
     def _path(cls, v: Any) -> Path:
         return Path(v)
@@ -89,6 +95,13 @@ class AppSettings(BaseSettings):
             return self.database_url
         db_path = self.data_dir / "mypc_attendance.sqlite3"
         return f"sqlite:///{db_path.resolve()}"
+
+    def mock_ingest_allowed(self) -> bool:
+        """Production never allows mock observation ingest into attendance."""
+        if self.app_env == "production" and not self.demo_mode:
+            return False
+        return bool(self.allow_mock_observation or self.demo_mode or self.app_env == "development")
+
 
 
 def default_operational_config() -> OperationalConfig:

@@ -37,22 +37,48 @@ class AttendanceService:
         source: str = "MOCK",
         camera_id: int | None = None,
         ambiguous: bool = False,
+        idempotency_key: str | None = None,
+        allow_mock_source: bool = False,
+        clock_trust: str = "TRUSTED",
     ) -> dict:
+        import hashlib
+
         observed_at_utc = ensure_utc(observed_at_utc)
         local = to_local(observed_at_utc)
         leave = self._approved_leave(session, employee_id, work_date)
         exp = expectations(leave)
+
+        if source == "MOCK" and not allow_mock_source:
+            raise ValueError("MOCK source rejected outside demo ingest path")
+
+        key = idempotency_key or hashlib.sha256(
+            f"{source}|{camera_id}|{employee_id}|{observed_at_utc.isoformat()}|{observation_id}".encode()
+        ).hexdigest()
+
+        existing_raw = session.scalar(
+            select(RawObservation).where(RawObservation.idempotency_key == key)
+        )
+        if existing_raw is not None:
+            return {
+                "accepted": False,
+                "duplicate": True,
+                "reason": "IDEMPOTENT_REPLAY",
+                "message_vi": "Quan sát đã được ghi nhận trước đó (idempotent)",
+                "observation_id": existing_raw.id,
+                "source": existing_raw.source,
+            }
 
         raw = RawObservation(
             camera_id=camera_id,
             employee_id=employee_id,
             captured_at_utc=observed_at_utc,
             received_at_utc=self._clock.now_utc(),
-            clock_trust="TRUSTED",
+            clock_trust=clock_trust,
             obs_type="FACE_MATCH",
             source=source,
             quality=quality,
             confidence=confidence,
+            idempotency_key=key,
             immutable_metadata="{}",
         )
         session.add(raw)

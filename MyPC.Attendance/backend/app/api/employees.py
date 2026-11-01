@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_csrf
+from app.api.deps import get_current_user, get_db, require_csrf, require_permission
 from app.core.clock import SystemClock
-from app.models.entities import Employee
+from app.core.permissions import EMPLOYEE_MANAGE
+from app.models.entities import Employee, User
 
 router = APIRouter(prefix="/api/v1/employees", tags=["employees"])
 
@@ -62,7 +63,7 @@ def list_employees(
 def create_employee(
     body: EmployeeIn,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(EMPLOYEE_MANAGE))],
 ) -> EmployeeOut:
     exists = db.scalar(select(Employee).where(Employee.code == body.code))
     if exists:
@@ -98,7 +99,7 @@ def patch_employee(
     employee_id: int,
     body: EmployeeIn,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(EMPLOYEE_MANAGE))],
 ) -> EmployeeOut:
     row = db.get(Employee, employee_id)
     if row is None:

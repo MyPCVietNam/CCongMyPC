@@ -22,3 +22,6 @@ htmlcov/
 backend/app/static/FIRST_RUN_ADMIN.txt
 **/FIRST_RUN_ADMIN.txt
 **/secrets/
+models/weights/*.onnx
+models/weights/*.bin
+!models/weights/.gitkeep

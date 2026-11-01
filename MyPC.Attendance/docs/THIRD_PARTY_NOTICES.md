@@ -21,6 +21,7 @@ Status reflects P00 audit. Components marked **PLANNED** are not yet runtime-bun
 | python-multipart | Apache-2.0 | https://github.com/Kludex/python-multipart | PINNED |
 | itsdangerous | BSD-3-Clause | https://github.com/pallets/itsdangerous | PINNED |
 | tzdata | Apache-2.0 | https://github.com/python/tzdata | PINNED |
+| numpy | BSD | https://github.com/numpy/numpy | PINNED (P01) |
 
 ## Frontend
 
@@ -39,8 +40,8 @@ Status reflects P00 audit. Components marked **PLANNED** are not yet runtime-bun
 | go2rtc | MIT | PLANNED (config template only in P00) |
 | onvif-python | MIT | OPTIONAL; mock used when unavailable |
 | OpenCV | Apache-2.0 | OPTIONAL in P00 (mock frames without OpenCV) |
-| YuNet face detection (opencv_zoo) | MIT | PLANNED — see models/manifest.json |
-| SFace recognition (opencv_zoo) | Apache-2.0 | PLANNED — see models/manifest.json |
+| YuNet face detection (opencv_zoo) | MIT | SHA256 verified 2026-11-02 — weights not in Git; see models/manifest.json |
+| SFace recognition (opencv_zoo) | Apache-2.0 | SHA256 verified 2026-11-02 — weights not in Git; see models/manifest.json |
 | ReportLab | BSD | DEFERRED (PDF) |
 | WinSW | MIT | PLANNED P06 |
 | NSIS | zlib/libpng-like | PLANNED P06 |
