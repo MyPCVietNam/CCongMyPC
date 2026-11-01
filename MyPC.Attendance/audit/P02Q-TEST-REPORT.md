@@ -7,7 +7,8 @@
 | Platform | Linux cloud agent (no company EZVIZ) |
 | Date (Asia/Ho_Chi_Minh) | 2026-11-02 |
 | Parent HEAD | `42c75d3f1e5052580d01bae410875f7ac8a26551` |
-| Implementation HEAD | `f3937a6287465a8bad9bccdb4cc4b48a17edddc4` |
+| Code HEAD | `d1cb733eeb36a5e10cb14062294895d1f5597bb1` |
+| Branch tip | see GitHub PR HEAD |
 | Command | `python -m pytest tests/unit tests/integration -q` |
 | Result | **118 passed** |
 | Frontend | `npm run build` — success |
