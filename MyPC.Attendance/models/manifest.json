@@ -1,0 +1,30 @@
+{
+  "models": [
+    {
+      "id": "yunet_2023mar",
+      "purpose": "face_detection",
+      "filename": "face_detection_yunet_2023mar.onnx",
+      "license": "MIT",
+      "source": "https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet",
+      "sha256": "PENDING_DOWNLOAD_VERIFY",
+      "bundled_in_p00": false,
+      "notes": "Pin and verify SHA256 before FACE_PILOT_PASS"
+    },
+    {
+      "id": "sface_2021dec",
+      "purpose": "face_recognition",
+      "filename": "face_recognition_sface_2021dec.onnx",
+      "license": "Apache-2.0",
+      "source": "https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface",
+      "sha256": "PENDING_DOWNLOAD_VERIFY",
+      "bundled_in_p00": false,
+      "notes": "Pin and verify SHA256 before FACE_PILOT_PASS"
+    }
+  ],
+  "rejected_models": [
+    {
+      "id": "insightface_buffalo_l",
+      "reason": "Requires separate commercial license for many deployments"
+    }
+  ]
+}

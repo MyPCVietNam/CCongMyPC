@@ -1,0 +1,30 @@
+{
+  "product": "MyPC Attendance",
+  "spec_version": "1.5",
+  "generated_for_phase": "P00",
+  "python": {
+    "fastapi": {"license": "MIT", "version_pin": ">=0.115.0,<0.116"},
+    "uvicorn": {"license": "BSD-3-Clause", "version_pin": ">=0.32.0,<0.35"},
+    "pydantic": {"license": "MIT", "version_pin": ">=2.9.0,<3"},
+    "sqlalchemy": {"license": "MIT", "version_pin": ">=2.0.36,<2.1"},
+    "alembic": {"license": "MIT", "version_pin": ">=1.14.0,<1.15"},
+    "argon2-cffi": {"license": "MIT", "version_pin": ">=23.1.0,<24"},
+    "cryptography": {"license": "Apache-2.0/BSD", "version_pin": ">=43.0.0,<45"},
+    "httpx": {"license": "BSD-3-Clause", "version_pin": ">=0.27.0,<0.29"},
+    "openpyxl": {"license": "MIT", "version_pin": ">=3.1.5,<3.2"},
+    "python-multipart": {"license": "Apache-2.0", "version_pin": ">=0.0.12,<0.1"},
+    "itsdangerous": {"license": "BSD-3-Clause", "version_pin": ">=2.2.0,<3"},
+    "tzdata": {"license": "Apache-2.0", "version_pin": ">=2024.2"}
+  },
+  "blocked": [
+    {
+      "component": "FFmpeg",
+      "reason": "Build features may alter GPL obligations; binary not audited for P00 packaging",
+      "status": "LICENSE_BLOCKED"
+    }
+  ],
+  "rejected": [
+    "InsightFace buffalo_l",
+    "Proprietary hosted face recognition APIs"
+  ]
+}
