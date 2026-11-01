@@ -13,6 +13,7 @@ from app import APP_NAME, __version__
 from app.api import (
     attendance,
     auth,
+    auto_enrollment,
     cameras,
     employees,
     enrollment,
@@ -29,8 +30,10 @@ from app.models import biometric as _biometric_models  # noqa: F401 — register
 from app.services.attendance_service import AttendanceService
 from app.services.bootstrap import ensure_admin, write_first_run_secret_file
 from app.services.config_service import ConfigService
+from app.services.auto_enrollment_service import AutoEnrollmentService
 from app.services.enrollment_service import EnrollmentService
 from app.services.secrets_store import SecretsStore
+from app.vision.body.person_detector import PersonDetector
 from app.vision.faces.pipeline import FacePipeline, FacePipelineConfig
 from app.vision.faces.template_store import FaceTemplateStore
 from app.vision.mock_camera import MockCameraGateway
@@ -61,6 +64,13 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     )
     template_store = FaceTemplateStore(settings.data_dir, clock)
     enrollment_service = EnrollmentService(clock, face_pipeline, template_store)
+    auto_enrollment_service = AutoEnrollmentService(
+        clock,
+        face_pipeline,
+        template_store,
+        enrollment_service,
+        person_detector=PersonDetector(),
+    )
 
     container = AppState(
         settings=settings,
@@ -73,6 +83,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         face_pipeline=face_pipeline,
         template_store=template_store,
         enrollment_service=enrollment_service,
+        auto_enrollment_service=auto_enrollment_service,
     )
 
     with session_factory() as session:
@@ -113,6 +124,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     app.include_router(leave.router)
     app.include_router(overview.router)
     app.include_router(enrollment.router)
+    app.include_router(auto_enrollment.router)
 
     static_dir = Path(__file__).resolve().parent / "static"
     static_dir.mkdir(parents=True, exist_ok=True)

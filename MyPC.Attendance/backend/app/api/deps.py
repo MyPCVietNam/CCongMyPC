@@ -35,6 +35,7 @@ class AppState:
     face_pipeline: Any = None
     template_store: Any = None
     enrollment_service: Any = None
+    auto_enrollment_service: Any = None
 
 
 def get_app_state(request: Request) -> AppState:
