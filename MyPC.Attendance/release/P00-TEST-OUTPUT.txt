@@ -1,0 +1,63 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.7.0 -- /workspace/MyPC.Attendance/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /workspace/MyPC.Attendance
+configfile: pytest.ini
+plugins: asyncio-0.24.0, anyio-4.16.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 46 items
+
+tests/unit/test_afternoon_selection.py::test_pm01_outside_before PASSED  [  2%]
+tests/unit/test_afternoon_selection.py::test_pm02_window_start_included PASSED [  4%]
+tests/unit/test_afternoon_selection.py::test_pm03_end_of_2355_included_2356_excluded PASSED [  6%]
+tests/unit/test_afternoon_selection.py::test_pm04_exact_1800 PASSED      [  8%]
+tests/unit/test_afternoon_selection.py::test_pm05_closer_1757_vs_1804 PASSED [ 10%]
+tests/unit/test_afternoon_selection.py::test_pm06_tie_earlier PASSED     [ 13%]
+tests/unit/test_afternoon_selection.py::test_pm07_earlier_fallback_latest PASSED [ 15%]
+tests/unit/test_afternoon_selection.py::test_pm08_late_fallback_real_1820_not_fabricated_1800 PASSED [ 17%]
+tests/unit/test_afternoon_selection.py::test_pm09_separate_first_reference_photo PASSED [ 19%]
+tests/unit/test_afternoon_selection.py::test_pm10_photo_fallback PASSED  [ 21%]
+tests/unit/test_afternoon_selection.py::test_pm11_recognition_alive_after_1800 PASSED [ 23%]
+tests/unit/test_afternoon_selection.py::test_pm12_one_official_reference PASSED [ 26%]
+tests/unit/test_afternoon_selection.py::test_pm13_morning_leave_does_not_exempt_pm PASSED [ 28%]
+tests/unit/test_afternoon_selection.py::test_pm14_afternoon_leave_exempt PASSED [ 30%]
+tests/unit/test_afternoon_selection.py::test_pm15_full_day_no_synth PASSED [ 32%]
+tests/unit/test_afternoon_selection.py::test_pm17_no_observation_needs_review PASSED [ 34%]
+tests/unit/test_afternoon_selection.py::test_pm18_2355_not_ot_proof PASSED [ 36%]
+tests/unit/test_afternoon_selection.py::test_pm20_unordered_ingestion_stable PASSED [ 39%]
+tests/unit/test_afternoon_selection.py::test_no_19_00_default_in_config PASSED [ 41%]
+tests/unit/test_morning_rules.py::test_am01_outside_before PASSED        [ 43%]
+tests/unit/test_morning_rules.py::test_am02_early_window_start PASSED    [ 45%]
+tests/unit/test_morning_rules.py::test_am03_before_shift PASSED          [ 47%]
+tests/unit/test_morning_rules.py::test_am04_on_time PASSED               [ 50%]
+tests/unit/test_morning_rules.py::test_am05_late_1ms PASSED              [ 52%]
+tests/unit/test_morning_rules.py::test_am06_ten_minutes_late PASSED      [ 54%]
+tests/unit/test_morning_rules.py::test_am07_end_of_window PASSED         [ 56%]
+tests/unit/test_morning_rules.py::test_am08_outside_after PASSED         [ 58%]
+tests/unit/test_morning_rules.py::test_am09_first_wins PASSED            [ 60%]
+tests/unit/test_morning_rules.py::test_am11_ambiguous PASSED             [ 63%]
+tests/unit/test_overtime_rules.py::test_ot01_exit_at_boundary_zero PASSED [ 65%]
+tests/unit/test_overtime_rules.py::test_ot02_30_minutes PASSED           [ 67%]
+tests/unit/test_overtime_rules.py::test_ot03_1925_within_pm_window_not_anchor PASSED [ 69%]
+tests/unit/test_overtime_rules.py::test_ot04_provisional_1820 PASSED     [ 71%]
+tests/unit/test_overtime_rules.py::test_ot05_last_seen_not_exit PASSED   [ 73%]
+tests/unit/test_overtime_rules.py::test_ot06_camera_lost_pending PASSED  [ 76%]
+tests/unit/test_overtime_rules.py::test_ot13_pm_photo_alone_no_ot PASSED [ 78%]
+tests/unit/test_overtime_rules.py::test_ot15_cutoff_pending_not_auto_close PASSED [ 80%]
+tests/integration/test_api_p00.py::test_health_and_diagnostics PASSED    [ 82%]
+tests/integration/test_api_p00.py::test_auth_me_and_csrf PASSED          [ 84%]
+tests/integration/test_api_p00.py::test_employee_crud_and_mock_pm_selection PASSED [ 86%]
+tests/integration/test_api_p00.py::test_pm08_via_api_no_fabricated_1800 PASSED [ 89%]
+tests/integration/test_api_p00.py::test_settings_apply_ack_and_reject_19_00 PASSED [ 91%]
+tests/integration/test_api_p00.py::test_leave_admin_without_timekeeper_403 PASSED [ 93%]
+tests/integration/test_api_p00.py::test_mock_camera_diagnostics_and_preview PASSED [ 95%]
+tests/integration/test_api_p00.py::test_roi_invalidates_exit_calibration PASSED [ 97%]
+tests/integration/test_api_p00.py::test_default_config_has_v15_window PASSED [100%]
+
+=============================== warnings summary ===============================
+tests/integration/test_api_p00.py::test_mock_camera_diagnostics_and_preview
+  /workspace/MyPC.Attendance/.venv/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2350: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and can only be attached to a model field using `Annotated` metadata or by assignment. This may have happened because an `Annotated` type alias using the `type` statement was used, or if the `Field()` function was attached to a single member of a union type.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 46 passed, 1 warning in 1.72s =========================

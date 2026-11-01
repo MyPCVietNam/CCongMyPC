@@ -1,0 +1,5 @@
+case_id,frame_id,source,condition,truth_id,original_pred,enhanced_pred,original_latency_ms,enhanced_latency_ms,native_face_width_px,model_hash,gallery_revision,threshold_id,notes
+SYN-01,f-a,MOCK,DAY,VOL-A,VOL-A,VOL-A,11.2,14.0,160,synth-model,g-demo,t-default,synthetic fixture — not LIVE
+SYN-02,f-b,MOCK,DAY,UNKNOWN,UNKNOWN,UNKNOWN,10.5,13.1,140,synth-model,g-demo,t-default,negative unknown rejected both
+SYN-03,f-c,MOCK,BACKLIGHT,VOL-A,VOL-A,VOL-B,12.0,15.5,155,synth-model,g-demo,t-default,HARD BLOCK example: correct→wrong on enhance
+SYN-04,f-d,MOCK,NIGHT_IR,UNKNOWN,UNKNOWN,VOL-A,13.0,16.0,130,synth-model,g-demo,t-default,HARD BLOCK example: unknown→accept on enhance

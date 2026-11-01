@@ -1,0 +1,19 @@
+# go2rtc localhost-only template for MyPC Attendance
+# Do NOT expose 1984/8554/8555 to LAN by default.
+# Replace STREAM_URL after owner-supplied RTSP discovery — never guess ch1/main.
+
+api:
+  listen: "127.0.0.1:1984"
+  # Restrict API; do not enable unauthenticated LAN access.
+
+rtsp:
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  listen: "127.0.0.1:8555"
+
+streams:
+  mypc_camera:
+    - "{STREAM_URL}"
+
+# Dangerous modules / exec sources must remain disabled.
