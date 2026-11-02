@@ -143,7 +143,7 @@ def test_production_rejects_fixture_key(tmp_path, frozen_clock):
     settings = AppSettings(
         data_dir=tmp_path / "pdata",
         models_dir=tmp_path / "pmodels",
-        secret_key="test-secret-key-32-bytes-minimum!!",
+        secret_key="prod-test-csprng-secret-key-not-default-bbbbbbbbbbbbbbbb",
         bootstrap_username="admin",
         bootstrap_password="TestAdminPass!234",
         require_password_change=False,

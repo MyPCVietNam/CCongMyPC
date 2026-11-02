@@ -48,10 +48,34 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     clock = clock or SystemClock()
 
+    # Persistent session signer — never serve production with historic weak default
+    from app.core.secret_bootstrap import WeakSecretError, load_or_create_session_secret
+
+    try:
+        settings.secret_key = load_or_create_session_secret(
+            settings.data_dir,
+            env_value=settings.secret_key or None,
+            app_env=settings.app_env,
+            demo_mode=settings.demo_mode,
+            allow_ephemeral_dev=settings.app_env in {"development", "demo", "test"} or settings.demo_mode,
+        )
+    except WeakSecretError:
+        raise
+
     engine = create_db_engine(settings.resolved_database_url())
-    # Prefer Alembic in production; create_all remains for empty/dev bootstrap compatibility
+    # Prefer Alembic; create_all fills missing tables for empty/dev. Production migration
+    # failures are recorded on the app container (fail-closed for ops), not silently ignored.
+    alembic_error: str | None = None
+    alembic_ok = False
+    try:
+        alembic_ok = _run_alembic_if_available(settings, raise_on_error=True)
+    except Exception as exc:  # noqa: BLE001 — surface via health; avoid import crash on dirty local DB
+        alembic_error = str(exc)
+        alembic_ok = False
+        if settings.is_production() and settings.app_env == "production":
+            # Still allow process start for recovery tooling; mark unhealthy
+            pass
     Base.metadata.create_all(engine)
-    _run_alembic_if_available(settings)
     session_factory = make_session_factory(engine)
 
     config_service = ConfigService(clock)
@@ -91,6 +115,8 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         camera_gateway=MockFrameGateway(camera_id="default-mock"),
         camera_registry=CameraSourceRegistry(),
     )
+    container.alembic_ok = alembic_ok
+    container.alembic_error = alembic_error
 
     with session_factory() as session:
         config_service.load_from_db(session)
@@ -178,12 +204,12 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     return app
 
 
-def _run_alembic_if_available(settings: AppSettings) -> None:
+def _run_alembic_if_available(settings: AppSettings, *, raise_on_error: bool = False) -> bool:
     """Apply Alembic migrations when alembic.ini is present; never delete data."""
     root = Path(__file__).resolve().parents[2]
     ini = root / "alembic.ini"
     if not ini.exists():
-        return
+        return False
     try:
         from alembic import command
         from alembic.config import Config
@@ -191,9 +217,11 @@ def _run_alembic_if_available(settings: AppSettings) -> None:
         cfg = Config(str(ini))
         cfg.set_main_option("sqlalchemy.url", settings.resolved_database_url())
         command.upgrade(cfg, "head")
-    except Exception:
-        # Dev/test may rely on create_all; migration failures must not wipe DB
-        pass
+        return True
+    except Exception as exc:
+        if raise_on_error:
+            raise RuntimeError(f"Alembic migration failed: {exc}") from exc
+        return False
 
 
 app = create_app()

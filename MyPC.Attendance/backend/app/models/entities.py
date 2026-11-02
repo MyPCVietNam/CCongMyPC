@@ -244,3 +244,43 @@ class AbEvaluationRun(Base):
     approved_by: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     note_vi: Mapped[str] = mapped_column(Text, default="")
+
+
+class PilotApprovalRecord(Base):
+    """HMAC-signed owner pilot / AUTO_VALIDATED approvals — server issued only."""
+
+    __tablename__ = "pilot_approval_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    approval_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # CAMERA_LAB|FACE_PILOT|AUTO_VALIDATED
+    camera_id: Mapped[int | None] = mapped_column(ForeignKey("camera_devices.id"), nullable=True)
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+    ab_run_id: Mapped[str] = mapped_column(String(64), default="")
+    issued_by: Mapped[str] = mapped_column(String(128), default="")
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signature: Mapped[str] = mapped_column(String(128), default="")
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    note_vi: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class CameraLiveBinding(Base):
+    """Persisted LIVE bind metadata (no credentials) — restore after restart."""
+
+    __tablename__ = "camera_live_bindings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), unique=True, nullable=False)
+    scheme: Mapped[str] = mapped_column(String(16), default="rtsp")
+    host: Mapped[str] = mapped_column(String(255), default="")
+    port: Mapped[int] = mapped_column(Integer, default=554)
+    path: Mapped[str] = mapped_column(String(255), default="")
+    profile: Mapped[str] = mapped_column(String(32), default="MAIN")
+    resolved_ips_json: Mapped[str] = mapped_column(Text, default="[]")
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
