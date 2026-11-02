@@ -5,3 +5,4 @@
 - Required ancestors: PR9 tip + PR8 `8c5b20058e6777bb61666e541e8fa5ba65a770e9`
 - Final HEAD: see git rev-parse after packaging commit
 - No merge to main
+HEAD=56948487ecea417149b35b0132aadb14a72928a7
