@@ -2,7 +2,7 @@
 
 **Baseline:** `cursor/pr11-realcam-reliability-83a8` @ `416bc2dcca4c6b117249aca02c5293a8e53ffeae`  
 **Delivery branch:** `cursor/pr11-realcam-ux-harden-83a8`  
-**Final HEAD:** `e9644537a60be3c94772efb7fd27065cec160b3a`
+**Final HEAD:** `bbb9ec780b0f2aaca2c61bac8550b53cb4a69c66`
 **Timezone note:** owner times Asia/Bangkok (UTC+7).
 
 Codes: `PASS` only with automated evidence at this HEAD; `BLOCKED` until owner Windows/camera evidence; never invent physical PASS.
