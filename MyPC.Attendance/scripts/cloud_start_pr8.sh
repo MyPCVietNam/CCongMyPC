@@ -21,4 +21,6 @@ fi
 echo "head=$(git -C "$REPO" rev-parse HEAD)" > runtime/last-start.txt
 echo "host=$HOST port=$PORT demo=$MYPC_DEMO_MODE" >> runtime/last-start.txt
 echo "Starting MyPC Attendance on http://${HOST}:${PORT} (DEMO/MOCK — CAMERA_LAB BLOCKED)"
-exec python -m uvicorn app.main:app --app-dir backend --host "$HOST" --port "$PORT"
+# Prefer PYTHONPATH over --app-dir (some uvicorn builds exit 1 after import with --app-dir).
+export PYTHONPATH="$ROOT/backend${PYTHONPATH:+:$PYTHONPATH}"
+exec python -m uvicorn app.main:app --host "$HOST" --port "$PORT"
