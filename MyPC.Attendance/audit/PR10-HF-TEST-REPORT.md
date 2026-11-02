@@ -27,3 +27,7 @@
 ## Frontend forced-change
 
 Source: `ChangePasswordPage.tsx` + `App.tsx` gate. Build embeds Vietnamese copy. API deep-link to employees/cameras while pending → 403.
+
+
+Final HEAD: `e0b3578` (branch `cursor/pr10-windows-auth-hf-83a8`)
+PR: https://github.com/MyPCVietNam/CCongMyPC/pull/11
