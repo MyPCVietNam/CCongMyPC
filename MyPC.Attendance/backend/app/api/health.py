@@ -16,8 +16,12 @@ router = APIRouter(tags=["health"])
 
 @router.get("/api/v1/health")
 def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
-    # Distinguish MIGRATING/FAIL from READY — console quiet after Alembic ≠ hang
-    if getattr(state, "alembic_ok", True) is False and getattr(state, "alembic_error", None):
+    # Distinguish MIGRATING/FAIL from READY — console quiet after Alembic ≠ hang.
+    # Dev/test may recover via create_all after a transient Alembic SQLite race;
+    # only mark FAIL when production and migrations did not apply.
+    alembic_ok = bool(getattr(state, "alembic_ok", True))
+    alembic_error = getattr(state, "alembic_error", None)
+    if not alembic_ok and alembic_error and state.settings.is_production():
         phase = "FAIL"
         status = "degraded"
     else:

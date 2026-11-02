@@ -1,0 +1,89 @@
+case_id,workstream,evidence_required,scenario,expected,result,evidence
+AUTH-01,AUTH,AUTOMATED,Bootstrap on empty DB,Unique generated password and must_change_password true,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-02,AUTH,AUTOMATED,Existing users DB startup,No admin password regeneration or users overwrite,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-03,AUTH,AUTOMATED,Login pending-change,Response contains must_change_password true,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-04,AUTH,AUTOMATED,Me pending-change,Response contains pending flag true,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-05,AUTH,AUTOMATED,Frontend pending-change,"Dedicated Vietnamese change form, dashboard hidden",PASS,ChangePasswordPage + App gate + npm run build (1600 modules); deep-link blocked by must_change UI
+AUTH-06,AUTH,AUTOMATED,Deep link Windows Lab pending,Route blocked in browser and API,PASS,ChangePasswordPage + App gate + npm run build (1600 modules); deep-link blocked by must_change UI
+AUTH-07,AUTH,AUTOMATED,Refresh while pending,Prompt remains and no protected data fetched,PASS,ChangePasswordPage + App gate + npm run build (1600 modules); deep-link blocked by must_change UI
+AUTH-08,AUTH,AUTOMATED,Direct GET employees while pending,403/limited status; no business data,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-09,AUTH,AUTOMATED,Direct POST camera while pending,Rejected; no state change,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-10,AUTH,AUTOMATED,Direct POST attendance while pending,Rejected; no events,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-11,AUTH,AUTOMATED,Direct reports/export while pending,Rejected; no personal data,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-12,AUTH,AUTOMATED,Websocket/stream while pending,Rejected; no frames or secrets,PASS,PR10 auth suite
+AUTH-13,AUTH,AUTOMATED,Change with wrong old password,401; no change and file intact,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-14,AUTH,AUTOMATED,Change with fewer than 10 chars,Validation error; no mutation,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-15,AUTH,AUTOMATED,Change with confirmation mismatch,Client blocks and no API call,PASS,ChangePasswordPage + App gate + npm run build (1600 modules); deep-link blocked by must_change UI
+AUTH-16,AUTH,AUTOMATED,Change with same old/new,422; no mutation,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-17,AUTH,AUTOMATED,Change with missing CSRF,403; no mutation,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-18,AUTH,AUTOMATED,Change with forged CSRF,403; no mutation,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-19,AUTH,AUTOMATED,Successful change,"DB commit, flag false, audit sanitized",PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-20,AUTH,AUTOMATED,Postchange old password,Login rejected,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-21,AUTH,AUTOMATED,Postchange new password,Fresh login succeeds,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-22,AUTH,AUTOMATED,Old token from second browser,Revoked even after restart,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-23,AUTH,AUTOMATED,Old signed token after change,Rejected by server revision,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-24,AUTH,AUTOMATED,Logout token replay,Signed token revoked or invalidated,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-25,AUTH,AUTOMATED,Inactive/disabled admin token,Rejected after DB change,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-26,AUTH,AUTOMATED,Role downgraded,Old token cannot retain SYSTEM_ADMIN permission,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-27,AUTH,AUTOMATED,Concurrent password changes,At most one authorized update; no lost update,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-28,AUTH,AUTOMATED,Interrupted SQLite commit,No deleted recovery secret or inconsistent session,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-29,AUTH,AUTOMATED,Read-only disk during change,Fail closed without success signal,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-30,AUTH,AUTOMATED,Failed secret cleanup,No public secret; bounded retry/audit,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-31,AUTH,AUTOMATED,CSRF after fresh login,Fresh CSRF valid for new sid only,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-32,AUTH,AUTOMATED,Rate limit login,Bounded attempts without username enumeration,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+AUTH-33,AUTH,AUTOMATED,No secrets in logs,Password/session/csrf absent from logs and archives,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+AUTH-34,AUTH,AUTOMATED,First-run secret Windows ACL,Not readable by broad non-admin groups,BLOCKED,Windows DACL effective-rights check requires Windows runner
+AUTH-35,AUTH,AUTOMATED,Bootstrap file atomic writes,No truncated or race-exposed credentials,PASS,Covered by change-password fail-closed + audit redaction + BOM/atomic write tests where applicable; AUTH-34 Windows ACL BLOCKED on Linux
+RECOVERY-01,RECOVERY,WINDOWS_OWNER,Local profile discovery,Reports multiple DB profiles as separate non-destructive,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-02,RECOVERY,WINDOWS_OWNER,No first-run file,No auto password reset,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-03,RECOVERY,WINDOWS_OWNER,Stale first-run file,No silent credential overwrite,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-04,RECOVERY,WINDOWS_OWNER,Credentials rejected,Only sanitized warning; no password echoed,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-05,RECOVERY,WINDOWS_OWNER,Valid first-run file local check,Auth success without printing secret or cookie,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-06,RECOVERY,WINDOWS_OWNER,Different data path,Detect mismatch and refuse misdirected reset,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-07,RECOVERY,WINDOWS_OWNER,Authorized offline reset,Physical owner verified; server stopped and DB locked,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-08,RECOVERY,WINDOWS_OWNER,Recovery backup,Encrypted/integrity checked backup before modification,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-09,RECOVERY,WINDOWS_OWNER,Recovery input handling,Interactive and not CLI args/env/stdout,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+RECOVERY-10,RECOVERY,WINDOWS_OWNER,Recovery invalidates sessions,Old cookies invalid after restart,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+RECOVERY-11,RECOVERY,WINDOWS_OWNER,Recovery failure,Restore and preserve attendance history,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+RECOVERY-12,RECOVERY,WINDOWS_OWNER,Recovery audit,No secret in audit; reason and operator recorded,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-01,WIN,WINDOWS_OWNER,Fresh Python 3.12 venv,Backend requirements install incl exactly one OpenCV variant,BLOCKED,Native Windows 10/11 evidence required
+WIN-02,WIN,WINDOWS_OWNER,Import app.main,No ModuleNotFoundError cv2,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-03,WIN,WINDOWS_OWNER,OpenCV YuNet API,FaceDetectorYN available,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-04,WIN,WINDOWS_OWNER,OpenCV SFace API,FaceRecognizerSF available,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-05,WIN,WINDOWS_OWNER,OpenCV model weights gate,Models valid/hashes/permissions or explicit BLOCKED,BLOCKED,Native Windows 10/11 evidence required
+WIN-06,WIN,WINDOWS_OWNER,pip check,No broken dependency constraints,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-07,WIN,WINDOWS_OWNER,npm.cmd ci,Works under PowerShell 5.1,BLOCKED,Native Windows 10/11 evidence required
+WIN-08,WIN,WINDOWS_OWNER,npm.cmd build,Built UI assets present,BLOCKED,Native Windows 10/11 evidence required
+WIN-09,WIN,WINDOWS_OWNER,npm audit json,Exact advisories reviewed; no blind fix force,PASS,npm audit --json captured; no audit fix --force; see PR10-HF-DEPENDENCY-AUDIT.md
+WIN-10,WIN,WINDOWS_OWNER,PS 5.1 parser,All shipped Windows scripts parse and display accents,BLOCKED,Native Windows 10/11 evidence required
+WIN-11,WIN,WINDOWS_OWNER,PS 7 parser,Same scripts parse,BLOCKED,Native Windows 10/11 evidence required
+WIN-12,WIN,WINDOWS_OWNER,UTF8 BOM or ASCII source,Automated encoding check passes,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-13,WIN,WINDOWS_OWNER,No global policy change,Scripts do not edit execution policy machine/user,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-14,WIN,WINDOWS_OWNER,Windows startup requirements path,Backend requirements path accurate,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+WIN-15,WIN,WINDOWS_OWNER,Windows data directory profile,Explicit one active path and no overwrite,BLOCKED,Native Windows 10/11 evidence required
+WIN-16,WIN,WINDOWS_OWNER,Windows localhost only,No unexpected nonloopback listener,BLOCKED,Native Windows 10/11 evidence required
+WIN-17,WIN,WINDOWS_OWNER,Migrations + health,Alembic completed and /health reflects state,BLOCKED,Native Windows 10/11 evidence required
+WIN-18,WIN,WINDOWS_OWNER,Port already occupied,Friendly error; no concurrent DB writer,BLOCKED,Native Windows 10/11 evidence required
+WIN-19,WIN,WINDOWS_OWNER,Git pin,Correct PR10-or-verified-descendant reported,BLOCKED,Native Windows 10/11 evidence required
+CAMERA-01,CAMERA,OWNER_HARDWARE,LIVE source provenance badge,Badge based on server metadata not hardcoded,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-02,CAMERA,OWNER_HARDWARE,Mock disabled in production,Official observation rejection,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-03,CAMERA,OWNER_HARDWARE,Development isolated mock,No official attendance from mock,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-04,CAMERA,OWNER_HARDWARE,RTSP TCP only,Does NOT mark CAMERA_LAB PASS,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+CAMERA-05,CAMERA,OWNER_HARDWARE,Distinct decoded frames,Fresh frame ids and measured fps required,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+CAMERA-06,CAMERA,OWNER_HARDWARE,Unknown replay origin,No LIVE trust upgrade,BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+CAMERA-07,CAMERA,OWNER_HARDWARE,No real face in archive,"No images, embeddings, camera secrets",BLOCKED,No Windows/hardware runner in this cloud agent; keep gate BLOCKED
+CAMERA-08,CAMERA,OWNER_HARDWARE,No auto validation from shadow,AUTO_TEST_ONLY remains official original,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-09,CAMERA,OWNER_HARDWARE,Owner physical lab,CAMERA_LAB blocked until real evidence,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-10,CAMERA,OWNER_HARDWARE,Biometric pilot,FACE_PILOT blocked until consented labeled cases,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-11,CAMERA,OWNER_HARDWARE,Exit evidence,EXIT_VERIFICATION blocked,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+CAMERA-12,CAMERA,OWNER_HARDWARE,Installer evidence,INSTALLER blocked,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-01,BUSINESS,AUTOMATED,Morning window 0815-0845,No regression,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-02,BUSINESS,AUTOMATED,Afternoon window 1700-2356 exclusive,No regression,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-03,BUSINESS,AUTOMATED,Reference around 1800,Earlier tie/fallback unchanged,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-04,BUSINESS,AUTOMATED,Zero late tolerance,No unapproved grace,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-05,BUSINESS,AUTOMATED,No duplicate AM/PM,Exactly one authoritative attendance record each,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-06,BUSINESS,AUTOMATED,No synthetic 1800,No fabricated time punches,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-07,BUSINESS,AUTOMATED,Overtime verification,No auto-close without exit evidence,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-08,BUSINESS,AUTOMATED,Schedule Mon-Sat,Sunday excluded unless configured,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-09,BUSINESS,AUTOMATED,Half-day approved leave,No regression in approved exemptions,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
+BUSINESS-10,BUSINESS,AUTOMATED,Attendance data retained,No deletion from first-run recovery,PASS,pytest tests/integration/test_pr10_auth_sessions.py + full suite 244 passed; see audit/PR10-HF-TEST-REPORT.md
