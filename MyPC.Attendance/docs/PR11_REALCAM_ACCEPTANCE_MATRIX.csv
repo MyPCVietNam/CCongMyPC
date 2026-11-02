@@ -1,0 +1,63 @@
+case_id,phase,result,evidence
+A01-ancestry,SOURCE,PASS,branch cursor/pr11-realcam-reliability-83a8 off 729fb6a
+A02-backup-restore,SAFETY,BLOCKED,Owner disposable restore on Windows DataDir
+A03-three-restarts,WIN-PHYSICAL,BLOCKED,Owner same DataDir
+A04-acl-idempotent,SECURITY,PASS_LINUX,prior secrets-acl unit; Windows retest BLOCKED
+A05-no-secrets-logs,SECURITY,PASS,redaction retained; diagnostics script
+A06-rbac-csrf,SECURITY,PASS,existing auth tests
+A07-ssrf,SECURITY,PASS,existing validation tests
+R01-single-reader,RUNTIME,PASS_LINUX,registry lease by stream fingerprint
+R02-dup-profile-lifecycle,RUNTIME,PASS_LINUX,PHYSICAL_STREAM_IN_USE 409
+R03-h265-tcp,WIN-PHYSICAL,BLOCKED,Owner H8 Pro sequential
+R04-tcp-udp,WIN-PHYSICAL,BLOCKED,Owner sequential
+R05-h265-h264,WIN-PHYSICAL,BLOCKED,Owner sequential
+R06-wifi-rj45,WIN-PHYSICAL,BLOCKED,Owner sequential
+R07-hevc-ref,RUNTIME,PASS_LINUX,corrupt/hevc_ref counters + DEGRADED
+R08-keyframe-recovery,RUNTIME,PASS_LINUX,warmup + good streak before OK
+R09-backoff-jitter,RUNTIME,PASS_LINUX,LiveRTSPGateway._sleep_backoff
+R10-auth-401,RUNTIME,BLOCKED,Needs real camera challenge outcome
+R11-404-endpoint,RUNTIME,BLOCKED,Needs real camera
+R12-stop-cleanup,RUNTIME,PASS_LINUX,unbind/stop lease
+R13-multi-client,RUNTIME,PASS_LINUX,shared lease; MJPEG fans out frames
+R14-stale-guard,SAFETY,PASS,STALE + biometric reject
+R15-provenance,SAFETY,PASS,CameraFrame metadata
+U01-smooth-preview,UI,PASS_LINUX,MJPEG endpoint; Windows FPS measure BLOCKED
+U02-snapshot-label,UI,PASS,view_mode=SNAPSHOT
+U03-visibility-switch,UI,PASS,CameraPage cancel/gen/hidden
+U04-ui-states,UI,PASS,CONNECTING/LIVE/DEGRADED/STALE/MOCK
+U05-preview-isolation,UI,PASS,preview resize copy; recognition uses full frame
+C01-edit-safe-fields,CRUD,PASS,prior + retained
+C02-credential-keep,CRUD-SECURITY,PASS,prior
+C03-credential-replace,CRUD-SECURITY,PASS,prior
+C04-duplicate-detect,CRUD,PASS,create 409 + dry-run
+C05-hard-delete-unref,CRUD,PASS,integration test
+C06-hard-delete-ref,CRUD,PASS,prior blockers 409
+C07-archive,CRUD,PASS,prior + stop pipeline
+C08-restore,CRUD,PASS,prior + UI restore
+C09-bulk-dry-run,CRUD,PASS,/duplicates/dry-run
+C10-protect-live,CRUD,PASS,no auto-delete; dry-run guidance
+C11-orphan-check,CRUD-SECURITY,PASS,scoped secret delete on hard-delete
+C12-mock-no-500,CRUD,PASS,preview 200/422 not 500
+L01-lab-transitions,LAB,PASS,next_action + allowed_actions
+L02-distinct-frames,LAB,PASS,prior measure_live_frames
+L03-challenge-order,LAB,PASS,UI disables + server NEED_LIVE_MEASURED
+L04-owner-review,LAB,PASS,SINGLE_OPERATOR_ACK labeled
+L05-evidence-vs-gate,LAB,PASS,PHYSICAL≠camera_lab_pass documented
+L06-error-guidance,LAB,PASS,checklist + next_action_vi
+L07-new-run,LAB,PASS,start new preserves history
+L08-negatives,LAB,PASS,prior mock/stale rejects
+L09-face-pilot-sep,LAB,PASS,FACE_PILOT N/A on CAMERA_LAB
+V01-roi,VISION,PASS,prior ROI put
+V02-model-weights,VISION,BLOCKED,owner weight verify
+V03-corrupt-no-enroll,VISION,PASS,integrity_ok biometric reject
+V04-face-pilot-owner,BLOCKED,BLOCKED,needs consented physical
+P01-npm-advisories,DEPENDENCY,DOCUMENTED,3 moderate 1 high — see DEPENDENCY_AUDIT.md
+P02-ps51,WINDOWS,PASS_LINUX_STATIC,BOM; no $home=
+P03-installer,BLOCKED,BLOCKED,no installer evidence
+D01-changed-zip,DELIVERY,PENDING,built at end
+D02-full-zip,DELIVERY,PENDING,built at end
+D03-vi-guide,DELIVERY,PASS,docs/vi/REALCAM_WINDOWS_OPERATOR.md
+CAMERA_LAB_GATE,GATE,BLOCKED,no manufactured PASS
+FACE_PILOT_GATE,GATE,BLOCKED,separated
+EXIT_VERIFICATION_GATE,GATE,BLOCKED,unchanged
+INSTALLER_GATE,GATE,BLOCKED,unchanged

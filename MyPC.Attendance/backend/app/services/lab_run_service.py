@@ -83,7 +83,9 @@ def start_lab_run(
         metrics_json=json.dumps(
             {
                 "challenge_fail_count": 0,
-                "face_validation_status": "PENDING",
+                "face_validation_status": (
+                    "N_A" if kind == "CAMERA_LAB" else "PENDING"
+                ),
                 "evidence_layers": {
                     "LIVE_SOURCE_MEASURED": False,
                     "PHYSICAL_CONNECTIVITY_REVIEWED": False,

@@ -35,6 +35,12 @@ type Preview = {
   width: number;
   height: number;
   mock: boolean;
+  view_mode?: string;
+  decoder_status?: string;
+  receive_time_utc?: string;
+  degraded?: boolean;
+  stale?: boolean;
+  ui_state?: string;
 };
 
 type Diag = {
@@ -58,6 +64,7 @@ type QualityDiag = {
 };
 
 type Mode = "new" | "edit";
+type ListFilter = "ALL" | "ACTIVE" | "MOCK" | "LIVE";
 
 const emptyForm = () => ({
   name: "EZVIZ H8 Pro",
@@ -68,6 +75,18 @@ const emptyForm = () => ({
   rtsp_url_override: "",
   changePassword: false,
 });
+
+function uiStateFromCam(cam?: Cam | null, preview?: Preview | null): string {
+  if (preview?.degraded || preview?.decoder_status === "DEGRADED") return "DEGRADED";
+  if (preview?.stale || preview?.decoder_status === "STALE") return "STALE";
+  if (cam?.runtime?.live_decoded || cam?.live_verified) return "LIVE";
+  if (cam?.runtime?.decoder_status === "RECONNECTING" || cam?.runtime?.connection_status === "CONNECTING")
+    return "RECONNECTING";
+  if (cam?.mock_mode) return "MOCK";
+  if (cam?.runtime?.connection_status === "CONFIG_SAVED" || cam?.connection_status === "CONFIG_SAVED")
+    return "CONFIG_SAVED";
+  return cam?.runtime?.connection_status || cam?.connection_status || "OFFLINE";
+}
 
 export function CameraPage() {
   const [cams, setCams] = useState<Cam[]>([]);
@@ -81,12 +100,20 @@ export function CameraPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(emptyForm);
-  const [pollErrorStreak, setPollErrorStreak] = useState(0);
+  const [listFilter, setListFilter] = useState<ListFilter>("ALL");
+  const [showArchived, setShowArchived] = useState(false);
+  const [viewMode, setViewMode] = useState<"mjpeg" | "snapshot">("mjpeg");
+  const [mjpegNonce, setMjpegNonce] = useState(0);
+  const [dupesMsg, setDupesMsg] = useState("");
   const selectGen = useRef(0);
   const hiddenRef = useRef(false);
+  const inFlight = useRef(false);
 
   async function reload(preferId?: number | null) {
-    const list = await api<Cam[]>("/api/v1/cameras");
+    const qs = new URLSearchParams();
+    if (showArchived) qs.set("include_archived", "true");
+    if (listFilter !== "ALL") qs.set("filter", listFilter);
+    const list = await api<Cam[]>(`/api/v1/cameras?${qs.toString()}`);
     setCams(list);
     const pick =
       preferId != null && list.some((c) => c.id === preferId)
@@ -122,13 +149,13 @@ export function CameraPage() {
     setDiag(null);
     setQuality(null);
     setAnalyzeMsg("");
-    setPollErrorStreak(0);
     try {
       const cam = await api<Cam>(`/api/v1/cameras/${id}`);
       if (gen !== selectGen.current) return;
       applyCamToForm(cam);
       setMode("edit");
       setCams((prev) => prev.map((c) => (c.id === cam.id ? { ...c, ...cam } : c)));
+      setMjpegNonce((n) => n + 1);
     } catch (err) {
       if (gen !== selectGen.current) return;
       setError(err instanceof Error ? err.message : "Không tải được camera");
@@ -137,7 +164,7 @@ export function CameraPage() {
 
   useEffect(() => {
     reload().catch((e) => setError(e.message));
-  }, []);
+  }, [listFilter, showArchived]);
 
   useEffect(() => {
     if (selected == null) return;
@@ -148,39 +175,40 @@ export function CameraPage() {
   useEffect(() => {
     const onVis = () => {
       hiddenRef.current = document.hidden;
+      if (!document.hidden) setMjpegNonce((n) => n + 1);
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // SNAPSHOT fallback poll only — labeled stills, not smooth LIVE
   useEffect(() => {
-    if (selected == null || mode !== "edit") return;
+    if (selected == null || mode !== "edit" || viewMode !== "snapshot") return;
     let cancelled = false;
     let timer: number | undefined;
-    const delay = pollErrorStreak >= 3 ? 8000 : 1500;
 
-    const load = () => {
-      if (cancelled || hiddenRef.current) return;
+    const load = async () => {
+      if (cancelled || hiddenRef.current || inFlight.current) return;
       const gen = selectGen.current;
-      api<Preview>(`/api/v1/cameras/${selected}/preview`)
-        .then((p) => {
-          if (cancelled || gen !== selectGen.current) return;
-          setPreview(p);
-          setPollErrorStreak(0);
-        })
-        .catch(() => {
-          if (cancelled || gen !== selectGen.current) return;
-          setPreview(null);
-          setPollErrorStreak((n) => n + 1);
-        });
+      inFlight.current = true;
+      try {
+        const p = await api<Preview>(`/api/v1/cameras/${selected}/preview`);
+        if (cancelled || gen !== selectGen.current) return;
+        setPreview(p);
+      } catch {
+        if (cancelled || gen !== selectGen.current) return;
+        setPreview(null);
+      } finally {
+        inFlight.current = false;
+      }
     };
     load();
-    timer = window.setInterval(load, delay);
+    timer = window.setInterval(load, 2000);
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [selected, mode, pollErrorStreak >= 3 ? 1 : 0]);
+  }, [selected, mode, viewMode]);
 
   function startNew() {
     selectGen.current += 1;
@@ -265,6 +293,21 @@ export function CameraPage() {
     }
   }
 
+  async function restoreCam() {
+    if (selected == null) return;
+    setBusy(true);
+    try {
+      await api(`/api/v1/cameras/${selected}/restore`, { method: "POST", body: "{}" });
+      setAnalyzeMsg(`Đã khôi phục camera #${selected}`);
+      setShowArchived(false);
+      await reload(selected);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi khôi phục");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteCam() {
     if (selected == null) return;
     const cam = cams.find((c) => c.id === selected);
@@ -283,6 +326,29 @@ export function CameraPage() {
       await reload(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không xóa được — hãy lưu trữ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function dryRunDupes() {
+    setBusy(true);
+    setDupesMsg("");
+    try {
+      const r = await api<{
+        duplicate_groups: Array<{ cameras: Array<{ id: number; name: string }>; count: number }>;
+        message_vi: string;
+      }>("/api/v1/cameras/duplicates/dry-run");
+      if (!r.duplicate_groups.length) {
+        setDupesMsg("Không có nhóm trùng host/path đang hoạt động.");
+      } else {
+        const lines = r.duplicate_groups.map(
+          (g) => g.cameras.map((c) => `#${c.id} ${c.name}`).join(", ")
+        );
+        setDupesMsg(`${r.message_vi}\n${lines.join("\n")}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi dry-run");
     } finally {
       setBusy(false);
     }
@@ -318,6 +384,7 @@ export function CameraPage() {
       );
       setForm((f) => ({ ...f, password: "", changePassword: false }));
       await loadDetail(selected, selectGen.current);
+      setMjpegNonce((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi gắn LIVE");
     } finally {
@@ -398,21 +465,20 @@ export function CameraPage() {
   }
 
   const selectedCam = cams.find((c) => c.id === selected);
-  const statusLabel =
-    selectedCam?.runtime?.live_decoded || selectedCam?.live_verified
-      ? "LIVE đã giải mã (chưa CAMERA_LAB)"
-      : selectedCam?.runtime?.connection_status ||
-        selectedCam?.connection_status ||
-        (selectedCam?.mock_mode ? "MOCK cấu hình" : "Chưa xác minh");
+  const statusLabel = uiStateFromCam(selectedCam, preview);
+  const mjpegSrc =
+    selected != null
+      ? `/api/v1/cameras/${selected}/preview/mjpeg?max_fps=12&_=${mjpegNonce}`
+      : "";
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-display">Quản lý Camera & RTSP</h1>
         <p className="text-sm text-muted mt-1">
-          Chọn camera để sửa — mật khẩu đã lưu không bao giờ hiện lại. TCP mở ≠ LIVE.{" "}
+          LIVE mượt qua MJPEG an toàn (cookie phiên). Snapshot vẫn là ảnh tĩnh.{" "}
           <a className="text-brand underline" href="https://mypc.vn" target="_blank" rel="noreferrer">
-            MyPC Viet Nam
+            MyPC Viet Nam →
           </a>
         </p>
       </header>
@@ -436,11 +502,33 @@ export function CameraPage() {
               <option value="">— Thêm camera mới —</option>
               {cams.map((c) => (
                 <option key={c.id} value={c.id}>
-                  #{c.id} {c.name} {c.mock_mode ? "(cấu hình MOCK)" : ""}{" "}
+                  #{c.id} {c.name} {c.archived ? "(LƯU TRỮ)" : ""}{" "}
+                  {c.mock_mode ? "(MOCK)" : ""}{" "}
                   {c.live_verified || c.runtime?.live_decoded ? "· LIVE" : ""}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="text-sm space-y-1">
+            <span className="text-muted">Lọc</span>
+            <select
+              className="rounded-md bg-canvas border border-line px-3 py-2"
+              value={listFilter}
+              onChange={(e) => setListFilter(e.target.value as ListFilter)}
+            >
+              <option value="ALL">Tất cả</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="LIVE">LIVE</option>
+              <option value="MOCK">MOCK</option>
+            </select>
+          </label>
+          <label className="text-sm flex items-center gap-2 pb-2">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            Hiện đã lưu trữ
           </label>
           <button
             type="button"
@@ -449,12 +537,28 @@ export function CameraPage() {
           >
             Thêm camera mới
           </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={dryRunDupes}
+            className="rounded-md border border-line px-3 py-2 text-sm"
+          >
+            Dry-run trùng lặp
+          </button>
           {mode === "edit" && selected != null ? (
             <span className="text-xs text-muted pb-2">
               Trạng thái: <strong className="text-ink">{statusLabel}</strong>
+              {preview?.receive_time_utc ? (
+                <> · freshness {new Date(preview.receive_time_utc).toLocaleTimeString()}</>
+              ) : null}
             </span>
           ) : null}
         </div>
+        {dupesMsg ? (
+          <pre className="text-xs whitespace-pre-wrap bg-canvas border border-line rounded-md p-2">
+            {dupesMsg}
+          </pre>
+        ) : null}
       </div>
 
       <form
@@ -518,7 +622,7 @@ export function CameraPage() {
             checked={form.mock_mode}
             onChange={(e) => setForm({ ...form, mock_mode: e.target.checked })}
           />
-          <span>Cấu hình chế độ mô phỏng (không phải trạng thái runtime)</span>
+          <span>Cấu hình chế độ mô phỏng (không phải trạng thái runtime LIVE)</span>
         </label>
         <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2">
           <button
@@ -532,7 +636,7 @@ export function CameraPage() {
             <>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !!selectedCam?.archived}
                 onClick={configureLive}
                 className="rounded-md border border-brand/40 text-brand px-3 py-2 text-sm"
               >
@@ -554,14 +658,25 @@ export function CameraPage() {
               >
                 Kiểm RTSP
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={archiveCam}
-                className="rounded-md border border-line px-3 py-2 text-sm"
-              >
-                Lưu trữ camera
-              </button>
+              {selectedCam?.archived ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={restoreCam}
+                  className="rounded-md border border-line px-3 py-2 text-sm"
+                >
+                  Khôi phục
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={archiveCam}
+                  className="rounded-md border border-line px-3 py-2 text-sm"
+                >
+                  Lưu trữ camera
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy}
@@ -584,12 +699,45 @@ export function CameraPage() {
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
-          <h2 className="font-medium">Xem trước</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-medium">Xem trước</h2>
+            <div className="flex gap-2 text-xs">
+              <button
+                type="button"
+                className={`px-2 py-1 rounded border ${viewMode === "mjpeg" ? "border-brand text-brand" : "border-line"}`}
+                onClick={() => {
+                  setViewMode("mjpeg");
+                  setMjpegNonce((n) => n + 1);
+                }}
+              >
+                LIVE MJPEG
+              </button>
+              <button
+                type="button"
+                className={`px-2 py-1 rounded border ${viewMode === "snapshot" ? "border-brand text-brand" : "border-line"}`}
+                onClick={() => setViewMode("snapshot")}
+              >
+                SNAPSHOT
+              </button>
+            </div>
+          </div>
           <div className="relative aspect-video bg-canvas rounded-md overflow-hidden border border-line">
-            {preview ? (
+            {mode === "edit" && selected != null && viewMode === "mjpeg" ? (
               <>
                 <img
-                  alt="Xem trước camera"
+                  alt="LIVE MJPEG"
+                  src={mjpegSrc}
+                  className="w-full h-full object-contain"
+                  onError={() => setViewMode("snapshot")}
+                />
+                <div className="absolute left-2 top-2 text-xs bg-canvas/80 border border-brand/40 text-brand px-2 py-1 rounded">
+                  LIVE MJPEG · {statusLabel} · không phải CAMERA_LAB_PASS
+                </div>
+              </>
+            ) : preview ? (
+              <>
+                <img
+                  alt="Snapshot camera"
                   src={`data:${preview.mime};base64,${preview.data_base64}`}
                   className="w-full h-full object-contain"
                 />
@@ -603,16 +751,14 @@ export function CameraPage() {
                   }}
                 />
                 <div className="absolute left-2 top-2 text-xs bg-canvas/80 border border-brand/40 text-brand px-2 py-1 rounded">
-                  {preview.indicator_vi}
+                  {preview.indicator_vi || "SNAPSHOT"}
                 </div>
               </>
             ) : (
               <div className="grid place-items-center h-full text-muted text-sm px-4 text-center">
                 {mode === "new"
                   ? "Chọn hoặc tạo camera để xem trước"
-                  : pollErrorStreak >= 3
-                    ? "Tạm dừng poll nhanh — chưa có khung hình / lỗi kéo dài"
-                    : "Chưa có khung hình giải mã"}
+                  : "Chưa có khung hình giải mã — bấm Kết nối LIVE"}
               </div>
             )}
           </div>
@@ -690,8 +836,8 @@ export function CameraPage() {
             </div>
           ) : null}
           <p className="text-xs text-muted">
-            Đường dẫn gợi ý (thủ công, không tự dò): /ch1/main · /h264/ch1/main/av_stream ·
-            /Streaming/Channels/101 — xác nhận theo firmware thiết bị.
+            TCP là mặc định có kiểm soát. H.265 vs H.264 / Wi-Fi vs RJ45 chỉ so sánh tuần tự trên
+            cùng camera. Không dùng MOCK để vượt cổng CAMERA_LAB.
           </p>
         </div>
       </div>

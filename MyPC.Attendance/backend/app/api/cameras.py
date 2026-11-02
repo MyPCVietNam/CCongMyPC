@@ -6,7 +6,9 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 import math
+import time
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
@@ -88,12 +90,73 @@ def list_cameras(
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[dict[str, Any], Depends(get_current_user)],
     include_archived: bool = False,
+    filter: str = "ALL",  # ALL|ACTIVE|ARCHIVED|MOCK|LIVE
+    q: str = "",
 ) -> list[dict]:
-    q = select(CameraDevice)
-    if not include_archived:
-        q = q.where(CameraDevice.archived.is_(False))
-    rows = db.scalars(q.order_by(CameraDevice.id)).all()
-    return [_cam_out(r, state) for r in rows]
+    flt = (filter or "ALL").strip().upper()
+    stmt = select(CameraDevice)
+    if flt == "ARCHIVED":
+        stmt = stmt.where(CameraDevice.archived.is_(True))
+    elif not include_archived:
+        stmt = stmt.where(CameraDevice.archived.is_(False))
+    rows = list(db.scalars(stmt.order_by(CameraDevice.id)).all())
+    out = [_cam_out(r, state) for r in rows]
+    if flt == "MOCK":
+        out = [c for c in out if c.get("mock_mode")]
+    elif flt == "LIVE":
+        out = [c for c in out if c.get("live_verified") or (c.get("runtime") or {}).get("live_decoded")]
+    elif flt == "ACTIVE":
+        out = [c for c in out if not c.get("archived") and c.get("enabled")]
+    needle = (q or "").strip().lower()
+    if needle:
+        out = [
+            c
+            for c in out
+            if needle in str(c.get("name") or "").lower()
+            or needle in str(c.get("host") or "").lower()
+            or needle == str(c.get("id"))
+        ]
+    return out
+
+
+@router.get("/duplicates/dry-run")
+def duplicates_dry_run(
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """Preview duplicate host/path groups — never deletes. Owner must pick explicitly."""
+    rows = db.scalars(
+        select(CameraDevice).where(CameraDevice.archived.is_(False)).order_by(CameraDevice.id)
+    ).all()
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        key = f"{(r.host or '').strip().lower()}|{safe_rtsp_uri_for_edit(r.rtsp_url_override or '')}"
+        if not (r.host or r.rtsp_url_override):
+            continue
+        groups.setdefault(key, []).append(
+            {
+                "id": r.id,
+                "name": r.name,
+                "mock_mode": r.mock_mode,
+                "live_verified": bool((_cam_out(r, state).get("live_verified"))),
+                "connection_status": getattr(r, "connection_status", None),
+            }
+        )
+    dupes = [
+        {"key": k, "cameras": v, "count": len(v)}
+        for k, v in groups.items()
+        if len(v) > 1
+    ]
+    return {
+        "dry_run": True,
+        "duplicate_groups": dupes,
+        "message_vi": (
+            "Chỉ xem trước — không xóa tự động. "
+            "Giữ camera LIVE đang dùng (# thấp nhất / đã giải mã); archive hoặc xóa cứng bản sao không còn lịch sử."
+        ),
+        "auto_delete": False,
+    }
 
 
 @router.post("", dependencies=[Depends(require_csrf)])
@@ -378,13 +441,37 @@ def configure_live_gateway(
         from app.vision.camera.registry import CameraSourceRegistry
 
         state.camera_registry = CameraSourceRegistry()
-    gw = LiveRTSPGateway(safe_uri, camera_id=str(camera_db_id))
+    from app.vision.camera.gateway import physical_stream_fingerprint
+
+    fp = physical_stream_fingerprint(safe_uri)
+    # Refuse starting a second decode for same physical stream already leased by another camera
+    holders = state.camera_registry.lease_holders(fp)
+    if holders and camera_db_id not in holders:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHYSICAL_STREAM_IN_USE",
+                "message_vi": (
+                    f"Luồng vật lý đang được camera #{holders[0]} giải mã. "
+                    "Dừng LIVE camera đó trước, hoặc dùng chung profile hiện có — "
+                    "không mở decoder RTSP trùng."
+                ),
+                "holders": holders,
+                "stream_fingerprint": fp,
+            },
+        )
+    gw = LiveRTSPGateway(safe_uri, camera_id=str(camera_db_id), transport="tcp")
     # Bind first so config_revision is synced before any frames are published
     bound = state.camera_registry.bind(
-        camera_db_id, gw, provenance=StreamProvenance.CAMERA_LIVE, profile=profile
+        camera_db_id,
+        gw,
+        provenance=StreamProvenance.CAMERA_LIVE,
+        profile=profile,
+        stream_fingerprint=fp,
     )
-    gw.start()
-    state.camera_gateway = gw  # legacy pointer
+    # Start the (possibly shared) gateway after bind
+    bound.gateway.start()
+    state.camera_gateway = bound.gateway  # legacy pointer
     row.mock_mode = False
     from app.models.entities import CameraLiveBinding
     from app.services.pilot_approval import revoke_approvals
@@ -720,7 +807,7 @@ def delete_camera(
     if state.camera_registry is not None:
         state.camera_registry.unbind(camera_id)
     secret_ref = row.secret_ref or ""
-    # Cascade-clean config-only dependents (not historical attendance)
+    # Cascade-clean config-only dependents (not historical attendance / evidence)
     from app.models.entities import (
         CameraLiveBinding,
         CameraQualitySettings,
@@ -729,8 +816,20 @@ def delete_camera(
     )
 
     for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
-        for dep in db.scalars(select(model).where(model.camera_id == camera_id)).all():  # type: ignore[attr-defined]
+        for dep in list(db.scalars(select(model).where(model.camera_id == camera_id)).all()):  # type: ignore[attr-defined]
             db.delete(dep)
+    db.flush()
+    # Re-check blockers after config cleanup (should still be zero for hard-delete path)
+    blockers_after = _camera_delete_blockers(db, camera_id)
+    if blockers_after["total"] > 0:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_HAS_HISTORY",
+                "message_vi": "Vẫn còn phụ thuộc lịch sử sau khi dọn cấu hình — dùng Lưu trữ.",
+                "blockers": blockers_after,
+            },
+        )
     db.delete(row)
     db.flush()
     if secret_ref:
@@ -752,30 +851,43 @@ def delete_camera(
 
 
 
-def _preview_from_frame(fr, *, live: bool, source: str, indicator_vi: str) -> dict:
-    import base64
-
+def _encode_preview_jpeg(fr, *, max_w: int = 960, quality: int = 80) -> tuple[bytes, int, int]:
     import cv2
 
-    # Browser preview: resize copy — never mutate sealed original
     pixels = fr.clone_pixels()
     h, w = pixels.shape[:2]
-    max_w = 960
     if w > max_w:
         scale = max_w / float(w)
         pixels = cv2.resize(pixels, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-    ok, buf = cv2.imencode(".jpg", pixels, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    ok, buf = cv2.imencode(".jpg", pixels, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
     if not ok:
-        raise HTTPException(status_code=500, detail="Không mã hóa được preview")
+        raise RuntimeError("JPEG_ENCODE_FAILED")
+    return buf.tobytes(), int(pixels.shape[1]), int(pixels.shape[0])
+
+
+def _preview_from_frame(fr, *, live: bool, source: str, indicator_vi: str, view_mode: str = "SNAPSHOT") -> dict:
+    import base64
+
+    try:
+        jpeg, pw, ph = _encode_preview_jpeg(fr)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PREVIEW_ENCODE_FAILED",
+                "message_vi": "Không mã hóa được khung xem trước (không phải lỗi nội bộ ẩn).",
+            },
+        ) from exc
     return {
-        "data_base64": base64.b64encode(buf.tobytes()).decode("ascii"),
+        "data_base64": base64.b64encode(jpeg).decode("ascii"),
         "mime": "image/jpeg",
         "indicator_vi": indicator_vi,
         "width": fr.width,
         "height": fr.height,
-        "preview_width": pixels.shape[1],
-        "preview_height": pixels.shape[0],
+        "preview_width": pw,
+        "preview_height": ph,
         "live": live,
+        "view_mode": view_mode,
         "source": source,
         "provenance": fr.provenance.value,
         "decoder_status": fr.decoder_status.value,
@@ -783,36 +895,45 @@ def _preview_from_frame(fr, *, live: bool, source: str, indicator_vi: str) -> di
         "config_revision": fr.config_revision,
         "clock_trust": fr.clock_trust.value,
         "pixel_sha256": fr.pixel_sha256,
+        "receive_time_utc": fr.receive_time_utc.isoformat() if fr.receive_time_utc else None,
+        "integrity_ok": bool(getattr(fr, "integrity_ok", True)),
         "size_source": "DECODED_MEASURED",
         "camera_lab_pass": False,
         "mock": source in {"DEMO", "MOCK"},
     }
 
 
-@router.get("/{camera_id}/preview")
-def preview(
-    camera_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    state: Annotated[AppState, Depends(get_app_state)],
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
-) -> dict:
-    """
-    Unified preview: mock cameras → MOCK gateway; live → registry LiveRTSPGateway.
-    Never silent MOCK substitute for a live-configured camera.
-    """
+def _resolve_preview_frame(camera_id: int, db: Session, state: AppState):
+    """Shared preview/MJPEG source resolution — never silent MOCK for LIVE cameras."""
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if row.archived:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CAMERA_ARCHIVED", "message_vi": "Camera đã lưu trữ — không xem trước."},
+        )
 
     reg = state.camera_registry
     bound = reg.get(camera_id) if reg is not None else None
 
     if row.mock_mode and bound is None:
+        if state.settings.is_production():
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "MOCK_DISABLED_IN_PRODUCTION",
+                    "message_vi": (
+                        "Camera MOCK không dùng được cho xem LIVE trên máy production. "
+                        "Hãy cấu hình RTSP thật hoặc bật demo_mode có chủ đích."
+                    ),
+                    "camera_lab_pass": False,
+                },
+            )
         from app.vision.camera.gateway import MockFrameGateway, StreamProvenance
+        from app.vision.camera.registry import CameraSourceRegistry
 
         if reg is None:
-            from app.vision.camera.registry import CameraSourceRegistry
-
             state.camera_registry = CameraSourceRegistry()
             reg = state.camera_registry
         gw = MockFrameGateway(camera_id=str(camera_id))
@@ -840,9 +961,10 @@ def preview(
             camera_id,
             allow_mock=bound.provenance.value == "MOCK",
             allow_recorded=bound.provenance.value == "AUTHORIZED_RECORDED",
-            allow_stale=True,  # preview may show STALE with watermark
+            allow_stale=True,
             max_age_s=30.0,
             for_biometric=False,
+            require_integrity=False,
         )
     except FrameAccessError as exc:
         raise HTTPException(
@@ -854,18 +976,109 @@ def preview(
                 "config_revision": bound.config_revision if bound else None,
             },
         ) from exc
+    return row, bound, fr
+
+
+@router.get("/{camera_id}/preview")
+def preview(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """Still SNAPSHOT preview (not smooth LIVE). Prefer /preview/mjpeg for motion view."""
+    try:
+        _row, bound, fr = _resolve_preview_frame(camera_id, db, state)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PREVIEW_FAILED",
+                "message_vi": f"Không lấy được khung xem trước: {type(exc).__name__}",
+            },
+        ) from exc
     live = bound.provenance.value == "CAMERA_LIVE"
     source = "REAL_CAMERA" if live else bound.provenance.value
-    stale = fr.decoder_status.value == "STALE"
-    indicator = "CAMERA THẬT (LIVE)" if live else (
-        "Dữ liệu mô phỏng" if bound.provenance.value == "MOCK" else "Video ghi hình được ủy quyền"
+    status = fr.decoder_status.value
+    indicator = "SNAPSHOT — CAMERA THẬT" if live else (
+        "SNAPSHOT — MOCK" if bound.provenance.value == "MOCK" else "SNAPSHOT — RECORDED"
     )
-    if stale:
-        indicator = f"{indicator} — STALE (chỉ xem, không nhận diện)"
-    out = _preview_from_frame(fr, live=live and not stale, source=source, indicator_vi=indicator)
-    out["stale"] = stale
-    out["operationally_ready"] = live and not stale and fr.decoder_status.value == "OK"
+    if status == "STALE":
+        indicator = f"{indicator} — STALE"
+    elif status == "DEGRADED":
+        indicator = f"{indicator} — DEGRADED (không dùng nhận diện)"
+    out = _preview_from_frame(
+        fr,
+        live=live and status == "OK" and bool(getattr(fr, "integrity_ok", True)),
+        source=source,
+        indicator_vi=indicator,
+        view_mode="SNAPSHOT",
+    )
+    out["stale"] = status == "STALE"
+    out["degraded"] = status == "DEGRADED"
+    out["operationally_ready"] = live and status == "OK" and bool(getattr(fr, "integrity_ok", True))
+    out["ui_state"] = status if status in {"OK", "STALE", "DEGRADED"} else status
     return out
+
+
+@router.get("/{camera_id}/preview/mjpeg")
+def preview_mjpeg(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
+    max_fps: float = 12.0,
+) -> StreamingResponse:
+    """
+    Authenticated multipart MJPEG LIVE view for localhost.
+    Reuses the single server-side decoder; drops intermediate frames under load.
+    Recognition still uses full-resolution immutable frames from the same gateway.
+    """
+    # Resolve once up-front so auth/404 fail before streaming headers
+    _resolve_preview_frame(camera_id, db, state)
+    fps = max(1.0, min(float(max_fps or 12.0), 20.0))
+    interval = 1.0 / fps
+    boundary = b"frame"
+
+    def generate():
+        last_id = ""
+        while True:
+            try:
+                with state.session_factory() as sdb:
+                    _row, bound, fr = _resolve_preview_frame(camera_id, sdb, state)
+                if fr.frame_id == last_id:
+                    time.sleep(interval)
+                    continue
+                last_id = fr.frame_id
+                jpeg, _pw, _ph = _encode_preview_jpeg(fr, max_w=1280, quality=72)
+                header = (
+                    b"--" + boundary + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n"
+                    b"X-Decoder-Status: " + fr.decoder_status.value.encode("ascii") + b"\r\n"
+                    b"X-View-Mode: LIVE_MJPEG\r\n"
+                    b"\r\n"
+                )
+                yield header + jpeg + b"\r\n"
+            except HTTPException:
+                break
+            except Exception:
+                time.sleep(interval)
+                continue
+            time.sleep(interval)
+
+    return StreamingResponse(
+        generate(),
+        media_type=f"multipart/x-mixed-replace; boundary={boundary.decode('ascii')}",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "X-View-Mode": "LIVE_MJPEG",
+            "X-Camera-Lab-Pass": "false",
+        },
+    )
 
 
 @router.get("/{camera_id}/quality/diagnostics")
@@ -1276,6 +1489,75 @@ def _lab_run_http(exc: Exception) -> HTTPException:
     return HTTPException(status_code=422, detail=str(exc))
 
 
+def _lab_next_step(run: Any, layers: dict[str, Any]) -> dict[str, Any]:
+    """Single next permitted action + unmet checklist — UI must not invent order."""
+    from app.services.lab_run_service import (
+        STATE_CREATED,
+        STATE_LIVE_MEASURED,
+        STATE_OWNER_REVIEWED,
+        STATE_PHYSICAL,
+        STATE_REJECTED,
+    )
+
+    state = run.state
+    kind = run.kind
+    checklist = {
+        "lab_run_created": state != STATE_REJECTED and bool(run.run_id),
+        "LIVE_SOURCE_MEASURED": bool(layers.get("LIVE_SOURCE_MEASURED")) or state in {
+            STATE_LIVE_MEASURED, STATE_OWNER_REVIEWED, STATE_PHYSICAL
+        },
+        "owner_challenge_ready": state == STATE_LIVE_MEASURED,
+        "PHYSICAL_CONNECTIVITY_REVIEWED": bool(layers.get("PHYSICAL_CONNECTIVITY_REVIEWED"))
+        or state in {STATE_OWNER_REVIEWED, STATE_PHYSICAL},
+        "evidence_physical_record": state == STATE_PHYSICAL,
+        "signed_camera_lab_pass": False,  # always separate HMAC approval
+        "face_pilot": (
+            "N_A"
+            if kind == "CAMERA_LAB"
+            else ("APPROVED" if layers.get("FACE_PILOT_VALIDATION_APPROVED") else "PENDING")
+        ),
+    }
+    if state == STATE_CREATED:
+        next_action = "MEASURE_LIVE"
+        next_vi = "Bước tiếp: Đo LIVE (khung phân biệt)."
+        allowed = ["measure"]
+    elif state == STATE_LIVE_MEASURED:
+        next_action = "REVEAL_CHALLENGE_THEN_OWNER_REVIEW"
+        next_vi = "Bước tiếp: Lấy challenge → Owner review (một toán tử)."
+        allowed = ["reveal_challenge", "owner_review"]
+    elif state == STATE_OWNER_REVIEWED:
+        next_action = "PROMOTE_PHYSICAL"
+        next_vi = (
+            "Bước tiếp: Promote PHYSICAL evidence. "
+            "Lớp PHYSICAL_VERIFIED ≠ CAMERA_LAB_PASS đã ký."
+        )
+        allowed = ["promote_physical"]
+    elif state == STATE_PHYSICAL:
+        next_action = "DONE_AWAITING_SIGNED_APPROVAL"
+        next_vi = (
+            "Đã có evidence PHYSICAL_VERIFIED. "
+            "camera_lab_pass vẫn false cho đến khi có phê duyệt HMAC riêng. "
+            "FACE_PILOT = N/A nếu kind=CAMERA_LAB."
+        )
+        allowed = ["export_json"]
+    else:
+        next_action = "START_NEW_RUN"
+        next_vi = "Lab run từ chối/hết hạn — tạo run mới (không ghi đè evidence cũ)."
+        allowed = ["start_new_run"]
+    return {
+        "next_action": next_action,
+        "next_action_vi": next_vi,
+        "allowed_actions": allowed,
+        "checklist": checklist,
+        "distinctions_vi": {
+            "evidence_class_PHYSICAL_VERIFIED": "Bản ghi bằng chứng vật lý đã tạo sau promote.",
+            "LIVE_SOURCE_MEASURED": "Đã đo khung LIVE phân biệt + FPS>0.",
+            "camera_lab_pass": "Chỉ true sau phê duyệt HMAC đã ký — không phải UI text.",
+            "face_pilot_pass": "Tách biệt; CAMERA_LAB không tự duyệt nhận diện.",
+        },
+    }
+
+
 def _lab_run_out(run: Any) -> dict[str, Any]:
     """Sanitized lab-run view — never include owner_challenge (SEC02)."""
     import json as _json
@@ -1286,6 +1568,13 @@ def _lab_run_out(run: Any) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         meta = {}
     layers = meta.get("evidence_layers") or {}
+    face_status = meta.get("face_validation_status")
+    if run.kind == "CAMERA_LAB":
+        # Never show red "failed"/PENDING for CAMERA_LAB-only — use N/A
+        face_status = "N_A"
+    elif not face_status:
+        face_status = "PENDING"
+    guidance = _lab_next_step(run, layers if isinstance(layers, dict) else {})
     return {
         "run_id": run.run_id,
         "nonce": run.nonce,
@@ -1304,11 +1593,12 @@ def _lab_run_out(run: Any) -> dict[str, Any]:
         "expires_at": run.expires_at.isoformat() if run.expires_at else None,
         "revoked": bool(run.revoked),
         "evidence_layers": layers,
-        "face_validation_status": meta.get("face_validation_status"),
+        "face_validation_status": face_status,
         "review_kind": meta.get("review_kind") or "SINGLE_OPERATOR_ACK",
         "camera_lab_pass": False,
         "face_pilot_pass": False,
         "note_vi": run.note_vi,
+        **guidance,
     }
 
 
@@ -1967,6 +2257,7 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
         AbEvaluationRun,
         CameraLabRun,
         PilotApprovalRecord,
+        PilotEvidenceRecord,
         RawObservation,
     )
 
@@ -1980,6 +2271,7 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
         "lab_runs": 0,
         "approvals": 0,
         "ab_runs": 0,
+        "evidence_records": 0,
     }
     try:
         counts["lab_runs"] = int(
@@ -2006,7 +2298,18 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
         )
     except Exception:
         pass
-    counts["total"] = int(sum(counts.values()))
+    try:
+        counts["evidence_records"] = int(
+            db.scalar(
+                select(func.count())
+                .select_from(PilotEvidenceRecord)
+                .where(PilotEvidenceRecord.camera_id == camera_id)
+            )
+            or 0
+        )
+    except Exception:
+        pass
+    counts["total"] = int(sum(v for k, v in counts.items() if k != "total"))
     return counts
 
 

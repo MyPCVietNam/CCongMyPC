@@ -1,11 +1,10 @@
-"""Per-camera LIVE/REPLAY/MOCK gateway registry — single source of truth for preview/enroll/ingest."""
+"""Per-camera LIVE/REPLAY/MOCK gateway registry — single decode pipeline per physical stream."""
 
 from __future__ import annotations
 
 import threading
-import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,7 +13,9 @@ from app.vision.camera.gateway import (
     CameraGateway,
     DecoderStatus,
     GatewayHealth,
+    LiveRTSPGateway,
     StreamProvenance,
+    physical_stream_fingerprint,
 )
 
 
@@ -32,14 +33,24 @@ class BoundSource:
     config_revision: str
     provenance: StreamProvenance
     profile: str = "MAIN"
+    stream_fingerprint: str = ""
+
+
+@dataclass
+class _StreamLease:
+    fingerprint: str
+    gateway: LiveRTSPGateway
+    holders: set[int] = field(default_factory=set)
+    config_revision: str = ""
 
 
 class CameraSourceRegistry:
-    """Maps camera DB id → active gateway. Preview/enrollment/attendance must use this."""
+    """Maps camera DB id → active gateway. One LiveRTSPGateway per unique physical stream."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._by_id: dict[int, BoundSource] = {}
+        self._leases: dict[str, _StreamLease] = {}
         self.default_gateway: CameraGateway | None = None
 
     def bind(
@@ -49,53 +60,103 @@ class CameraSourceRegistry:
         *,
         provenance: StreamProvenance,
         profile: str = "MAIN",
+        stream_fingerprint: str | None = None,
     ) -> BoundSource:
         with self._lock:
-            old = self._by_id.get(camera_db_id)
-            if old is not None:
-                try:
-                    old.gateway.stop()
-                except Exception:
-                    pass
-            rev = str(uuid.uuid4())
-            if hasattr(gateway, "config_revision"):
-                gateway.config_revision = rev
-            if hasattr(gateway, "_latest"):
-                lock = getattr(gateway, "_lock", None)
-                if lock is not None:
-                    with lock:
-                        gateway._latest = None  # type: ignore[attr-defined]
-                else:
+            # Drop previous binding for this camera id
+            self._unbind_locked(camera_db_id, stop_if_unshared=True)
+
+            fp = stream_fingerprint or ""
+            if isinstance(gateway, LiveRTSPGateway):
+                fp = fp or gateway.stream_fingerprint or physical_stream_fingerprint(gateway._uri)
+                # Reuse existing decode pipeline for same physical stream
+                lease = self._leases.get(fp)
+                if lease is not None and lease.gateway is not gateway:
                     try:
-                        gateway._latest = None  # type: ignore[attr-defined]
+                        gateway.stop()
                     except Exception:
                         pass
+                    gateway = lease.gateway
+                    # Retarget displayed camera_id on shared gateway for frame stamps
+                    gateway.camera_id = str(camera_db_id)
+                    lease.holders.add(camera_db_id)
+                    rev = lease.config_revision or str(uuid.uuid4())
+                else:
+                    rev = str(uuid.uuid4())
+                    if hasattr(gateway, "config_revision"):
+                        gateway.config_revision = rev
+                    self._leases[fp] = _StreamLease(
+                        fingerprint=fp,
+                        gateway=gateway,
+                        holders={camera_db_id},
+                        config_revision=rev,
+                    )
+            else:
+                rev = str(uuid.uuid4())
+                if hasattr(gateway, "config_revision"):
+                    gateway.config_revision = rev
+                if hasattr(gateway, "_latest"):
+                    lock = getattr(gateway, "_lock", None)
+                    if lock is not None:
+                        with lock:
+                            gateway._latest = None  # type: ignore[attr-defined]
+                    else:
+                        try:
+                            gateway._latest = None  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+
+            if hasattr(gateway, "config_revision"):
+                gateway.config_revision = rev
+
             bound = BoundSource(
                 camera_db_id=camera_db_id,
                 gateway=gateway,
                 config_revision=rev,
                 provenance=provenance,
                 profile=profile,
+                stream_fingerprint=fp,
             )
             self._by_id[camera_db_id] = bound
             self.default_gateway = gateway
             return bound
 
-    def unbind(self, camera_db_id: int) -> None:
-        with self._lock:
-            old = self._by_id.pop(camera_db_id, None)
-            if old is not None:
+    def _unbind_locked(self, camera_db_id: int, *, stop_if_unshared: bool) -> None:
+        old = self._by_id.pop(camera_db_id, None)
+        if old is None:
+            return
+        fp = old.stream_fingerprint
+        if fp and fp in self._leases and isinstance(old.gateway, LiveRTSPGateway):
+            lease = self._leases[fp]
+            lease.holders.discard(camera_db_id)
+            if stop_if_unshared and not lease.holders:
+                try:
+                    lease.gateway.stop()
+                except Exception:
+                    pass
+                self._leases.pop(fp, None)
+        else:
+            if stop_if_unshared:
                 try:
                     old.gateway.stop()
                 except Exception:
                     pass
-            if old is not None and self.default_gateway is old.gateway:
-                nxt = next(iter(self._by_id.values()), None)
-                self.default_gateway = nxt.gateway if nxt is not None else None
+        if self.default_gateway is old.gateway:
+            nxt = next(iter(self._by_id.values()), None)
+            self.default_gateway = nxt.gateway if nxt is not None else None
+
+    def unbind(self, camera_db_id: int) -> None:
+        with self._lock:
+            self._unbind_locked(camera_db_id, stop_if_unshared=True)
 
     def get(self, camera_db_id: int) -> BoundSource | None:
         with self._lock:
             return self._by_id.get(camera_db_id)
+
+    def lease_holders(self, fingerprint: str) -> list[int]:
+        with self._lock:
+            lease = self._leases.get(fingerprint)
+            return sorted(lease.holders) if lease else []
 
     def get_frame(
         self,
@@ -109,10 +170,11 @@ class CameraSourceRegistry:
         max_age_s: float = 3.0,
         expected_profile: str | None = None,
         for_biometric: bool = False,
+        require_integrity: bool | None = None,
     ) -> tuple[BoundSource, CameraFrame]:
         """
-        Unified frame access. Biometric paths: require_live + for_biometric + not allow_stale.
-        Fail closed on any mismatch — never `pass`.
+        Unified frame access. Biometric paths: require_live + for_biometric + not allow_stale
+        + integrity_ok. Fail closed on any mismatch — never `pass`.
         """
         bound = self.get(camera_db_id)
         if bound is None:
@@ -135,13 +197,24 @@ class CameraSourceRegistry:
                 "Nhận diện/ghi công chính thức chỉ chấp nhận CAMERA_LIVE đã xác minh.",
             )
 
-        fr = bound.gateway.get_latest_frame()
+        want_integrity = for_biometric if require_integrity is None else require_integrity
+        if want_integrity and hasattr(bound.gateway, "get_latest_good_frame"):
+            fr = bound.gateway.get_latest_good_frame()  # type: ignore[attr-defined]
+        else:
+            fr = bound.gateway.get_latest_frame()
         if fr is None:
             raise FrameAccessError("NO_FRAME", "Chưa có khung hình đã giải mã.")
         if not fr._pixels or fr.width <= 0 or fr.height <= 0:
             raise FrameAccessError("EMPTY_FRAME", "Khung hình trống hoặc kích thước không hợp lệ.")
-        # camera_id on frame must match DB id string we bound
-        if str(fr.camera_id) not in {str(camera_db_id), str(bound.camera_db_id)}:
+        if want_integrity and not getattr(fr, "integrity_ok", True):
+            raise FrameAccessError(
+                "CORRUPT_FRAME",
+                "Khung hình hỏng/thiếu reference HEVC — không dùng cho nhận diện hoặc bằng chứng.",
+            )
+        allowed_ids = {str(camera_db_id), str(bound.camera_db_id)}
+        if bound.stream_fingerprint:
+            allowed_ids.update(str(x) for x in self.lease_holders(bound.stream_fingerprint))
+        if str(fr.camera_id) not in allowed_ids:
             raise FrameAccessError(
                 "CROSS_CAMERA_REJECTED",
                 "Khung hình không thuộc camera_id đang yêu cầu.",
@@ -152,7 +225,13 @@ class CameraSourceRegistry:
             raise FrameAccessError("PROVENANCE_MISMATCH", "Provenance khung hình không khớp nguồn gắn.")
         if fr.decoder_status == DecoderStatus.STALE and (for_biometric or not allow_stale):
             raise FrameAccessError("STALE_FRAME", "Khung hình quá hạn — không dùng cho nhận diện.")
-        if fr.decoder_status not in {DecoderStatus.OK, DecoderStatus.STALE}:
+        if fr.decoder_status == DecoderStatus.DEGRADED and for_biometric:
+            raise FrameAccessError("DEGRADED_FRAME", "Luồng đang DEGRADED — không dùng cho nhận diện.")
+        if fr.decoder_status not in {
+            DecoderStatus.OK,
+            DecoderStatus.STALE,
+            DecoderStatus.DEGRADED,
+        }:
             raise FrameAccessError("DECODER_NOT_OK", f"Decoder={fr.decoder_status.value}.")
 
         age = (datetime.now(timezone.utc) - fr.receive_time_utc).total_seconds()
@@ -171,12 +250,14 @@ class CameraSourceRegistry:
             else:
                 b = self._by_id.get(camera_db_id)
                 items = [(camera_db_id, b)] if b else []
+            leases = {
+                fp: sorted(lease.holders) for fp, lease in self._leases.items()
+            }
         out = []
         for cid, b in items:
             if b is None:
                 continue
             h: GatewayHealth = b.gateway.health()
-            # Display may show STALE; operational readiness is stricter
             op_ready = bool(getattr(h, "operationally_ready", False)) and h.decoder_status.value == "OK"
             out.append(
                 {
@@ -184,19 +265,27 @@ class CameraSourceRegistry:
                     "config_revision": b.config_revision,
                     "profile": b.profile,
                     "provenance": b.provenance.value,
+                    "stream_fingerprint": b.stream_fingerprint,
                     "decoder_status": h.decoder_status.value,
                     "native_width": h.native_width,
                     "native_height": h.native_height,
                     "fps_measured": h.fps_estimate,
                     "overwritten_latest": h.dropped_frames,
                     "reconnect_count": h.reconnect_count,
+                    "corrupt_frames": (h.extras or {}).get("corrupt_frames", 0),
+                    "hevc_ref_events": (h.extras or {}).get("hevc_ref_events", 0),
                     "operationally_ready": op_ready,
                     "camera_lab_pass": False,
                     "detail_vi": h.detail_vi,
                 }
             )
         any_ready = any(s.get("operationally_ready") for s in out)
-        return {"sources": out, "camera_lab_pass": False, "ready": any_ready}
+        return {
+            "sources": out,
+            "camera_lab_pass": False,
+            "ready": any_ready,
+            "physical_stream_leases": leases,
+        }
 
     def shutdown_all(self) -> None:
         with self._lock:
