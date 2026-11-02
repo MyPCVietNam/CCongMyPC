@@ -84,6 +84,12 @@ class CameraDevice(Base):
     last_health_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_health_status: Mapped[str] = mapped_column(String(64), default="CHUA_CAU_HINH")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # PR11-HF: soft-delete / archive — preserve historical FK meaning
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    username_hint: Mapped[str] = mapped_column(String(128), default="")
+    connection_status: Mapped[str] = mapped_column(String(64), default="UNKNOWN")
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
 
 
 class RecognitionRegion(Base):

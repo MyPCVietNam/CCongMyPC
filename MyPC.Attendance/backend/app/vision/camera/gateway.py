@@ -36,6 +36,10 @@ class DecoderStatus(str, Enum):
     OFFLINE = "OFFLINE"
     NOT_CONFIGURED = "NOT_CONFIGURED"
     BLOCKED = "BLOCKED"
+    STOPPED = "STOPPED"
+    AUTH_FAILED = "AUTH_FAILED"
+    STREAM_NOT_FOUND = "STREAM_NOT_FOUND"
+    DECODE_FAILED = "DECODE_FAILED"
 
 
 class ClockTrust(str, Enum):
@@ -279,11 +283,13 @@ class LiveRTSPGateway(CameraGateway):
         max_backoff_s: float = 30.0,
         stale_after_s: float = 3.0,
         config_revision: str | None = None,
+        max_reconnect_attempts: int = 8,
     ) -> None:
         self._uri = rtsp_uri
         self.camera_id = camera_id
         self._max_backoff = max_backoff_s
         self._stale_after = stale_after_s
+        self._max_reconnect_attempts = max(1, int(max_reconnect_attempts))
         self.config_revision = config_revision or str(uuid.uuid4())
         self._cap = None
         self._thread: threading.Thread | None = None
@@ -295,9 +301,11 @@ class LiveRTSPGateway(CameraGateway):
         self._decode_errors = 0
         self._reconnects = 0
         self._status = DecoderStatus.NOT_CONFIGURED
+        self._last_error_class = "UNKNOWN"
         self._native = (0, 0)  # DECODED_MEASURED only after successful frame
         self._cap_prop_hint = (0, 0)
         self._recv_times: deque[float] = deque(maxlen=60)
+        self._frames_ok = 0
 
     def start(self) -> None:
         with self._start_lock:
@@ -341,12 +349,18 @@ class LiveRTSPGateway(CameraGateway):
     def _open(self) -> bool:
         import cv2
 
+        # Never log the URI — may contain userinfo if built for capture only
         self._cap = cv2.VideoCapture(self._uri, cv2.CAP_FFMPEG)
         ok = bool(self._cap.isOpened())
         if not ok:
-            logger.warning("rtsp_open_failed camera_id=%s", self.camera_id)
+            logger.warning(
+                "rtsp_open_failed camera_id=%s config_revision=%s",
+                self.camera_id,
+                self.config_revision[:8] if self.config_revision else "",
+            )
             self._release()
             self._status = DecoderStatus.OFFLINE
+            self._last_error_class = "OPEN_FAILED"
             return False
         self._status = DecoderStatus.OK
         # CAP_PROP hints only — not DECODED_MEASURED
@@ -367,9 +381,17 @@ class LiveRTSPGateway(CameraGateway):
         backoff = 1.0
         while not self._stop.is_set():
             if self._cap is None and not self._open():
-                self._status = DecoderStatus.RECONNECTING
                 self._reconnects += 1
-                # Interruptible backoff
+                if self._reconnects >= self._max_reconnect_attempts:
+                    self._status = DecoderStatus.STOPPED
+                    self._last_error_class = "RECONNECT_EXHAUSTED"
+                    logger.warning(
+                        "rtsp_reconnect_exhausted camera_id=%s attempts=%s — stopping worker",
+                        self.camera_id,
+                        self._reconnects,
+                    )
+                    break
+                self._status = DecoderStatus.RECONNECTING
                 end = time.monotonic() + backoff
                 while time.monotonic() < end and not self._stop.is_set():
                     time.sleep(0.1)
@@ -383,6 +405,7 @@ class LiveRTSPGateway(CameraGateway):
             if not ok or frame is None:
                 self._decode_errors += 1
                 self._status = DecoderStatus.RECONNECTING
+                self._last_error_class = "DECODE_FAILED"
                 self._release()
                 continue
             h, w = frame.shape[:2]
@@ -406,6 +429,9 @@ class LiveRTSPGateway(CameraGateway):
                 self._latest = fr
                 self._recv_times.append(recv_mono)
                 self._status = DecoderStatus.OK
+                self._last_error_class = ""
+                self._frames_ok += 1
+                self._reconnects = 0
 
     def get_latest_frame(self) -> CameraFrame | None:
         with self._lock:
@@ -431,7 +457,9 @@ class LiveRTSPGateway(CameraGateway):
             w, h = self._native
             fps = self._measured_fps()
             hint = self._cap_prop_hint
-        ready = status == DecoderStatus.OK and bool(w and h)
+            err = self._last_error_class
+            frames_ok = self._frames_ok
+        ready = status == DecoderStatus.OK and bool(w and h) and frames_ok > 0
         return GatewayHealth(
             provenance=StreamProvenance.CAMERA_LIVE,
             decoder_status=status,
@@ -443,10 +471,10 @@ class LiveRTSPGateway(CameraGateway):
             reconnect_count=reconnects,
             last_frame_at=last,
             detail_vi=(
-                f"RTSP LIVE trạng thái={status.value}; kích thước DECODED_MEASURED={w}x{h}; "
-                f"FPS đo={fps:.2f}; overwritten_latest={overwritten}. "
-                "CAMERA_LAB_PASS=false đến khi lab Windows xác nhận. "
-                "URI đầy đủ không xuất trong diagnostics."
+                f"camera_id={self.camera_id}; RTSP trạng thái={status.value}; "
+                f"DECODED_MEASURED={w}x{h}; FPS đo={fps:.2f}; frames_ok={frames_ok}; "
+                f"last_error={err or 'none'}. "
+                "CONFIG_SAVED ≠ LIVE verified. CAMERA_LAB_PASS=false."
             ),
             camera_lab_pass=False,
             operationally_ready=ready,
@@ -458,6 +486,26 @@ class LiveRTSPGateway(CameraGateway):
                 "clock_trust": ClockTrust.SERVER_RECEIVE.value,
                 "diagnostic_uri": "REDACTED",
                 "operationally_ready": ready,
+                "last_error_class": err or "",
+                "frames_ok": frames_ok,
+                "live_decoded": bool(frames_ok > 0 and ready),
+                "connection_status": (
+                    "LIVE_DECODED"
+                    if ready
+                    else (
+                        "STOPPED"
+                        if status == DecoderStatus.STOPPED
+                        else (
+                            "CONNECTING"
+                            if status == DecoderStatus.RECONNECTING
+                            else (
+                                "CONFIG_SAVED"
+                                if status == DecoderStatus.OK and frames_ok == 0
+                                else status.value
+                            )
+                        )
+                    )
+                ),
             },
         )
 

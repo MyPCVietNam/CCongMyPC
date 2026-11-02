@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import math
 
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -29,7 +29,12 @@ from app.core.validation import (
     validate_roi,
     validate_rtsp_url,
 )
-from app.models.entities import CameraDevice, RecognitionRegion, User
+from app.models.entities import AuditLog, CameraDevice, RecognitionRegion, User
+from app.services.camera_credential_service import (
+    apply_camera_credentials,
+    safe_rtsp_uri_for_edit,
+)
+from app.core.utc_time import utc_now
 
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
 
@@ -44,6 +49,20 @@ class CameraIn(BaseModel):
     enabled: bool = False
     username: str = ""
     password: str = ""
+    credential_action: str = "keep"  # keep|replace|remove
+
+
+class CameraUpdate(BaseModel):
+    name: str | None = None
+    host: str | None = None
+    model: str | None = None
+    firmware: str | None = None
+    rtsp_url_override: str | None = None
+    mock_mode: bool | None = None
+    enabled: bool | None = None
+    username: str = ""
+    password: str = ""
+    credential_action: str = "keep"
 
 
 class RegionIn(BaseModel):
@@ -66,10 +85,15 @@ class RegionIn(BaseModel):
 @router.get("")
 def list_cameras(
     db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[dict[str, Any], Depends(get_current_user)],
+    include_archived: bool = False,
 ) -> list[dict]:
-    rows = db.scalars(select(CameraDevice)).all()
-    return [_cam_out(r) for r in rows]
+    q = select(CameraDevice)
+    if not include_archived:
+        q = q.where(CameraDevice.archived.is_(False))
+    rows = db.scalars(q.order_by(CameraDevice.id)).all()
+    return [_cam_out(r, state) for r in rows]
 
 
 @router.post("", dependencies=[Depends(require_csrf)])
@@ -77,13 +101,36 @@ def create_camera(
     body: CameraIn,
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
-    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
     try:
         host = validate_camera_host(body.host, allow_empty=True)
         rtsp = validate_rtsp_url(body.rtsp_url_override, allow_empty=True)
     except ValidationErrorVi as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Soft duplicate guard — same host + same safe path among active cameras
+    if host and rtsp:
+        safe_new = safe_rtsp_uri_for_edit(rtsp)
+        existing = db.scalars(
+            select(CameraDevice).where(
+                CameraDevice.archived.is_(False),
+                CameraDevice.host == host,
+            )
+        ).all()
+        for ex in existing:
+            if safe_rtsp_uri_for_edit(ex.rtsp_url_override) == safe_new and safe_new:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "CAMERA_DUPLICATE",
+                        "message_vi": (
+                            f"Đã có camera #{ex.id} cùng host/đường dẫn. "
+                            "Hãy chọn và sửa camera hiện có thay vì tạo thêm."
+                        ),
+                        "existing_id": ex.id,
+                    },
+                )
 
     now = SystemClock().now_utc()
     row = CameraDevice(
@@ -96,12 +143,28 @@ def create_camera(
         enabled=body.enabled,
         created_at=now,
         last_health_status="CHUA_CAU_HINH" if not host else "CHO_KIEM_TRA",
+        connection_status="CONFIG_SAVED" if (host or rtsp) else "UNKNOWN",
+        username_hint=(body.username or "").strip(),
     )
     db.add(row)
     db.flush()
-    if body.username and body.password:
-        ref = state.secrets.put_camera_secret(row.id, body.username, body.password)
-        row.secret_ref = ref
+    action = (body.credential_action or "keep").strip().lower()
+    if body.password or action == "replace":
+        action = "replace"
+    try:
+        cred = apply_camera_credentials(
+            state.secrets,
+            camera_id=row.id,
+            current_secret_ref="",
+            current_username_hint="",
+            action=action if action in {"keep", "replace", "remove"} else "keep",
+            username=body.username,
+            password=body.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row.secret_ref = cred.secret_ref
+    row.username_hint = cred.username_hint
     db.add(
         RecognitionRegion(
             camera_id=row.id,
@@ -109,8 +172,18 @@ def create_camera(
             norm_rect_json=json.dumps({"x": 0.3, "y": 0.05, "w": 0.4, "h": 0.25}),
         )
     )
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_CREATE",
+            entity_type="camera",
+            entity_id=str(row.id),
+            reason="secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
     db.flush()
-    return _cam_out(row)
+    return _cam_out(row, state)
 
 
 @router.post("/{camera_id}/diagnostics", dependencies=[Depends(require_csrf)])
@@ -250,38 +323,57 @@ def configure_live_gateway(
         raise HTTPException(status_code=422, detail={"code": "RTSP_POLICY", "message_vi": str(exc)}) from exc
     # Rebuild capture URI with pinned IPv4 (never re-resolve hostname in FFmpeg)
     safe_uri = f"{endpoint.scheme}://{pinned_host}:{endpoint.port}{endpoint.path}"
+    if row.archived:
+        raise HTTPException(status_code=409, detail="Camera đã lưu trữ — không gắn LIVE.")
     username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    secret_ref = row.secret_ref or ""
-    if username or password:
+    # Distinguish missing password from empty overwrite (PR11-HF)
+    password_provided = "password" in body and body.get("password") is not None
+    password = body.get("password") if password_provided else None
+    credential_action = str(body.get("credential_action") or "keep").strip().lower()
+    if password_provided and password not in (None, "") and credential_action == "keep":
+        credential_action = "replace"
+    try:
+        cred = apply_camera_credentials(
+            state.secrets,
+            camera_id=camera_db_id,
+            current_secret_ref=row.secret_ref or "",
+            current_username_hint=row.username_hint or "",
+            action=credential_action if credential_action in {"keep", "replace", "remove"} else "keep",  # type: ignore[arg-type]
+            username=username,
+            password="" if password is None else str(password),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row.secret_ref = cred.secret_ref
+    row.username_hint = cred.username_hint
+    # Persist editable RTSP path (no userinfo) on configure
+    row.rtsp_url_override = safe_uri
+    stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+    if stored and stored.get("username"):
         from urllib.parse import quote
 
-        try:
-            # Single atomic secret write — persist ref once
-            secret_ref = state.secrets.put_camera_secret(camera_db_id, username, password)
-            row.secret_ref = secret_ref
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "code": "SECRET_STORE_FAILED",
-                    "message_vi": "Không lưu được credential camera — từ chối gắn LIVE không an toàn.",
-                },
-            ) from exc
         safe_uri = (
-            f"{endpoint.scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
+            f"{endpoint.scheme}://{quote(stored['username'], safe='')}:{quote(stored.get('password') or '', safe='')}"
             f"@{pinned_host}:{endpoint.port}{endpoint.path}"
         )
-    else:
-        stored = state.secrets.get_camera_secret(secret_ref) if secret_ref else None
-        if stored and stored.get("username"):
-            from urllib.parse import quote
+    elif credential_action == "replace" and username and password:
+        from urllib.parse import quote
 
-            safe_uri = (
-                f"{endpoint.scheme}://{quote(stored['username'], safe='')}:{quote(stored.get('password') or '', safe='')}"
-                f"@{pinned_host}:{endpoint.port}{endpoint.path}"
-            )
-
+        safe_uri = (
+            f"{endpoint.scheme}://{quote(username, safe='')}:{quote(str(password), safe='')}"
+            f"@{pinned_host}:{endpoint.port}{endpoint.path}"
+        )
+    elif not stored:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CREDENTIAL_REQUIRED",
+                "message_vi": (
+                    "Chưa có mật khẩu camera đã lưu. "
+                    "Nhập mật khẩu mới (đổi mật khẩu tường minh) hoặc lưu credential trước."
+                ),
+            },
+        )
     if state.camera_registry is None:
         from app.vision.camera.registry import CameraSourceRegistry
 
@@ -322,10 +414,18 @@ def configure_live_gateway(
     binding.config_revision = bound.config_revision
     binding.enabled = True
     binding.updated_at = now
+    row.mock_mode = False
+    row.enabled = True
+    row.config_revision = bound.config_revision
+    row.connection_status = "CONFIG_SAVED"  # waiting for decoded frame — NOT LIVE verified
+    row.last_health_status = "CONFIG_SAVED"
+    row.last_health_at = now
     return {
         "ok": True,
         "camera_id": camera_db_id,
         "config_revision": bound.config_revision,
+        "connection_status": "CONFIG_SAVED",
+        "live_verified": False,
         "diagnostic_label": diagnostic_rtsp_label(camera_id=camera_db_id, profile=profile),
         "endpoint": {
             "scheme": endpoint.scheme,
@@ -337,11 +437,319 @@ def configure_live_gateway(
         },
         "camera_lab_pass": False,
         "message_vi": (
-            "Đã gắn gateway LIVE (IPv4 đã ghim) vào registry theo camera_id. "
-            "Preview/enrollment phải dùng cùng nguồn. CAMERA_LAB_PASS vẫn BLOCKED."
+            "Đã lưu cấu hình LIVE — đang chờ khung hình giải mã (CONFIG_SAVED). "
+            "Chưa phải LIVE verified. CAMERA_LAB_PASS vẫn BLOCKED."
         ),
         "operator": user.username,
     }
+
+
+@router.post("/{camera_id}/gateway/stop", dependencies=[Depends(require_csrf)])
+def stop_live_gateway(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if state.camera_registry is not None:
+        state.camera_registry.unbind(camera_id)
+    row.enabled = False
+    row.connection_status = "STOPPED"
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_STOP_LIVE",
+            entity_type="camera",
+            entity_id=str(camera_id),
+            reason="secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    db.flush()
+    return {
+        "ok": True,
+        "camera_id": camera_id,
+        "connection_status": "STOPPED",
+        "message_vi": "Đã dừng gateway LIVE cho camera này.",
+    }
+
+
+@router.post("/{camera_id}/rtsp/test", dependencies=[Depends(require_csrf)])
+def test_rtsp(
+    camera_id: int,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """Operator-triggered staged RTSP probe — single auth attempt, no brute force."""
+    from app.vision.camera.rtsp_probe import parse_rtsp_parts, probe_rtsp_stages
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if row.archived:
+        raise HTTPException(status_code=409, detail="Camera đã lưu trữ")
+    uri = (body.get("rtsp_uri") or row.rtsp_url_override or "").strip()
+    if not uri and row.host:
+        path = str(body.get("path") or "/ch1/main")
+        uri = f"rtsp://{row.host}:554{path}"
+    if not uri:
+        raise HTTPException(status_code=422, detail="Thiếu URI/host để kiểm RTSP")
+    try:
+        endpoint_uri = validate_rtsp_url(uri, allow_empty=False)
+    except ValidationErrorVi as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    host, port, path = parse_rtsp_parts(endpoint_uri)
+    stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+    username = (body.get("username") or "").strip() or (stored or {}).get("username") or row.username_hint
+    # Password only from body when replace; else reuse stored (never echo)
+    password = body.get("password")
+    if password in (None, ""):
+        password = (stored or {}).get("password")
+    try_auth = bool(username and password)
+    result = probe_rtsp_stages(
+        camera_id=camera_id,
+        config_revision=row.config_revision or "",
+        host=host or row.host,
+        port=port,
+        path=path,
+        username=username if try_auth else None,
+        password=password if try_auth else None,
+        try_auth=try_auth,
+    )
+    row.connection_status = result.overall_status
+    row.last_health_at = SystemClock().now_utc()
+    row.last_health_status = result.overall_status
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_RTSP_TEST",
+            entity_type="camera",
+            entity_id=str(camera_id),
+            reason=f"overall={result.overall_status}; secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    db.flush()
+    return result.as_dict()
+
+
+
+@router.get("/{camera_id}")
+def get_camera(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    return _cam_out(row, state, detail=True)
+
+
+@router.patch("/{camera_id}", dependencies=[Depends(require_csrf)])
+def update_camera(
+    camera_id: int,
+    body: CameraUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if row.archived:
+        raise HTTPException(
+            status_code=409,
+            detail="Camera đã lưu trữ — hãy khôi phục trước khi sửa.",
+        )
+    try:
+        if body.host is not None:
+            row.host = validate_camera_host(body.host, allow_empty=True)
+        if body.rtsp_url_override is not None:
+            row.rtsp_url_override = validate_rtsp_url(body.rtsp_url_override, allow_empty=True)
+    except ValidationErrorVi as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if body.name is not None:
+        row.name = body.name
+    if body.model is not None:
+        row.model = body.model
+    if body.firmware is not None:
+        row.firmware = body.firmware
+    if body.mock_mode is not None:
+        row.mock_mode = body.mock_mode
+    if body.enabled is not None:
+        row.enabled = body.enabled
+        if not body.enabled and state.camera_registry is not None:
+            state.camera_registry.unbind(camera_id)
+            row.connection_status = "STOPPED"
+
+    action = (body.credential_action or "keep").strip().lower()
+    if action not in {"keep", "replace", "remove"}:
+        action = "keep"
+    try:
+        cred = apply_camera_credentials(
+            state.secrets,
+            camera_id=row.id,
+            current_secret_ref=row.secret_ref or "",
+            current_username_hint=row.username_hint or "",
+            action=action,  # type: ignore[arg-type]
+            username=body.username,
+            password=body.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row.secret_ref = cred.secret_ref
+    row.username_hint = cred.username_hint
+    row.connection_status = row.connection_status or "CONFIG_SAVED"
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_UPDATE",
+            entity_type="camera",
+            entity_id=str(row.id),
+            reason=f"credential_action={cred.action}; secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    db.flush()
+    return _cam_out(row, state, detail=True)
+
+
+@router.post("/{camera_id}/archive", dependencies=[Depends(require_csrf)])
+def archive_camera(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if state.camera_registry is not None:
+        state.camera_registry.unbind(camera_id)
+    row.archived = True
+    row.archived_at = utc_now()
+    row.enabled = False
+    row.connection_status = "STOPPED"
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_ARCHIVE",
+            entity_type="camera",
+            entity_id=str(row.id),
+            reason="soft_delete; history_preserved; secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    db.flush()
+    return {
+        "ok": True,
+        "id": row.id,
+        "archived": True,
+        "message_vi": "Đã lưu trữ camera — lịch sử chấm công/quan sát được giữ nguyên.",
+    }
+
+
+@router.post("/{camera_id}/restore", dependencies=[Depends(require_csrf)])
+def restore_camera(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    row.archived = False
+    row.archived_at = None
+    row.connection_status = "CONFIG_SAVED"
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_RESTORE",
+            entity_type="camera",
+            entity_id=str(row.id),
+            reason="secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    db.flush()
+    return {"ok": True, "id": row.id, "archived": False, "camera": _cam_out(row, state, detail=True)}
+
+
+@router.delete("/{camera_id}", dependencies=[Depends(require_csrf)])
+def delete_camera(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+    force: bool = False,
+) -> dict:
+    """Permanent delete ONLY when no historical dependents. Prefer archive."""
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    blockers = _camera_delete_blockers(db, camera_id)
+    if blockers["total"] > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_HAS_HISTORY",
+                "message_vi": (
+                    "Camera còn dữ liệu lịch sử — không xóa cứng. "
+                    "Hãy dùng Lưu trữ (archive) để ẩn khỏi danh sách."
+                ),
+                "blockers": blockers,
+            },
+        )
+    if blockers["total"] > 0 and force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_FORCE_DELETE_DENIED",
+                "message_vi": "Từ chối xóa cứng khi còn phụ thuộc lịch sử (bảo vệ dữ liệu).",
+                "blockers": blockers,
+            },
+        )
+    if state.camera_registry is not None:
+        state.camera_registry.unbind(camera_id)
+    secret_ref = row.secret_ref or ""
+    # Cascade-clean config-only dependents (not historical attendance)
+    from app.models.entities import (
+        CameraLiveBinding,
+        CameraQualitySettings,
+        CameraStreamProfile,
+        RecognitionRegion,
+    )
+
+    for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
+        for dep in db.scalars(select(model).where(model.camera_id == camera_id)).all():  # type: ignore[attr-defined]
+            db.delete(dep)
+    db.delete(row)
+    db.flush()
+    if secret_ref:
+        try:
+            state.secrets.delete_camera_secret(secret_ref)
+        except Exception:
+            pass
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_DELETE",
+            entity_type="camera",
+            entity_id=str(camera_id),
+            reason="hard_delete_unreferenced; secrets_redacted=true",
+            timestamp=utc_now(),
+        )
+    )
+    return {"ok": True, "deleted_id": camera_id}
+
 
 
 def _preview_from_frame(fr, *, live: bool, source: str, indicator_vi: str) -> dict:
@@ -1553,18 +1961,113 @@ def put_regions(
     }
 
 
-def _cam_out(r: CameraDevice) -> dict:
-    return {
+def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
+    """Historical blockers only — config-only rows may be cascade-cleaned on hard delete."""
+    from app.models.entities import (
+        AbEvaluationRun,
+        CameraLabRun,
+        PilotApprovalRecord,
+        RawObservation,
+    )
+
+    counts: dict[str, int] = {
+        "raw_observations": int(
+            db.scalar(
+                select(func.count()).select_from(RawObservation).where(RawObservation.camera_id == camera_id)
+            )
+            or 0
+        ),
+        "lab_runs": 0,
+        "approvals": 0,
+        "ab_runs": 0,
+    }
+    try:
+        counts["lab_runs"] = int(
+            db.scalar(select(func.count()).select_from(CameraLabRun).where(CameraLabRun.camera_id == camera_id))
+            or 0
+        )
+    except Exception:
+        pass
+    try:
+        counts["approvals"] = int(
+            db.scalar(
+                select(func.count())
+                .select_from(PilotApprovalRecord)
+                .where(PilotApprovalRecord.camera_id == camera_id)
+            )
+            or 0
+        )
+    except Exception:
+        pass
+    try:
+        counts["ab_runs"] = int(
+            db.scalar(select(func.count()).select_from(AbEvaluationRun).where(AbEvaluationRun.camera_id == camera_id))
+            or 0
+        )
+    except Exception:
+        pass
+    counts["total"] = int(sum(counts.values()))
+    return counts
+
+
+def _cam_out(r: CameraDevice, state: AppState | None = None, *, detail: bool = False) -> dict:
+    runtime = None
+    live_decoded = False
+    if state is not None and state.camera_registry is not None and not getattr(r, "archived", False):
+        try:
+            bound = state.camera_registry.get(r.id)
+            if bound is not None:
+                h = bound.gateway.health()
+                extras = getattr(h, "extras", {}) or {}
+                live_decoded = bool(extras.get("live_decoded"))
+                runtime = {
+                    "bound": True,
+                    "provenance": h.provenance.value if hasattr(h.provenance, "value") else str(h.provenance),
+                    "decoder_status": h.decoder_status.value
+                    if hasattr(h.decoder_status, "value")
+                    else str(h.decoder_status),
+                    "connection_status": extras.get("connection_status") or h.decoder_status.value,
+                    "native_width": h.native_width,
+                    "native_height": h.native_height,
+                    "fps_estimate": h.fps_estimate,
+                    "frames_ok": extras.get("frames_ok", 0),
+                    "live_decoded": live_decoded,
+                    "config_revision": bound.config_revision,
+                    "camera_lab_pass": False,
+                }
+        except Exception:
+            runtime = {"bound": False}
+    safe_uri = safe_rtsp_uri_for_edit(r.rtsp_url_override or "")
+    has_secret = bool(r.secret_ref) and (
+        state.secrets.has_secret(r.secret_ref) if state is not None and r.secret_ref else bool(r.secret_ref)
+    )
+    out = {
         "id": r.id,
         "name": r.name,
         "host": r.host,
         "model": r.model,
         "firmware": r.firmware,
         "has_rtsp_override": bool(r.rtsp_url_override),
+        "rtsp_uri_safe": safe_uri,  # editable, no userinfo — never password
         "rtsp_override_redacted": redact_url(r.rtsp_url_override),
-        "has_secret": bool(r.secret_ref),
+        "has_secret": has_secret,
+        "credential_saved": has_secret,
+        "username_hint": r.username_hint or "",
         "mock_mode": r.mock_mode,
         "enabled": r.enabled,
+        "archived": bool(getattr(r, "archived", False)),
+        "connection_status": getattr(r, "connection_status", None) or "UNKNOWN",
+        "config_revision": getattr(r, "config_revision", "") or "",
         "last_health_status": r.last_health_status,
         "last_health_at": r.last_health_at.isoformat() if r.last_health_at else None,
+        "live_verified": live_decoded,
+        "runtime": runtime,
+        "password": None,  # never serialize
     }
+    if detail:
+        # ROI summary (no secrets)
+        out["note_vi"] = (
+            "Mật khẩu không bao giờ trả về API. Ô mật khẩu trống = giữ credential đã lưu. "
+            "CONFIG_SAVED ≠ LIVE verified."
+        )
+    return out

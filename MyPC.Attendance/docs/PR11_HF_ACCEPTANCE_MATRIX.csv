@@ -1,0 +1,37 @@
+case_id,result,evidence
+CM01,PASS,GET /cameras/{id} returns safe editable fields; pytest
+CM02,PASS,selectGen ignores stale preview/detail responses
+CM03,PASS,duplicate host+path -> 409 CAMERA_DUPLICATE
+CM04,PASS,PATCH updates single camera id
+CM05,PASS,blank password keep preserves secret
+CM06,PASS,LIVE configure keep reuses secret
+CM07,PASS,credential_action=replace updates secret
+CM08,PASS,password never in GET/response body
+CM09,PASS,archive hides from list + unbinds
+CM10,PASS,history blocks hard delete 409
+CM11,PASS,restore returns to list
+CM12,PASS,CSRF + CAMERA_MANAGE enforced
+CM13,PASS,SSRF/host policy unchanged (127.0.0.1 rejected)
+CM14,PASS,archive/stop unbinds registry worker
+CM15,PASS,empty selection handled in UI startNew
+CM16,PASS,audit redacts secrets
+RT01,PASS,probe camera_lab_pass false
+RT02,PASS,probe classifies AUTH_FAILED when evidenced
+RT03,PASS,probe classifies STREAM_NOT_FOUND when evidenced
+RT04,PASS,single auth attempt in probe; no brute force
+RT05,BLOCKED,needs owner device to distinguish path vs auth
+RT06,BLOCKED,needs real decoded LIVE on Windows LAN
+RT07,PASS,gateway max_reconnect_attempts then STOPPED
+RT08,PASS,preview poll backoff + visibility pause
+RT09,PASS,configure returns CONFIG_SAVED not live_verified
+RT10,PASS,metadata/secret_ref persisted; runtime separate
+RT11,PASS,mock_mode config ≠ runtime LIVE claim
+RT12,PASS,logs use camera_id only; URI redacted
+RT13,PASS,candidate paths documented manual only
+RT14,PASS,unbind per camera_id; bounded reconnect
+WIN01,BLOCKED,no Windows runner in cloud agent
+WIN02,BLOCKED,no Windows 11 host
+WIN03,PASS,npm run build 1600 modules
+WIN04,PASS,pytest 257 passed incl PR10 auth
+WIN05,PASS,release ZIPs + SHA256
+WIN06,BLOCKED,CAMERA_LAB/FACE_PILOT/EXIT/INSTALLER remain BLOCKED
