@@ -25,11 +25,35 @@ def run_paired_recognition(
     status = pipeline.status()
     mode = status.get("inference_mode")
     weights = status.get("weights_bundled") or {}
+    gallery_n = len(gallery or [])
     if mode == InferenceMode.REAL.value and not (weights.get("yunet") and weights.get("sface")):
         return {
             "status": "BLOCKED_MODEL",
+            "gallery_count": gallery_n,
             "can_auto_enable_enhancement": False,
             "note_vi": "Thiếu trọng số YuNet/SFace — không tạo metrics giả.",
+        }
+    if mode != InferenceMode.REAL.value:
+        return {
+            "status": "DEMO_SYNTHETIC",
+            "gallery_count": gallery_n,
+            "can_auto_enable_enhancement": False,
+            "inference_mode": mode,
+            "note_vi": (
+                "Engine demo/synthetic — không phải bằng chứng nhận diện thật. "
+                "Không đánh PASS A/B sinh trắc học."
+            ),
+        }
+    if gallery_n == 0:
+        return {
+            "status": "BLOCKED_GALLERY",
+            "gallery_count": 0,
+            "can_auto_enable_enhancement": False,
+            "inference_mode": mode,
+            "note_vi": (
+                "Gallery ACTIVE trống — không thể so khớp nhân viên. "
+                "Không tuyên bố độ chính xác A/B."
+            ),
         }
 
     orig_pixels = np.array(bgr_original, copy=True, order="C")
@@ -83,7 +107,8 @@ def run_paired_recognition(
         blockers.append("UNKNOWN_TO_KNOWN_ON_ENHANCE")
 
     return {
-        "status": "OK" if mode else "BLOCKED_MODEL",
+        "status": "REAL_VALIDATION",
+        "gallery_count": gallery_n,
         "original": original,
         "enhanced": enhanced,
         "enhancement_status": trial.status,
@@ -92,7 +117,7 @@ def run_paired_recognition(
         "can_auto_enable_enhancement": False,
         "inference_mode": mode,
         "note_vi": (
-            "So sánh nhận diện gốc/xử lý trên cùng khung hình. "
+            "So sánh nhận diện gốc/xử lý trên cùng khung hình với gallery ACTIVE. "
             "Không tự bật AUTO_VALIDATED; UNKNOWN→known trên enhanced là blocker."
         ),
     }

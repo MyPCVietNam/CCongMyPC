@@ -123,10 +123,24 @@ class AutoEnrollmentService:
         authorization_ref: str,
         authorization_ack_vi: str,
         source: str = "DEMO",
+        camera_id: int | None = None,
+        bound_profile: str = "",
+        bound_config_revision: str = "",
+        camera_lab_approval_id: str = "",
     ) -> EnrollmentSession:
         capture_origin = _capture_origin_for_source(source)
         # Preserve provenance — never remapp DEMO → AUTO
         enrollment_source = source if source else "DEMO"
+        src_u = enrollment_source.upper()
+        if src_u == "REAL_CAMERA":
+            if camera_id is None:
+                raise ValueError("REAL_CAMERA yêu cầu camera_id — gắn bất biến tại lúc bắt đầu.")
+            if not (bound_config_revision and camera_lab_approval_id):
+                raise ValueError(
+                    "REAL_CAMERA yêu cầu config_revision + CAMERA_LAB approval đã ký trên server."
+                )
+        elif camera_id is not None:
+            raise ValueError("Không gắn camera LIVE cho phiên DEMO/UPLOAD.")
         enr = self._enrollment.start_enrollment(
             session,
             employee_id=employee_id,
@@ -153,6 +167,8 @@ class AutoEnrollmentService:
                 "testing_mode": capture_origin == "SYNTHETIC_TEST",
                 "model_id": st["embedder"]["model_id"],
                 "model_hash": st["embedder"]["model_hash"],
+                "bound_camera_id": camera_id,
+                "bound_config_revision": bound_config_revision or "",
             }
         )
         assert not progress_contains_forbidden(progress)
@@ -167,6 +183,10 @@ class AutoEnrollmentService:
             guidance_vi=GUIDANCE_VI["FACE_FRONT"],
             progress_json=json.dumps(progress, ensure_ascii=False),
             source=enrollment_source,
+            camera_id=camera_id,
+            bound_profile=bound_profile or "",
+            bound_config_revision=bound_config_revision or "",
+            camera_lab_approval_id=camera_lab_approval_id or "",
             created_at=now,
             updated_at=now,
         )
@@ -180,7 +200,10 @@ class AutoEnrollmentService:
                 action="biometric.auto_enrollment.start",
                 entity_type="enrollment_session",
                 entity_id=row.public_id,
-                reason=f"{authorization_ref}|origin={capture_origin}|src={enrollment_source}",
+                reason=(
+                    f"{authorization_ref}|origin={capture_origin}|src={enrollment_source}"
+                    f"|cam={camera_id}|apr={camera_lab_approval_id}"
+                ),
                 timestamp=now,
             )
         )
@@ -206,6 +229,10 @@ class AutoEnrollmentService:
             "face_done": sum(1 for s in FACE_SLOTS if s in progress.get("completed_slots", [])),
             "body_done": sum(1 for s in BODY_SLOTS if s in progress.get("completed_slots", [])),
             "source": row.source,
+            "camera_id": row.camera_id,
+            "bound_profile": row.bound_profile or "",
+            "bound_config_revision": row.bound_config_revision or "",
+            "camera_lab_approval_id": row.camera_lab_approval_id or "",
             "capture_origin": progress.get("capture_origin"),
             "algorithm_backend": progress.get("algorithm_backend"),
             "testing_mode": progress.get("testing_mode", False),

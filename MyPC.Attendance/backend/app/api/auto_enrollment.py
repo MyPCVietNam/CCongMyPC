@@ -1,4 +1,4 @@
-"""P01.5-HF guided auto-enrollment API — fixtures rejected in production."""
+"""P01.5-HF guided auto-enrollment API — fixtures rejected in production; LIVE camera-bound."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class FrameIn(BaseModel):
     identity_fixture_key: str | None = None
     force_slot: str | None = None
     declare_body_geometry_blocked: bool = False
-    camera_id: int | None = None  # when set, server pulls LIVE frame (ignores client base64 as LIVE)
+    camera_id: int | None = None  # ignored for selection after bind; mismatch → reject
 
 
 class RetryIn(BaseModel):
@@ -70,6 +70,87 @@ def _reject_synthetic_if_needed(state: AppState, body_fixture: str | None, force
         )
 
 
+def _resolve_real_camera_binding(db: Session, state: AppState, camera_id: int | None) -> dict:
+    """Fail-closed LIVE start: camera-bound signed CAMERA_LAB + healthy LIVE registry."""
+    from app.models.entities import CameraDevice
+    from app.services.pilot_approval import verify_active_approval
+    from app.services.server_pins import derive_live_pins
+
+    if camera_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CAMERA_ID_REQUIRED",
+                "message_vi": "REAL_CAMERA yêu cầu camera_id hợp lệ tại lúc bắt đầu phiên.",
+            },
+        )
+    row = db.get(CameraDevice, int(camera_id))
+    if row is None or not row.enabled:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CAMERA_DISABLED", "message_vi": "Camera không tồn tại hoặc đã tắt."},
+        )
+    if row.mock_mode:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "MOCK_NOT_LIVE",
+                "message_vi": "Camera MOCK không thỏa cổng REAL_CAMERA / CAMERA_LAB.",
+            },
+        )
+    store = state.template_store
+    if store is None or state.face_pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline/gallery chưa sẵn sàng")
+    try:
+        pins, _gallery = derive_live_pins(db, pipeline=state.face_pipeline, store=store)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    approval = verify_active_approval(
+        db,
+        secret_key=state.settings.secret_key,
+        kind="CAMERA_LAB",
+        camera_id=int(camera_id),
+        model_hash_pin=pins["model_hash_pin"],
+        gallery_revision_pin=pins["gallery_revision_pin"],
+        threshold_id_pin=pins["threshold_id_pin"],
+        require_pins=True,
+        require_camera_id=True,
+    )
+    # Staging flag / settings.camera_lab_pass alone NEVER bypass missing signed approval
+    if approval is None or not approval.valid:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "CAMERA_LAB_BLOCKED",
+                "message_vi": (
+                    "Đăng ký REAL_CAMERA cần phê duyệt CAMERA_LAB đã ký gắn đúng camera_id "
+                    "(HMAC + pin server). Cờ staging/camera_lab_pass không thay thế bằng chứng."
+                ),
+            },
+        )
+
+    reg = state.camera_registry
+    if reg is None:
+        raise HTTPException(status_code=503, detail="Registry camera chưa sẵn sàng")
+    bound = reg.get(int(camera_id))
+    if bound is None or bound.provenance.value != "CAMERA_LIVE":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "LIVE_NOT_BOUND",
+                "message_vi": "Camera chưa gắn nguồn CAMERA_LIVE trong registry.",
+            },
+        )
+    return {
+        "camera_id": int(camera_id),
+        "bound_profile": bound.profile or "",
+        "bound_config_revision": bound.config_revision or "",
+        "camera_lab_approval_id": approval.approval_id,
+        "pins": pins,
+    }
+
+
 @router.post(
     "/api/v1/employees/{employee_id}/enrollment/auto/start",
     dependencies=[Depends(require_csrf)],
@@ -81,28 +162,29 @@ def auto_start(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission(ENROLLMENT_MANAGE))],
 ) -> dict:
+    bind_kwargs: dict = {
+        "camera_id": None,
+        "bound_profile": "",
+        "bound_config_revision": "",
+        "camera_lab_approval_id": "",
+    }
     if body.source == "REAL_CAMERA":
-        from app.services.pilot_approval import verify_active_approval
+        binding = _resolve_real_camera_binding(db, state, body.camera_id)
+        bind_kwargs = {
+            "camera_id": binding["camera_id"],
+            "bound_profile": binding["bound_profile"],
+            "bound_config_revision": binding["bound_config_revision"],
+            "camera_lab_approval_id": binding["camera_lab_approval_id"],
+        }
+    elif body.camera_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "LIVE_CAMERA_ON_NON_LIVE_SESSION",
+                "message_vi": "Không gắn camera_id LIVE cho phiên DEMO/UPLOAD.",
+            },
+        )
 
-        # LIVE connectivity ≠ CAMERA_LAB_PASS. Require signed CAMERA_LAB (+ staging flag) or settings.
-        approval = verify_active_approval(
-            db, secret_key=state.settings.secret_key, kind="CAMERA_LAB"
-        )
-        allowed = bool(state.settings.camera_lab_pass) or (
-            bool(state.settings.allow_live_enrollment_staging) and approval is not None
-        )
-        if not allowed:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "CAMERA_LAB_BLOCKED",
-                    "message_vi": (
-                        "Đăng ký tự động từ camera thật chưa mở — cần CAMERA_LAB_PASS "
-                        "hoặc phê duyệt server đã ký + staging. "
-                        "Kết nối LIVE chỉ là điều kiện cần, không phải phê duyệt pilot."
-                    ),
-                },
-            )
     svc = _svc(state)
     try:
         row = svc.start(
@@ -112,6 +194,7 @@ def auto_start(
             authorization_ref=body.authorization_ref,
             authorization_ack_vi=body.authorization_ack_vi,
             source=body.source,
+            **bind_kwargs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -183,22 +266,58 @@ def auto_frame(
     row = svc.get(db, session_id)
     if row is None or row.employee_id != employee_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên")
-    # REAL_CAMERA / registry path: never treat client image_base64 as verified LIVE
-    if body.camera_id is not None or (row.source or "").upper() in {"REAL_CAMERA", "CAMERA_LIVE", "LIVE"}:
+
+    src = (row.source or "").upper()
+    is_live_session = src in {"REAL_CAMERA", "CAMERA_LIVE", "LIVE"}
+
+    # DEMO/UPLOAD must never pull LIVE registry frames
+    if not is_live_session and body.camera_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CROSS_SOURCE_REJECTED",
+                "message_vi": "Phiên DEMO/UPLOAD không được lấy khung LIVE từ camera_id.",
+            },
+        )
+
+    if is_live_session:
         from app.vision.camera.registry import FrameAccessError
 
-        cam_id = body.camera_id
-        if cam_id is None:
+        bound_cam = row.camera_id
+        if bound_cam is None:
             raise HTTPException(
                 status_code=422,
-                detail="REAL_CAMERA yêu cầu camera_id — lấy khung từ registry, không từ ảnh client.",
+                detail={
+                    "code": "SESSION_UNBOUND",
+                    "message_vi": "Phiên REAL_CAMERA thiếu camera_id gắn bất biến.",
+                },
+            )
+        if body.camera_id is not None and int(body.camera_id) != int(bound_cam):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "CAMERA_REBIND_REJECTED",
+                    "message_vi": "Không đổi camera sau khi bắt đầu phiên — dùng camera đã gắn.",
+                },
+            )
+        # Client base64 / fixture is never authentic LIVE evidence
+        if body.image_base64 or body.identity_fixture_key:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "CLIENT_IMAGE_NOT_LIVE",
+                    "message_vi": (
+                        "REAL_CAMERA chỉ nhận khung từ registry CAMERA_LIVE đã gắn — "
+                        "không chấp nhận image_base64 / fixture làm bằng chứng LIVE."
+                    ),
+                },
             )
         reg = state.camera_registry
         if reg is None:
             raise HTTPException(status_code=503, detail="Registry camera chưa sẵn sàng")
         try:
-            _bound, fr = reg.get_frame(
-                int(cam_id),
+            bound, fr = reg.get_frame(
+                int(bound_cam),
                 require_live=True,
                 for_biometric=True,
                 allow_stale=False,
@@ -208,6 +327,19 @@ def auto_frame(
             raise HTTPException(
                 status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}
             ) from exc
+        # Stale config revision after camera reconfigure → invalidate
+        if row.bound_config_revision and bound.config_revision != row.bound_config_revision:
+            row.status = "FAILED"
+            row.ui_state = "FAILED"
+            row.guidance_vi = "Camera đã đổi cấu hình — phiên bị vô hiệu. Bắt đầu lại."
+            db.flush()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CONFIG_REVISION_CHANGED",
+                    "message_vi": "Config camera đã đổi sau khi gắn phiên — từ chối khung hình.",
+                },
+            )
         img = fr.clone_pixels()
     else:
         img = _decode_image_or_fixture(body.image_base64, identity_fixture_key=body.identity_fixture_key)

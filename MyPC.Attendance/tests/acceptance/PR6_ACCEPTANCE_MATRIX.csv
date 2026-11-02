@@ -1,0 +1,59 @@
+CaseID,Priority,Gate,Scenario,Expected,EvidenceRequired,InitialStatus
+UTC-01,P0,SQLite approvals,Issue and verify approval before DB commit,Valid signature and expected state,Integration test with SQLite,NOT_RUN
+UTC-02,P0,SQLite approvals,Issue commit close and reopen new DB session,Valid HMAC and no TypeError,Integration test with SQLite,NOT_RUN
+UTC-03,P0,SQLite approvals,Approval after process restart,Valid until verified expiry,Restart integration test,NOT_RUN
+UTC-04,P0,SQLite approvals,Expiry exact UTC boundary,Expired at expected boundary,Frozen-clock test,NOT_RUN
+UTC-05,P0,SQLite approvals,Revoke approval then verify,Rejected,Integration test,NOT_RUN
+UTC-06,P0,SQLite approvals,Tamper expires_at in SQLite,HMAC invalid and rejected,Integration test,NOT_RUN
+UTC-07,P0,SQLite approvals,Tamper camera_id or model pin,Rejected,Integration test,NOT_RUN
+UTC-08,P0,SQLite approvals,Reject unparseable/ambiguous DB timestamp,Fail closed no 500,Integration test,NOT_RUN
+UTC-09,P0,SQLite approvals,Upgrade and rollback with legacy signed record,Safe deterministic rejection or documented migration,Migration integration,NOT_RUN
+UTC-10,P0,SQLite approvals,Rotate signing key and restart,Old approvals fail closed and new one works,Integration test,NOT_RUN
+APP-01,P0,Approval evidence,Request AUTO_VALIDATED with user-supplied fake hash pins,Rejected,API negative test,NOT_RUN
+APP-02,P0,Approval evidence,Issue AUTO_VALIDATED with blank ab_run_id,Rejected,API negative test,NOT_RUN
+APP-03,P0,Approval evidence,Issue AUTO_VALIDATED with offline replay-only A/B run,Rejected,API negative test,NOT_RUN
+APP-04,P0,Approval evidence,Issue AUTO_VALIDATED without CAMERA_LAB and FACE_PILOT evidence,Rejected,API negative test,NOT_RUN
+APP-05,P0,Approval evidence,Issue with different camera and valid-looking AB id,Rejected,API negative test,NOT_RUN
+APP-06,P0,Approval evidence,Apply quality mode without trusted model/gallery/threshold pins,Remain AUTO_TEST_ONLY,API negative test,NOT_RUN
+APP-07,P0,Approval evidence,Change camera profile firmware or config revision after approval,Approval revoked or invalidated,Integration test,NOT_RUN
+APP-08,P0,Approval evidence,Change model or ACTIVE gallery revision after approval,Approval revoked or invalidated,Integration test,NOT_RUN
+APP-09,P0,Approval evidence,Previously manually enabled AUTO_VALIDATED without evidence,Safely reverted and audited,Migration integration,NOT_RUN
+APP-10,P0,Approval evidence,Tamper signed approval payload JSON,Reject no fallback,Integration test,NOT_RUN
+ENR-01,P0,Enrollment source,REAL_CAMERA start without camera_id,Reject immediately,API negative test,NOT_RUN
+ENR-02,P0,Enrollment source,REAL_CAMERA with camera A approval but camera B selected,Reject immediately,API negative test,NOT_RUN
+ENR-03,P0,Enrollment source,REAL_CAMERA with no matching signed CAMERA_LAB approval,Reject even with staging flag,API negative test,NOT_RUN
+ENR-04,P0,Enrollment source,REAL_CAMERA start then frame with different camera_id,Reject cross-camera,API negative test,NOT_RUN
+ENR-05,P0,Enrollment source,DEMO start then frame from LIVE camera,Reject cross-source,API negative test,NOT_RUN
+ENR-06,P0,Enrollment source,REAL_CAMERA with client image_base64 instead of registry,Reject client proof,API negative test,NOT_RUN
+ENR-07,P0,Enrollment source,REAL_CAMERA after config revision changed,Reject and invalidate session,Integration test,NOT_RUN
+ENR-08,P0,Enrollment source,REAL_CAMERA with stale or MOCK frame,Reject biometric processing,Integration test,NOT_RUN
+ENR-09,P0,Enrollment source,REAL_CAMERA after camera disconnect and reconnect,No old frame accepted,Integration test,NOT_RUN
+ENR-10,P0,Enrollment source,REAL_CAMERA activation uses same authorized session source,Never promote mismatched evidence,Integration test,NOT_RUN
+ENR-11,P0,Enrollment source,Missing consent or multiple faces,Reject enrollment,Integration test,NOT_RUN
+AB-01,P1,Paired recognition,Run A/B with gallery empty,Explicit BLOCKED_GALLERY,Unit and API test,NOT_RUN
+AB-02,P1,Paired recognition,Run A/B with demo engine instead of real model,Explicit non-real status,Unit and API test,NOT_RUN
+AB-03,P1,Paired recognition,Run original vs processed on same frame,Original SHA unchanged and paired frame id,Image integration test,NOT_RUN
+AB-04,P1,Paired recognition,Known authorized employee from ACTIVE gallery,True matching with real model weights,Real-model local lab,NOT_RUN
+AB-05,P1,Paired recognition,Unknown individual false acceptance,Block quality gate on regression,Labeled authorized pilot,NOT_RUN
+AB-06,P1,Paired recognition,Day dusk night IR and backlit conditions,Stratified metrics and blocker status,Physical-camera pilot,NOT_RUN
+AB-07,P1,Paired recognition,YuNet resize and letterbox five landmark inverse mapping,Native pixel alignment exact,Geometry unit test,NOT_RUN
+AB-08,P1,Paired recognition,Enhancement increases confidence but wrong identity,Not AUTO_VALIDATED,Paired negative test,NOT_RUN
+AB-09,P1,Paired recognition,Changes to gallery and threshold while A/B running,Reject stale comparison,Integration concurrency test,NOT_RUN
+RTSP-01,P1,RTSP network,Hostname DNS resolves into public IP after precheck,Block actual destination,Controlled network test,NOT_RUN
+RTSP-02,P1,RTSP network,Multiple DNS answers include blocked IP,Reject all,Unit test,NOT_RUN
+RTSP-03,P1,RTSP network,Literal authorized private IPv4 camera host,Allow only policy-approved connection,Integration test,NOT_RUN
+RTSP-04,P1,RTSP network,RTSP URL with credentials in URI or path,Reject and redact,Unit and API test,NOT_RUN
+RTSP-05,P1,RTSP network,Camera stream reconnect with changed address,Revalidate safely and no cross-frame,Integration test,NOT_RUN
+RTSP-06,P1,RTSP lifecycle,Configure with credentials then restart,Persist secret reference and restore,Windows and integration,NOT_RUN
+RTSP-07,P1,RTSP lifecycle,Configure failure halfway through secret storage,Atomic rollback no leaked session,Fault injection,NOT_RUN
+RTSP-08,P1,RTSP lifecycle,Two configure requests same camera,Single decoder and no stale mixed frame,Concurrency integration,NOT_RUN
+WIN-01,P1,Windows readiness,Collect safe Windows environment inventory,No sensitive data and truthful statuses,Windows physical owner,NOT_RUN
+WIN-02,P1,Windows readiness,RTSP port TCP reachable only,Must not mark CAMERA_LAB PASS,Windows physical owner,NOT_RUN
+WIN-03,P1,Windows readiness,Decode native main and sub profile,Measured frame resolution and codec,Windows physical owner,NOT_RUN
+WIN-04,P1,Windows readiness,Measure FPS stream age and reconnect,Real metrics and original frames,Windows physical owner,NOT_RUN
+WIN-05,P1,Windows readiness,Install and uninstall with restricted user permissions,No secret leakage and reliable rollback,Windows physical owner,NOT_RUN
+BIZ-01,P1,Attendance regression,AM 08:45 inclusive edge zero late grace and unique punch,Existing rules unchanged,Domain regression,NOT_RUN
+BIZ-02,P1,Attendance regression,PM 17:00 to 23:56 exclusive and 18:00 tie selection,Existing rules unchanged,Domain regression,NOT_RUN
+BIZ-03,P1,Attendance regression,Last seen frame is not verified exit,No unauthorized overtime close,Domain regression,NOT_RUN
+SEC-01,P1,Secrets,Windows NTFS ACL of session and pilot signing key,Only authorized users can read,Windows physical owner,NOT_RUN
+SEC-02,P1,Secrets,Public audit ZIP contains employee face URI password or embedding,Automatic sanitation rejects leak,Package scanning test,NOT_RUN

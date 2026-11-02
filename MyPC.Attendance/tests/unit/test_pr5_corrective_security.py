@@ -75,8 +75,25 @@ def test_rtsp_hostname_uses_dns_guard():
     def fake_resolver(host, _port, **_kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.50", 0))]
 
-    ep = validate_live_rtsp_uri("rtsp://cam-office:554/stream", dns_resolver=fake_resolver)
+    # Explicit opt-in: production LIVE configure uses require_ipv4_literal=True
+    ep = validate_live_rtsp_uri(
+        "rtsp://cam-office:554/stream",
+        dns_resolver=fake_resolver,
+        require_ipv4_literal=False,
+    )
     assert ep.resolved_ips == ("192.168.1.50",)
+
+
+def test_rtsp_hostname_rejected_by_default_ipv4_literal_policy():
+    def fake_resolver(host, _port, **_kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.50", 0))]
+
+    with pytest.raises(ValidationErrorVi):
+        validate_live_rtsp_uri(
+            "rtsp://cam-office:554/stream",
+            dns_resolver=fake_resolver,
+            require_ipv4_literal=True,
+        )
 
 
 def test_bytes_backed_frame_rejects_write_and_setflags():

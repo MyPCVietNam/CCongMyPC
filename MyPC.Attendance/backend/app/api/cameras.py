@@ -203,6 +203,8 @@ def configure_live_gateway(
     from app.vision.camera.gateway import LiveRTSPGateway, StreamProvenance
     from app.vision.camera.rtsp_policy import diagnostic_rtsp_label, validate_live_rtsp_uri
 
+    from app.vision.camera.rtsp_policy import pinned_rtsp_authority
+
     uri = (body.get("rtsp_uri") or "").strip()
     camera_db_id = body.get("camera_id")
     profile = str(body.get("profile") or "MAIN")
@@ -218,19 +220,23 @@ def configure_live_gateway(
     if not uri:
         raise HTTPException(status_code=422, detail="Thiếu rtsp_uri")
     try:
-        endpoint = validate_live_rtsp_uri(uri)
+        # IPv4 literal only by default — pin destination before OpenCV opens
+        endpoint = validate_live_rtsp_uri(uri, require_ipv4_literal=True)
+        pinned_host = pinned_rtsp_authority(endpoint)
     except ValidationErrorVi as exc:
         raise HTTPException(status_code=422, detail={"code": "RTSP_POLICY", "message_vi": str(exc)}) from exc
-    # Rebuild URI without secrets (already stripped by policy) for OpenCV only in-process
-    safe_uri = f"{endpoint.scheme}://{endpoint.host}:{endpoint.port}{endpoint.path}"
-    # Optional username/password from body — never echo
+    # Rebuild capture URI with pinned IPv4 (never re-resolve hostname in FFmpeg)
+    safe_uri = f"{endpoint.scheme}://{pinned_host}:{endpoint.port}{endpoint.path}"
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
+    secret_ref = row.secret_ref or ""
     if username or password:
         from urllib.parse import quote
 
         try:
-            state.secrets.put_camera_secret(camera_db_id, username, password)
+            # Single atomic secret write — persist ref once
+            secret_ref = state.secrets.put_camera_secret(camera_db_id, username, password)
+            row.secret_ref = secret_ref
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
@@ -239,20 +245,18 @@ def configure_live_gateway(
                     "message_vi": "Không lưu được credential camera — từ chối gắn LIVE không an toàn.",
                 },
             ) from exc
-        # Embed only into in-memory capture URI; never return/log
         safe_uri = (
             f"{endpoint.scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
-            f"@{endpoint.host}:{endpoint.port}{endpoint.path}"
+            f"@{pinned_host}:{endpoint.port}{endpoint.path}"
         )
     else:
-        # Prefer stored secret on reconfigure/restart
-        stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+        stored = state.secrets.get_camera_secret(secret_ref) if secret_ref else None
         if stored and stored.get("username"):
             from urllib.parse import quote
 
             safe_uri = (
                 f"{endpoint.scheme}://{quote(stored['username'], safe='')}:{quote(stored.get('password') or '', safe='')}"
-                f"@{endpoint.host}:{endpoint.port}{endpoint.path}"
+                f"@{pinned_host}:{endpoint.port}{endpoint.path}"
             )
 
     if state.camera_registry is None:
@@ -267,16 +271,22 @@ def configure_live_gateway(
     gw.start()
     state.camera_gateway = gw  # legacy pointer
     row.mock_mode = False
-    # Persist binding metadata (no credentials) for restart restore
     from app.models.entities import CameraLiveBinding
+    from app.services.pilot_approval import revoke_approvals
 
     binding = db.scalar(select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_db_id))
     now = SystemClock().now_utc()
     if binding is None:
         binding = CameraLiveBinding(camera_id=camera_db_id)
         db.add(binding)
+    else:
+        # Profile/config change invalidates prior signed approvals for this camera
+        if binding.config_revision and binding.config_revision != bound.config_revision:
+            revoke_approvals(
+                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
+            )
     binding.scheme = endpoint.scheme
-    binding.host = endpoint.host
+    binding.host = pinned_host  # persist pinned IP, not unresolved hostname
     binding.port = endpoint.port
     binding.path = endpoint.path
     binding.profile = profile
@@ -284,8 +294,6 @@ def configure_live_gateway(
     binding.config_revision = bound.config_revision
     binding.enabled = True
     binding.updated_at = now
-    if username:
-        row.secret_ref = state.secrets.put_camera_secret(camera_db_id, username, password or "")
     return {
         "ok": True,
         "camera_id": camera_db_id,
@@ -293,14 +301,15 @@ def configure_live_gateway(
         "diagnostic_label": diagnostic_rtsp_label(camera_id=camera_db_id, profile=profile),
         "endpoint": {
             "scheme": endpoint.scheme,
-            "host": endpoint.host,
+            "host": pinned_host,
             "port": endpoint.port,
             "path_redacted": True,
             "resolved_ip_count": len(endpoint.resolved_ips),
+            "destination_pinned": True,
         },
         "camera_lab_pass": False,
         "message_vi": (
-            "Đã gắn gateway LIVE vào registry theo camera_id. "
+            "Đã gắn gateway LIVE (IPv4 đã ghim) vào registry theo camera_id. "
             "Preview/enrollment phải dùng cùng nguồn. CAMERA_LAB_PASS vẫn BLOCKED."
         ),
         "operator": user.username,
@@ -504,15 +513,25 @@ def analyze_once(
         )
     except FrameAccessError as exc:
         raise HTTPException(status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}) from exc
+    from app.services.gallery_loader import load_active_gallery
+
     original_hash = fr.pixel_sha256
     owned = fr.clone_pixels()
-    gallery: list = []
+    gallery_snap = (
+        load_active_gallery(db, state.template_store)
+        if state.template_store is not None
+        else None
+    )
+    gallery = list(gallery_snap.pairs) if gallery_snap else []
     paired = run_paired_recognition(owned, pipeline=state.face_pipeline, gallery=gallery)
     still = fr.pixel_sha256
     return {
         "original_pixel_sha256": original_hash,
         "original_unchanged": still == original_hash,
         "paired": paired,
+        "gallery_status": gallery_snap.status if gallery_snap else "BLOCKED_GALLERY",
+        "gallery_count": gallery_snap.count if gallery_snap else 0,
+        "gallery_revision": gallery_snap.revision if gallery_snap else "EMPTY",
         "enhancement_status": paired.get("enhancement_status"),
         "applied_methods": paired.get("applied_methods") or [],
         "effective_mode": "AUTO_TEST_ONLY",
@@ -583,6 +602,8 @@ def put_quality_settings(
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
 
+    from app.services.server_pins import derive_live_pins
+
     requested = str(body.get("requested_mode") or "AUTO")
     force_revert = bool(body.get("revert"))
     # JSON-only admin_confirm_live_pilot is REJECTED — require HMAC-signed server approval
@@ -597,22 +618,31 @@ def put_quality_settings(
                 ),
             },
         )
-    pins = {
-        "model_hash_pin": str(body.get("model_hash_pin") or ""),
-        "gallery_revision_pin": str(body.get("gallery_revision_pin") or ""),
-        "threshold_id_pin": str(body.get("threshold_id_pin") or ""),
-    }
+    # Server-derived pins only — client hashes are never trusted for promotion
+    server_pins: dict[str, str] = {"model_hash_pin": "", "gallery_revision_pin": "", "threshold_id_pin": ""}
+    if state.face_pipeline is not None and state.template_store is not None:
+        try:
+            server_pins, _ = derive_live_pins(
+                db, pipeline=state.face_pipeline, store=state.template_store
+            )
+        except ValueError:
+            server_pins = {"model_hash_pin": "", "gallery_revision_pin": "", "threshold_id_pin": ""}
     approval = None
     if not force_revert and requested.upper() in {"AUTO_VALIDATED", "AUTO"}:
+        # Fail closed: require nonempty server pins (never skip via None)
         approval = verify_active_approval(
             db,
             secret_key=state.settings.secret_key,
             kind="AUTO_VALIDATED",
             camera_id=camera_id,
-            model_hash_pin=pins["model_hash_pin"] or None,
-            gallery_revision_pin=pins["gallery_revision_pin"] or None,
-            threshold_id_pin=pins["threshold_id_pin"] or None,
+            model_hash_pin=server_pins["model_hash_pin"] or None,
+            gallery_revision_pin=server_pins["gallery_revision_pin"] or None,
+            threshold_id_pin=server_pins["threshold_id_pin"] or None,
+            require_pins=True,
+            require_camera_id=True,
         )
+        if approval is not None and not approval.valid:
+            approval = None
     allow_validated = approval is not None and approval.valid
     mode = effective_auto_mode(
         requested if requested.upper() != "AUTO_VALIDATED" else "AUTO",
@@ -634,9 +664,10 @@ def put_quality_settings(
         qs.revision += 1
     qs.requested_mode = requested
     qs.effective_mode = mode.value
-    qs.model_hash_pin = str(body.get("model_hash_pin") or qs.model_hash_pin or "")
-    qs.gallery_revision_pin = str(body.get("gallery_revision_pin") or qs.gallery_revision_pin or "")
-    qs.threshold_id_pin = str(body.get("threshold_id_pin") or qs.threshold_id_pin or "")
+    # Persist server pins (not client-supplied unverified hashes)
+    qs.model_hash_pin = server_pins["model_hash_pin"] or qs.model_hash_pin or ""
+    qs.gallery_revision_pin = server_pins["gallery_revision_pin"] or qs.gallery_revision_pin or ""
+    qs.threshold_id_pin = server_pins["threshold_id_pin"] or qs.threshold_id_pin or ""
     if force_revert:
         qs.reverted_reason = str(body.get("reverted_reason") or "OPERATOR_ROLLBACK")
         qs.validated_at = None
@@ -647,7 +678,12 @@ def put_quality_settings(
         qs.reverted_reason = ""
     qs.updated_at = now
     qs.payload_json = json.dumps(
-        {"actor": user.username, "requested": requested, "effective": mode.value},
+        {
+            "actor": user.username,
+            "requested": requested,
+            "effective": mode.value,
+            "pins_source": "SERVER_DERIVED",
+        },
         ensure_ascii=False,
     )
     db.flush()
@@ -785,13 +821,102 @@ def issue_pilot_approval(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
-    """Issue HMAC-signed approval. CAMERA_MANAGE alone is insufficient."""
-    from app.services.pilot_approval import issue_approval
+    """Issue HMAC-signed approval from server-derived pins + verified evidence. CAMERA_MANAGE alone is insufficient."""
+    from app.models.entities import AbEvaluationRun
+    from app.services.pilot_approval import issue_approval, verify_active_approval
+    from app.services.server_pins import derive_live_pins
 
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
     kind = str(body.get("kind") or "")
+    if state.face_pipeline is None or state.template_store is None:
+        raise HTTPException(status_code=503, detail="Pipeline/gallery chưa sẵn sàng để suy pin.")
+    try:
+        pins, gallery = derive_live_pins(
+            db, pipeline=state.face_pipeline, store=state.template_store
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Reject client-supplied pin overrides that disagree with server truth
+    for key in ("model_hash_pin", "gallery_revision_pin", "threshold_id_pin"):
+        client_val = str(body.get(key) or "").strip()
+        if client_val and client_val != pins[key]:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "CLIENT_PIN_MISMATCH",
+                    "message_vi": (
+                        f"Pin {key} client không khớp giá trị server-derived. "
+                        "Không ký tuyên bố tùy ý."
+                    ),
+                },
+            )
+
+    ab_run_id = str(body.get("ab_run_id") or "").strip()
+    if kind == "AUTO_VALIDATED":
+        if not ab_run_id:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "AB_RUN_REQUIRED",
+                    "message_vi": "AUTO_VALIDATED yêu cầu ab_run_id từ chạy A/B server.",
+                },
+            )
+        ab = db.scalar(select(AbEvaluationRun).where(AbEvaluationRun.run_id == ab_run_id))
+        if ab is None or ab.camera_id != camera_id:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "AB_RUN_INVALID",
+                    "message_vi": "ab_run_id không tồn tại hoặc không gắn đúng camera.",
+                },
+            )
+        mix = (ab.source_mix or "").upper()
+        if mix in {"", "EMPTY", "MOCK"} or ab.sample_count <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "AB_RUN_INSUFFICIENT",
+                    "message_vi": (
+                        "Chạy A/B thiếu mẫu / chỉ MOCK-EMPTY — không đủ chứng minh AUTO_VALIDATED."
+                    ),
+                },
+            )
+        # Require prior CAMERA_LAB + FACE_PILOT for same camera with matching pins
+        for need_kind in ("CAMERA_LAB", "FACE_PILOT"):
+            prior = verify_active_approval(
+                db,
+                secret_key=state.settings.secret_key,
+                kind=need_kind,
+                camera_id=camera_id,
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                require_pins=True,
+                require_camera_id=True,
+            )
+            if prior is None or not prior.valid:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "PILOT_EVIDENCE_MISSING",
+                        "message_vi": (
+                            f"AUTO_VALIDATED cần {need_kind} đã ký (cùng pin/camera) trước. "
+                            "Admin không thể tự cấp artifact PASS."
+                        ),
+                    },
+                )
+        if gallery.status != "OK":
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "BLOCKED_GALLERY",
+                    "message_vi": "Gallery ACTIVE trống/blocked — không cấp AUTO_VALIDATED.",
+                },
+            )
+
     try:
         rec = issue_approval(
             db,
@@ -799,10 +924,10 @@ def issue_pilot_approval(
             kind=kind,
             camera_id=camera_id,
             issued_by=user.username,
-            model_hash_pin=str(body.get("model_hash_pin") or ""),
-            gallery_revision_pin=str(body.get("gallery_revision_pin") or ""),
-            threshold_id_pin=str(body.get("threshold_id_pin") or ""),
-            ab_run_id=str(body.get("ab_run_id") or ""),
+            model_hash_pin=pins["model_hash_pin"],
+            gallery_revision_pin=pins["gallery_revision_pin"],
+            threshold_id_pin=pins["threshold_id_pin"],
+            ab_run_id=ab_run_id,
             note_vi=str(body.get("note_vi") or ""),
         )
     except ValueError as exc:
@@ -810,8 +935,14 @@ def issue_pilot_approval(
     return {
         "approval_id": rec.approval_id,
         "kind": rec.kind,
+        "camera_id": camera_id,
+        "model_hash_pin": pins["model_hash_pin"],
+        "gallery_revision_pin": pins["gallery_revision_pin"],
+        "threshold_id_pin": pins["threshold_id_pin"],
+        "ab_run_id": ab_run_id or None,
         "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
-        "note_vi": "Đã phát hành phê duyệt đã ký trên server — không dùng cờ JSON client.",
+        "pins_source": "SERVER_DERIVED",
+        "note_vi": "Đã phát hành phê duyệt đã ký trên server — pin suy từ model/gallery/threshold thật.",
     }
 
 
@@ -846,9 +977,62 @@ def live_observe_shadow(
     except FrameAccessError as exc:
         raise HTTPException(status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}) from exc
 
-    gated = not (state.settings.camera_lab_pass and state.settings.face_pilot_pass)
+    from app.services.pilot_approval import verify_active_approval
+    from app.services.server_pins import derive_live_pins
+
+    # Signed approvals are the trust source — settings flags alone never open the gate
+    lab_ok = False
+    pilot_ok = False
+    gallery_status = "BLOCKED_GALLERY"
+    gallery_count = 0
+    gallery_pairs: list = []
+    if state.face_pipeline is not None and state.template_store is not None:
+        try:
+            pins, snap = derive_live_pins(
+                db, pipeline=state.face_pipeline, store=state.template_store
+            )
+            gallery_status = snap.status
+            gallery_count = snap.count
+            gallery_pairs = list(snap.pairs)
+            lab = verify_active_approval(
+                db,
+                secret_key=state.settings.secret_key,
+                kind="CAMERA_LAB",
+                camera_id=camera_id,
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                require_pins=True,
+                require_camera_id=True,
+            )
+            face = verify_active_approval(
+                db,
+                secret_key=state.settings.secret_key,
+                kind="FACE_PILOT",
+                camera_id=camera_id,
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                require_pins=True,
+                require_camera_id=True,
+            )
+            lab_ok = bool(lab and lab.valid)
+            pilot_ok = bool(face and face.valid)
+        except ValueError:
+            gallery_pairs = []
+    gated = not (lab_ok and pilot_ok)
     pixels = fr.clone_pixels()
-    result = state.face_pipeline.verify(pixels, gallery=[])
+    # Never expose raw employee match to unauthorized shadow when gallery blocked
+    if gallery_status != "OK":
+        match_outcome = "BLOCKED_GALLERY"
+        employee_id = None
+        similarity = None
+    else:
+        result = state.face_pipeline.verify(pixels, gallery=gallery_pairs)
+        match_outcome = result.outcome.value
+        # Pseudonymous for shadow: only return employee_id when not gated
+        employee_id = result.employee_id if not gated else None
+        similarity = result.similarity
     return {
         "shadow": True,
         "authoritative": False,
@@ -860,19 +1044,28 @@ def live_observe_shadow(
         "clock_trust": fr.clock_trust.value,
         "receive_time_utc": fr.receive_time_utc.isoformat(),
         "pixel_sha256": fr.pixel_sha256,
-        "match_outcome": result.outcome.value,
-        "employee_id": result.employee_id,
-        "similarity": result.similarity,
+        "match_outcome": match_outcome,
+        "employee_id": employee_id,
+        "similarity": similarity,
+        "gallery_status": gallery_status,
+        "gallery_count": gallery_count,
         "operator": user.username,
         "note_vi": (
             "Quan sát bóng từ khung LIVE đã xác minh nguồn. "
-            "Chưa ghi công chính thức — CAMERA_LAB/FACE_PILOT vẫn BLOCKED trừ khi có phê duyệt vật lý."
+            "Chưa ghi công chính thức — cần CAMERA_LAB + FACE_PILOT đã ký (không tin cờ cấu hình)."
             if gated
-            else "Cổng lab đã bật trong cấu hình — vẫn cần kiểm chứng chủ sở hữu trước production."
+            else "Đã có phê duyệt đã ký — vẫn chỉ shadow; không ghi AM/PM chính thức tại endpoint này."
         ),
-        "camera_lab_pass": bool(state.settings.camera_lab_pass),
-        "would_reject_unknown": result.outcome
-        in {MatchOutcome.UNKNOWN, MatchOutcome.AMBIGUOUS, MatchOutcome.NO_FACE},
+        "camera_lab_pass": lab_ok,
+        "face_pilot_pass": pilot_ok,
+        "settings_flag_camera_lab": bool(state.settings.camera_lab_pass),
+        "would_reject_unknown": match_outcome
+        in {
+            MatchOutcome.UNKNOWN.value,
+            MatchOutcome.AMBIGUOUS.value,
+            MatchOutcome.NO_FACE.value,
+            "BLOCKED_GALLERY",
+        },
     }
 
 

@@ -119,6 +119,7 @@ def test_auto_real_camera_blocked(app_client):
         headers=headers,
         json={"code": "NV-AUTO-LIVE", "full_name": "Live Auto"},
     ).json()
+    # Missing camera_id fails closed before CAMERA_LAB lookup
     r = client.post(
         f"/api/v1/employees/{emp['id']}/enrollment/auto/start",
         headers=headers,
@@ -128,8 +129,25 @@ def test_auto_real_camera_blocked(app_client):
             "source": "REAL_CAMERA",
         },
     )
-    assert r.status_code == 503
-    assert r.json()["detail"]["code"] == "CAMERA_LAB_BLOCKED"
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "CAMERA_ID_REQUIRED"
+    cam = client.post(
+        "/api/v1/cameras",
+        headers=headers,
+        json={"name": "LiveNeedLab", "host": "192.168.1.77", "mock_mode": False, "enabled": True},
+    ).json()
+    r2 = client.post(
+        f"/api/v1/employees/{emp['id']}/enrollment/auto/start",
+        headers=headers,
+        json={
+            "authorization_ref": "X",
+            "authorization_ack_vi": "Xác nhận đủ dài cho kiểm thử.",
+            "source": "REAL_CAMERA",
+            "camera_id": cam["id"],
+        },
+    )
+    assert r2.status_code == 503
+    assert r2.json()["detail"]["code"] == "CAMERA_LAB_BLOCKED"
 
 
 def test_body_geometry_blocked_honest(app_client):

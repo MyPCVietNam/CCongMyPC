@@ -1,15 +1,23 @@
-"""Server-owned signed pilot / AUTO_VALIDATED approvals — never JSON-only claims."""
+"""Server-owned signed pilot / AUTO_VALIDATED approvals — evidence-backed, SQLite-safe HMAC."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.secret_bootstrap import sign_approval_payload, verify_approval_signature
+from app.core.utc_time import (
+    AmbiguousTimestampError,
+    canonical_utc_z,
+    parse_canonical_utc_z,
+    to_utc_aware,
+    utc_now,
+)
 from app.models.entities import PilotApprovalRecord
 
 
@@ -21,20 +29,38 @@ class ApprovalView:
     expires_at: datetime | None
     valid: bool
     reason_vi: str
+    code: str = "OK"
 
 
-def _canonical_payload(row: PilotApprovalRecord) -> str:
-    body = {
-        "approval_id": row.approval_id,
-        "kind": row.kind,
-        "camera_id": row.camera_id,
-        "model_hash_pin": row.model_hash_pin,
-        "gallery_revision_pin": row.gallery_revision_pin,
-        "threshold_id_pin": row.threshold_id_pin,
-        "ab_run_id": row.ab_run_id,
-        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
-        "issued_by": row.issued_by,
+def _canonical_dict(
+    *,
+    approval_id: str,
+    kind: str,
+    camera_id: int | None,
+    model_hash_pin: str,
+    gallery_revision_pin: str,
+    threshold_id_pin: str,
+    ab_run_id: str,
+    expires_at: datetime | None,
+    issued_by: str,
+    issued_at: datetime | None = None,
+) -> dict[str, Any]:
+    return {
+        "approval_id": approval_id,
+        "kind": kind,
+        "camera_id": camera_id,
+        "model_hash_pin": model_hash_pin,
+        "gallery_revision_pin": gallery_revision_pin,
+        "threshold_id_pin": threshold_id_pin,
+        "ab_run_id": ab_run_id,
+        "expires_at": canonical_utc_z(expires_at) if expires_at is not None else None,
+        "issued_at": canonical_utc_z(issued_at) if issued_at is not None else None,
+        "issued_by": issued_by,
+        "v": 2,  # canonical format version (Zulu)
     }
+
+
+def _canonical_text(body: dict[str, Any]) -> str:
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -51,16 +77,38 @@ def issue_approval(
     ab_run_id: str = "",
     ttl_hours: int = 24 * 30,
     note_vi: str = "",
+    clock: datetime | None = None,
 ) -> PilotApprovalRecord:
     if kind not in {"CAMERA_LAB", "FACE_PILOT", "AUTO_VALIDATED"}:
         raise ValueError("Loại phê duyệt không hợp lệ")
     if not (model_hash_pin and gallery_revision_pin and threshold_id_pin):
-        raise ValueError("Thiếu hash pin model/gallery/threshold")
+        raise ValueError("Thiếu hash pin model/gallery/threshold (server-derived).")
+    if kind == "AUTO_VALIDATED" and not (ab_run_id or "").strip():
+        raise ValueError("AUTO_VALIDATED yêu cầu ab_run_id từ chạy A/B server.")
+    if camera_id is None and kind in {"CAMERA_LAB", "FACE_PILOT", "AUTO_VALIDATED"}:
+        raise ValueError("Phê duyệt phải gắn camera_id cụ thể.")
     import uuid
 
-    now = datetime.now(timezone.utc)
+    now = clock or utc_now()
+    now = to_utc_aware(now) or utc_now()
+    expires = now + timedelta(hours=ttl_hours)
+    approval_id = str(uuid.uuid4())
+    body = _canonical_dict(
+        approval_id=approval_id,
+        kind=kind,
+        camera_id=camera_id,
+        model_hash_pin=model_hash_pin,
+        gallery_revision_pin=gallery_revision_pin,
+        threshold_id_pin=threshold_id_pin,
+        ab_run_id=ab_run_id or "",
+        expires_at=expires,
+        issued_by=issued_by,
+        issued_at=now,
+    )
+    payload = _canonical_text(body)
+    signature = sign_approval_payload(secret_key, payload)
     row = PilotApprovalRecord(
-        approval_id=str(uuid.uuid4()),
+        approval_id=approval_id,
         kind=kind,
         camera_id=camera_id,
         model_hash_pin=model_hash_pin,
@@ -69,14 +117,12 @@ def issue_approval(
         ab_run_id=ab_run_id or "",
         issued_by=issued_by,
         issued_at=now,
-        expires_at=now + timedelta(hours=ttl_hours),
-        signature="",
+        expires_at=expires,
+        signature=signature,
         revoked=False,
         note_vi=note_vi,
-        payload_json="{}",
+        payload_json=payload,
     )
-    row.signature = sign_approval_payload(secret_key, _canonical_payload(row))
-    row.payload_json = _canonical_payload(row)
     db.add(row)
     db.flush()
     return row
@@ -91,8 +137,30 @@ def verify_active_approval(
     model_hash_pin: str | None = None,
     gallery_revision_pin: str | None = None,
     threshold_id_pin: str | None = None,
+    require_pins: bool = True,
+    require_camera_id: bool = True,
+    clock: datetime | None = None,
 ) -> ApprovalView | None:
-    now = datetime.now(timezone.utc)
+    """
+    Fail closed: missing pins/camera when required → DENIED (not skip).
+    HMAC verified against stored payload_json (stable across SQLite rehydration).
+    """
+    now = to_utc_aware(clock) or utc_now()
+    if require_camera_id and camera_id is None:
+        return ApprovalView(
+            "", kind, None, None, False, "Thiếu camera_id khi xác minh phê duyệt.", "DENIED_NO_CAMERA"
+        )
+    if require_pins and not (model_hash_pin and gallery_revision_pin and threshold_id_pin):
+        return ApprovalView(
+            "",
+            kind,
+            camera_id,
+            None,
+            False,
+            "Thiếu pin model/gallery/threshold — từ chối (fail-closed).",
+            "DENIED_MISSING_PINS",
+        )
+
     q = select(PilotApprovalRecord).where(
         PilotApprovalRecord.kind == kind,
         PilotApprovalRecord.revoked.is_(False),
@@ -101,24 +169,33 @@ def verify_active_approval(
         q = q.where(PilotApprovalRecord.camera_id == camera_id)
     rows = list(db.scalars(q.order_by(PilotApprovalRecord.id.desc())).all())
     for row in rows:
-        if row.expires_at and row.expires_at < now:
+        payload = row.payload_json or ""
+        if not payload or not verify_approval_signature(secret_key, payload, row.signature or ""):
+            # Legacy v1 recomputed isoformat payloads will fail — fail closed (reissue required)
             continue
-        if model_hash_pin and row.model_hash_pin != model_hash_pin:
+        try:
+            data = json.loads(payload)
+            exp = parse_canonical_utc_z(data.get("expires_at"))
+        except (json.JSONDecodeError, AmbiguousTimestampError, TypeError):
             continue
-        if gallery_revision_pin and row.gallery_revision_pin != gallery_revision_pin:
+        if exp is not None and exp <= now:
             continue
-        if threshold_id_pin and row.threshold_id_pin != threshold_id_pin:
+        if model_hash_pin and data.get("model_hash_pin") != model_hash_pin:
             continue
-        payload = _canonical_payload(row)
-        if not verify_approval_signature(secret_key, payload, row.signature):
+        if gallery_revision_pin and data.get("gallery_revision_pin") != gallery_revision_pin:
+            continue
+        if threshold_id_pin and data.get("threshold_id_pin") != threshold_id_pin:
+            continue
+        if camera_id is not None and data.get("camera_id") != camera_id:
             continue
         return ApprovalView(
             approval_id=row.approval_id,
             kind=row.kind,
             camera_id=row.camera_id,
-            expires_at=row.expires_at,
+            expires_at=exp,
             valid=True,
-            reason_vi="Phê duyệt server còn hiệu lực.",
+            reason_vi="Phê duyệt server còn hiệu lực (HMAC + UTC Zulu).",
+            code="OK",
         )
     return None
 
@@ -137,3 +214,18 @@ def revoke_approvals(
         row.note_vi = (row.note_vi or "") + f" | REVOKED:{reason}"
         n += 1
     return n
+
+
+def derive_server_pins(
+    *,
+    model_hash: str,
+    gallery_revision: str,
+    threshold_id: str,
+) -> dict[str, str]:
+    if not (model_hash and gallery_revision and threshold_id):
+        raise ValueError("Không suy ra được pin server (thiếu model/gallery/threshold).")
+    return {
+        "model_hash_pin": model_hash,
+        "gallery_revision_pin": gallery_revision,
+        "threshold_id_pin": threshold_id,
+    }
