@@ -17,6 +17,7 @@ AUDIT_READ = "AUDIT_READ"
 ATTENDANCE_READ = "ATTENDANCE_READ"
 ATTENDANCE_CORRECT = "ATTENDANCE_CORRECT"
 MODEL_MANAGE = "MODEL_MANAGE"
+PILOT_APPROVE = "PILOT_APPROVE"  # signed CAMERA_LAB / AUTO_VALIDATED approvals only
 
 ROLE_DEFAULTS: dict[str, set[str]] = {
     "SYSTEM_ADMIN": {
@@ -28,6 +29,7 @@ ROLE_DEFAULTS: dict[str, set[str]] = {
         AUDIT_READ,
         ATTENDANCE_READ,
         MODEL_MANAGE,
+        PILOT_APPROVE,
         # NOTE: SYSTEM_ADMIN does NOT get TIMEKEEPER_APPROVE by default
         # NOTE: DEMO_MOCK_INGEST only when demo mode enabled + explicit grant
     },

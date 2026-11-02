@@ -78,6 +78,9 @@ def validate_camera_host(host: str, *, allow_empty: bool = True) -> str:
         raise ValidationErrorVi("Không cho phép host loopback/metadata")
     try:
         ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
         if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
             raise ValidationErrorVi("Không cho phép địa chỉ loopback/link-local/multicast")
         if ip.is_private:
@@ -86,9 +89,7 @@ def validate_camera_host(host: str, *, allow_empty: bool = True) -> str:
         raise ValidationErrorVi(
             "Chỉ cho phép địa chỉ LAN riêng (RFC1918). IP công cộng bị chặn để chống SSRF."
         )
-    except ValueError:
-        pass
-    # Hostname path
+    # Hostname path (ValidationErrorVi must NOT be swallowed by bare except ValueError)
     if not _HOSTNAME_RE.match(host):
         raise ValidationErrorVi("Hostname camera không hợp lệ")
     if lower.endswith(".local") or host.startswith(_PRIVATE_OK_PREFIXES):

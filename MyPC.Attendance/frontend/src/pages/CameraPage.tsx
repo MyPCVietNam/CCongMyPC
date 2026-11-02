@@ -140,8 +140,10 @@ export function CameraPage() {
         method: "POST",
         body: "{}",
       });
+      const paired = (r as { paired?: { blockers?: string[]; status?: string } }).paired;
       setAnalyzeMsg(
-        `${r.note_vi} · gốc giữ nguyên=${r.original_unchanged ? "có" : "không"} · ${r.enhancement_status} · ${r.applied_methods.join(",") || "không xử lý"}`
+        `${r.note_vi} · gốc giữ nguyên=${r.original_unchanged ? "có" : "không"} · ${r.enhancement_status} · ${r.applied_methods.join(",") || "không xử lý"}` +
+          (paired ? ` · paired=${paired.status || "?"} blockers=${(paired.blockers || []).join("|") || "không"}` : "")
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi");
@@ -172,12 +174,18 @@ export function CameraPage() {
   async function exportReport() {
     if (selected == null) return;
     try {
-      const r = await api<Record<string, unknown>>(
-        `/api/v1/cameras/${selected}/quality/report`
-      );
-      setAnalyzeMsg(
-        `Báo cáo đã ẩn thông tin nhạy cảm · label=${String(r.diagnostic_label)} · lab=${String(r.camera_lab_pass)}`
-      );
+      const res = await fetch(`/api/v1/cameras/${selected}/quality/report?download=true`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Không xuất được báo cáo");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mypc-camera-${selected}-quality-report.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setAnalyzeMsg("Đã tải báo cáo JSON đã ẩn thông tin nhạy cảm.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi");
     }
@@ -373,7 +381,7 @@ export function CameraPage() {
               onClick={analyzeOnce}
               className="rounded-md border border-line px-3 py-1.5 text-sm"
             >
-              So sánh nhận diện (shadow)
+              So sánh nhận diện gốc/xử lý (shadow)
             </button>
             <button
               type="button"

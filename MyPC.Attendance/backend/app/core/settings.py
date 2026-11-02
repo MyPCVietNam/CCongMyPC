@@ -77,8 +77,14 @@ class AppSettings(BaseSettings):
     allow_mock_observation: bool = False
     data_dir: Path = Path("./data")
     database_url: str = ""
-    secret_key: str = "dev-only-change-me-in-production-32b"
+    # Empty by default — create_app loads/creates persistent CSPRNG secret under data_dir.
+    # Historic weak default MUST NOT be used as production signer.
+    secret_key: str = ""
     session_max_age_seconds: int = 60 * 60 * 8
+    # Owner-signed gates (server records); never invent PASS from TCP alone
+    camera_lab_pass: bool = False
+    face_pilot_pass: bool = False
+    allow_live_enrollment_staging: bool = False  # requires signed pilot approval object
     bootstrap_password: str = ""  # only for first-run / tests via env
     bootstrap_username: str = "admin"
     require_password_change: bool = True

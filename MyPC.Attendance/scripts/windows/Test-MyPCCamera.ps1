@@ -55,7 +55,8 @@ foreach ($pair in @(@{n="tcp_onvif"; p=$OnvifPort}, @{n="tcp_rtsp"; p=$RtspPort}
 
 Add-Step "onvif_auth" "BLOCKED" "Nhập credential trong Cài đặt camera của ứng dụng (không ghi mật khẩu vào JSON này)."
 Add-Step "rtsp_uri" "BLOCKED" "Cấu hình RTSP URI trong app (KHÔNG nhúng mật khẩu vào URI). Dùng /api/v1/cameras/gateway/live/configure — response chỉ có diagnostic_label REDACTED."
-Add-Step "rtsp_decode" "BLOCKED" "TCP PASS ≠ RTSP decode. CAMERA_LAB_PASS chỉ khi giải mã khung hình thật trên máy Windows này (ffmpeg/OpenCV)."
+Add-Step "rtsp_decode" "BLOCKED" "TCP PASS ≠ RTSP decode. Gọi app API /gateway/health + /preview sau khi gắn LIVE; CAMERA_LAB_PASS chỉ khi giải mã khung hình thật và chủ sở hữu ký."
+Add-Step "app_api_decode" "BLOCKED" "Khi backend chạy localhost: dùng phiên đăng nhập để đọc DECODED_MEASURED/FPS/frame_age — không tin TCP."
 Add-Step "native_resolution" "BLOCKED" "Ghi DECODED_MEASURED width×height từ frame.shape (VENDOR_SPEC 2880×1620 không phải bằng chứng LIVE)."
 Add-Step "face_pixel_quality" "BLOCKED" "Đo face width / inter-eye trên pixel gốc; không phóng to 2×/4× rồi tuyên bố đạt cổng ≥120px."
 Add-Step "auto_enhance_shadow" "BLOCKED" "Chế độ hiệu lực mặc định AUTO_TEST_ONLY — ảnh gốc chính thức; enhanced chỉ A/B bóng đến khi pilot LIVE phê duyệt."

@@ -38,7 +38,7 @@ def app_client(tmp_path, frozen_clock):
     settings = AppSettings(
         data_dir=tmp_path / "data",
         models_dir=tmp_path / "models",
-        secret_key="test-secret-key-32-bytes-minimum!!",
+        secret_key="unit-test-csprng-secret-key-not-for-production-use-9f3a",
         bootstrap_username="admin",
         bootstrap_password="TestAdminPass!234",
         require_password_change=False,
@@ -68,7 +68,7 @@ def prod_client(tmp_path, frozen_clock):
     settings = AppSettings(
         data_dir=tmp_path / "prod-data",
         models_dir=tmp_path / "prod-models",
-        secret_key="test-secret-key-32-bytes-minimum!!",
+        secret_key="prod-test-csprng-secret-key-not-default-aaaaaaaaaaaaaaaa",
         bootstrap_username="admin",
         bootstrap_password="TestAdminPass!234",
         require_password_change=False,

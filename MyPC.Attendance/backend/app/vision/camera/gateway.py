@@ -46,24 +46,93 @@ class ClockTrust(str, Enum):
 
 @dataclass(frozen=True)
 class CameraFrame:
+    """Immutable decoded BGR: pixels held as raw bytes (not a writable ndarray alias)."""
+
     frame_id: str
     camera_id: str
-    bgr: np.ndarray
     width: int
     height: int
     capture_time_utc: datetime
     receive_time_utc: datetime
     provenance: StreamProvenance
     decoder_status: DecoderStatus
+    _pixels: bytes = field(repr=False, compare=False)
     estimated_skew_ms: float = 0.0
     source_event_id: str = ""
     config_revision: str = ""
     clock_trust: ClockTrust = ClockTrust.SERVER_RECEIVE
     pixel_sha256: str = ""
+    receive_monotonic: float = 0.0
+
+    @staticmethod
+    def from_bgr(
+        bgr: np.ndarray,
+        *,
+        frame_id: str,
+        camera_id: str,
+        capture_time_utc: datetime,
+        receive_time_utc: datetime,
+        provenance: StreamProvenance,
+        decoder_status: DecoderStatus,
+        estimated_skew_ms: float = 0.0,
+        source_event_id: str = "",
+        config_revision: str = "",
+        clock_trust: ClockTrust = ClockTrust.SERVER_RECEIVE,
+        receive_monotonic: float | None = None,
+    ) -> "CameraFrame":
+        if not isinstance(bgr, np.ndarray) or bgr.dtype != np.uint8 or bgr.ndim != 3 or bgr.shape[2] != 3:
+            raise ValueError("expected uint8 HxWx3 BGR")
+        h, w = int(bgr.shape[0]), int(bgr.shape[1])
+        raw = np.ascontiguousarray(bgr).tobytes()
+        import hashlib
+
+        digest = hashlib.sha256(raw).hexdigest()
+        return CameraFrame(
+            frame_id=frame_id,
+            camera_id=camera_id,
+            width=w,
+            height=h,
+            capture_time_utc=capture_time_utc,
+            receive_time_utc=receive_time_utc,
+            provenance=provenance,
+            decoder_status=decoder_status,
+            _pixels=raw,
+            estimated_skew_ms=estimated_skew_ms,
+            source_event_id=source_event_id,
+            config_revision=config_revision,
+            clock_trust=clock_trust,
+            pixel_sha256=digest,
+            receive_monotonic=float(receive_monotonic if receive_monotonic is not None else time.monotonic()),
+        )
+
+    @property
+    def bgr(self) -> np.ndarray:
+        """Read-only view over immutable bytes — setflags(write=True) cannot alias-mutate storage."""
+        arr = np.frombuffer(self._pixels, dtype=np.uint8).reshape(self.height, self.width, 3)
+        return arr
 
     def clone_pixels(self) -> np.ndarray:
-        """Always return an owned writable copy for consumers."""
-        return np.array(self.bgr, copy=True, order="C")
+        """Owned writable copy for preview/enhance/align consumers."""
+        return np.frombuffer(self._pixels, dtype=np.uint8).reshape(self.height, self.width, 3).copy()
+
+    def with_status(self, status: DecoderStatus) -> "CameraFrame":
+        return CameraFrame(
+            frame_id=self.frame_id,
+            camera_id=self.camera_id,
+            width=self.width,
+            height=self.height,
+            capture_time_utc=self.capture_time_utc,
+            receive_time_utc=self.receive_time_utc,
+            provenance=self.provenance,
+            decoder_status=status,
+            _pixels=self._pixels,
+            estimated_skew_ms=self.estimated_skew_ms,
+            source_event_id=self.source_event_id,
+            config_revision=self.config_revision,
+            clock_trust=self.clock_trust,
+            pixel_sha256=self.pixel_sha256,
+            receive_monotonic=self.receive_monotonic,
+        )
 
 
 @dataclass
@@ -80,20 +149,8 @@ class GatewayHealth:
     last_frame_at: datetime | None = None
     detail_vi: str = ""
     camera_lab_pass: bool = False
+    operationally_ready: bool = False  # False when STALE/OFFLINE/RECONNECTING
     extras: dict[str, Any] = field(default_factory=dict)
-
-
-def _sha256_pixels(arr: np.ndarray) -> str:
-    import hashlib
-
-    return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()
-
-
-def _seal(arr: np.ndarray) -> np.ndarray:
-    """Own + read-only view (consumers must clone_pixels to mutate)."""
-    owned = np.array(arr, copy=True, order="C")
-    owned.setflags(write=False)
-    return owned
 
 
 class CameraGateway(ABC):
@@ -130,14 +187,11 @@ class MockFrameGateway(CameraGateway):
             return None
         self._idx += 1
         img = np.full((self.height, self.width, 3), 40 + (self._idx % 80), dtype=np.uint8)
-        sealed = _seal(img)
         now = datetime.now(timezone.utc)
-        return CameraFrame(
+        return CameraFrame.from_bgr(
+            img,
             frame_id=str(uuid.uuid4()),
             camera_id=self.camera_id,
-            bgr=sealed,
-            width=self.width,
-            height=self.height,
             capture_time_utc=now,
             receive_time_utc=now,
             provenance=StreamProvenance.MOCK,
@@ -145,17 +199,18 @@ class MockFrameGateway(CameraGateway):
             source_event_id=f"mock-{self._idx}",
             config_revision=self.config_revision,
             clock_trust=ClockTrust.SERVER_RECEIVE,
-            pixel_sha256=_sha256_pixels(sealed),
         )
 
     def health(self) -> GatewayHealth:
+        ok = self._running
         return GatewayHealth(
             provenance=StreamProvenance.MOCK,
-            decoder_status=DecoderStatus.OK if self._running else DecoderStatus.OFFLINE,
+            decoder_status=DecoderStatus.OK if ok else DecoderStatus.OFFLINE,
             native_width=self.width,
             native_height=self.height,
             detail_vi="Chế độ MOCK — không phải camera thật; CAMERA_LAB_PASS=false.",
             camera_lab_pass=False,
+            operationally_ready=False,  # MOCK never operational LIVE
         )
 
 
@@ -191,22 +246,17 @@ class AuthorizedRecordedVideoGateway(CameraGateway):
             ok, frame = self._cap.read()
             if not ok or frame is None:
                 return None
-        sealed = _seal(frame)
         now = datetime.now(timezone.utc)
-        h, w = sealed.shape[:2]
-        return CameraFrame(
+        return CameraFrame.from_bgr(
+            frame,
             frame_id=str(uuid.uuid4()),
             camera_id=self.camera_id,
-            bgr=sealed,
-            width=w,
-            height=h,
             capture_time_utc=now,
             receive_time_utc=now,
             provenance=StreamProvenance.AUTHORIZED_RECORDED,
             decoder_status=DecoderStatus.OK,
             config_revision=self.config_revision,
             clock_trust=ClockTrust.SERVER_RECEIVE,
-            pixel_sha256=_sha256_pixels(sealed),
         )
 
     def health(self) -> GatewayHealth:
@@ -216,6 +266,7 @@ class AuthorizedRecordedVideoGateway(CameraGateway):
             decoder_status=DecoderStatus.OK if ok else DecoderStatus.OFFLINE,
             detail_vi="Video ghi hình được ủy quyền — không phải luồng LIVE.",
             camera_lab_pass=False,
+            operationally_ready=False,
         )
 
 
@@ -334,15 +385,12 @@ class LiveRTSPGateway(CameraGateway):
                 self._status = DecoderStatus.RECONNECTING
                 self._release()
                 continue
-            sealed = _seal(frame)
-            h, w = sealed.shape[:2]
+            h, w = frame.shape[:2]
             self._native = (w, h)  # DECODED_MEASURED
-            fr = CameraFrame(
+            fr = CameraFrame.from_bgr(
+                frame,
                 frame_id=str(uuid.uuid4()),
                 camera_id=self.camera_id,
-                bgr=sealed,
-                width=w,
-                height=h,
                 capture_time_utc=recv,  # SERVER_RECEIVE — not device PTS
                 receive_time_utc=recv,
                 provenance=StreamProvenance.CAMERA_LIVE,
@@ -350,7 +398,7 @@ class LiveRTSPGateway(CameraGateway):
                 source_event_id=str(uuid.uuid4()),
                 config_revision=self.config_revision,
                 clock_trust=ClockTrust.SERVER_RECEIVE,
-                pixel_sha256=_sha256_pixels(sealed),
+                receive_monotonic=recv_mono,
             )
             with self._lock:
                 if self._latest is not None:
@@ -365,36 +413,25 @@ class LiveRTSPGateway(CameraGateway):
             if fr is None:
                 return None
             age = (datetime.now(timezone.utc) - fr.receive_time_utc).total_seconds()
-            # Return sealed reference; consumers use clone_pixels() to mutate
             if age > self._stale_after:
-                return CameraFrame(
-                    frame_id=fr.frame_id,
-                    camera_id=fr.camera_id,
-                    bgr=fr.bgr,
-                    width=fr.width,
-                    height=fr.height,
-                    capture_time_utc=fr.capture_time_utc,
-                    receive_time_utc=fr.receive_time_utc,
-                    provenance=fr.provenance,
-                    decoder_status=DecoderStatus.STALE,
-                    estimated_skew_ms=fr.estimated_skew_ms,
-                    source_event_id=fr.source_event_id,
-                    config_revision=fr.config_revision,
-                    clock_trust=fr.clock_trust,
-                    pixel_sha256=fr.pixel_sha256,
-                )
+                return fr.with_status(DecoderStatus.STALE)
             return fr
 
     def health(self) -> GatewayHealth:
         with self._lock:
             last = self._latest.receive_time_utc if self._latest else None
             status = self._status
+            if self._latest is not None:
+                age = (datetime.now(timezone.utc) - self._latest.receive_time_utc).total_seconds()
+                if age > self._stale_after:
+                    status = DecoderStatus.STALE
             overwritten = self._overwritten_latest
             decode_errors = self._decode_errors
             reconnects = self._reconnects
             w, h = self._native
             fps = self._measured_fps()
             hint = self._cap_prop_hint
+        ready = status == DecoderStatus.OK and bool(w and h)
         return GatewayHealth(
             provenance=StreamProvenance.CAMERA_LIVE,
             decoder_status=status,
@@ -412,6 +449,7 @@ class LiveRTSPGateway(CameraGateway):
                 "URI đầy đủ không xuất trong diagnostics."
             ),
             camera_lab_pass=False,
+            operationally_ready=ready,
             extras={
                 "size_source": "DECODED_MEASURED" if w and h else "UNVERIFIED",
                 "cap_prop_hint_wh": list(hint),
@@ -419,6 +457,7 @@ class LiveRTSPGateway(CameraGateway):
                 "decode_errors": decode_errors,
                 "clock_trust": ClockTrust.SERVER_RECEIVE.value,
                 "diagnostic_uri": "REDACTED",
+                "operationally_ready": ready,
             },
         )
 

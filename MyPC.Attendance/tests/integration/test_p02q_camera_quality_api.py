@@ -48,6 +48,8 @@ def test_mock_preview_uses_registry_and_quality_endpoints(app_client):
     assert an.status_code == 200, an.text
     assert an.json()["original_unchanged"] is True
     assert an.json()["effective_mode"] == "AUTO_TEST_ONLY"
+    assert an.json().get("paired") is not None
+    assert an.json()["paired"].get("can_auto_enable_enhancement") is False
 
     # LIVE configure must reject credential-in-URI
     bad = client.post(

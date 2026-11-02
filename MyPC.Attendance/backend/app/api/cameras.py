@@ -168,7 +168,7 @@ def gateway_health(
     _: Annotated[dict[str, Any], Depends(get_current_user)],
     camera_id: int | None = None,
 ) -> dict:
-    """P02-HF registry health — never claims CAMERA_LAB_PASS without lab evidence."""
+    """Registry health — ready≠STALE; never claims CAMERA_LAB_PASS without signed lab evidence."""
     reg = state.camera_registry
     if reg is None:
         return {
@@ -178,9 +178,8 @@ def gateway_health(
             "code": "GATEWAY_NOT_CONFIGURED",
         }
     payload = reg.health(camera_id)
-    payload["ready"] = any(
-        s.get("decoder_status") in {"OK", "STALE"} for s in payload.get("sources", [])
-    )
+    # operationally_ready already excludes STALE/OFFLINE/MOCK
+    payload["camera_lab_pass"] = bool(state.settings.camera_lab_pass)
     payload["vendor_spec"] = {
         "model": "CS-H8-R100-1J5WKFL",
         "max_resolution_claimed": "2880x1620",
@@ -228,18 +227,33 @@ def configure_live_gateway(
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     if username or password:
-        # Embed only into in-memory capture URI; never return/log
         from urllib.parse import quote
 
+        try:
+            state.secrets.put_camera_secret(camera_db_id, username, password)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "SECRET_STORE_FAILED",
+                    "message_vi": "Không lưu được credential camera — từ chối gắn LIVE không an toàn.",
+                },
+            ) from exc
+        # Embed only into in-memory capture URI; never return/log
         safe_uri = (
             f"{endpoint.scheme}://{quote(username, safe='')}:{quote(password, safe='')}"
             f"@{endpoint.host}:{endpoint.port}{endpoint.path}"
         )
-        # Store encrypted via secrets store if available
-        try:
-            state.secrets.put_camera_secret(camera_db_id, username, password)
-        except Exception:
-            pass
+    else:
+        # Prefer stored secret on reconfigure/restart
+        stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+        if stored and stored.get("username"):
+            from urllib.parse import quote
+
+            safe_uri = (
+                f"{endpoint.scheme}://{quote(stored['username'], safe='')}:{quote(stored.get('password') or '', safe='')}"
+                f"@{endpoint.host}:{endpoint.port}{endpoint.path}"
+            )
 
     if state.camera_registry is None:
         from app.vision.camera.registry import CameraSourceRegistry
@@ -253,6 +267,25 @@ def configure_live_gateway(
     gw.start()
     state.camera_gateway = gw  # legacy pointer
     row.mock_mode = False
+    # Persist binding metadata (no credentials) for restart restore
+    from app.models.entities import CameraLiveBinding
+
+    binding = db.scalar(select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_db_id))
+    now = SystemClock().now_utc()
+    if binding is None:
+        binding = CameraLiveBinding(camera_id=camera_db_id)
+        db.add(binding)
+    binding.scheme = endpoint.scheme
+    binding.host = endpoint.host
+    binding.port = endpoint.port
+    binding.path = endpoint.path
+    binding.profile = profile
+    binding.resolved_ips_json = json.dumps(list(endpoint.resolved_ips))
+    binding.config_revision = bound.config_revision
+    binding.enabled = True
+    binding.updated_at = now
+    if username:
+        row.secret_ref = state.secrets.put_camera_secret(camera_db_id, username, password or "")
     return {
         "ok": True,
         "camera_id": camera_db_id,
@@ -263,6 +296,7 @@ def configure_live_gateway(
             "host": endpoint.host,
             "port": endpoint.port,
             "path_redacted": True,
+            "resolved_ip_count": len(endpoint.resolved_ips),
         },
         "camera_lab_pass": False,
         "message_vi": (
@@ -354,31 +388,39 @@ def preview(
             },
         )
 
-    fr = bound.gateway.get_latest_frame()
-    if fr is None:
+    from app.vision.camera.registry import FrameAccessError
+
+    try:
+        bound, fr = reg.get_frame(
+            camera_id,
+            allow_mock=bound.provenance.value == "MOCK",
+            allow_recorded=bound.provenance.value == "AUTHORIZED_RECORDED",
+            allow_stale=True,  # preview may show STALE with watermark
+            max_age_s=30.0,
+            for_biometric=False,
+        )
+    except FrameAccessError as exc:
         raise HTTPException(
             status_code=503,
             detail={
-                "code": "CAMERA_OFFLINE",
-                "message_vi": "Chưa có khung hình đã giải mã (CAMERA_OFFLINE / đang kết nối lại).",
+                "code": exc.code,
+                "message_vi": exc.message_vi,
                 "camera_lab_pass": False,
-                "config_revision": bound.config_revision,
+                "config_revision": bound.config_revision if bound else None,
             },
-        )
-    if fr.config_revision and fr.config_revision != bound.config_revision:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "STALE_FRAME_REVISION",
-                "message_vi": "Khung hình cũ sau khi đổi cấu hình — đã từ chối.",
-            },
-        )
+        ) from exc
     live = bound.provenance.value == "CAMERA_LIVE"
     source = "REAL_CAMERA" if live else bound.provenance.value
+    stale = fr.decoder_status.value == "STALE"
     indicator = "CAMERA THẬT (LIVE)" if live else (
         "Dữ liệu mô phỏng" if bound.provenance.value == "MOCK" else "Video ghi hình được ủy quyền"
     )
-    return _preview_from_frame(fr, live=live, source=source, indicator_vi=indicator)
+    if stale:
+        indicator = f"{indicator} — STALE (chỉ xem, không nhận diện)"
+    out = _preview_from_frame(fr, live=live and not stale, source=source, indicator_vi=indicator)
+    out["stale"] = stale
+    out["operationally_ready"] = live and not stale and fr.decoder_status.value == "OK"
+    return out
 
 
 @router.get("/{camera_id}/quality/diagnostics")
@@ -391,10 +433,13 @@ def quality_diagnostics(
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    from app.models.entities import CameraQualitySettings
+
     reg = state.camera_registry
     bound = reg.get(camera_id) if reg else None
     h = bound.gateway.health() if bound else None
     fr = bound.gateway.get_latest_frame() if bound else None
+    qs = db.scalar(select(CameraQualitySettings).where(CameraQualitySettings.camera_id == camera_id))
     return {
         "camera_id": camera_id,
         "vendor_spec": {
@@ -414,15 +459,17 @@ def quality_diagnostics(
             "clock_trust": fr.clock_trust.value if fr else None,
             "frame_id": fr.frame_id if fr else None,
             "pixel_sha256": fr.pixel_sha256 if fr else None,
+            "operationally_ready": bool(getattr(h, "operationally_ready", False)) if h else False,
         },
         "browser_preview": {"note_vi": "Preview đã resize — không dùng làm native gate."},
         "auto_enhance": {
-            "requested": "Tự động",
-            "effective": "AUTO_TEST_ONLY",
-            "note_vi": "Ảnh gốc là quyết định chính thức; enhanced chỉ shadow A/B cho đến khi pilot LIVE phê duyệt.",
+            "requested": qs.requested_mode if qs else "AUTO",
+            "effective": qs.effective_mode if qs else "AUTO_TEST_ONLY",
+            "reverted_reason": qs.reverted_reason if qs else None,
+            "note_vi": "Ảnh gốc là quyết định chính thức; enhanced chỉ shadow A/B cho đến khi có phê duyệt server đã ký.",
         },
-        "camera_lab_pass": False,
-        "face_pilot_pass": False,
+        "camera_lab_pass": bool(state.settings.camera_lab_pass),
+        "face_pilot_pass": bool(state.settings.face_pilot_pass),
         "config_revision": bound.config_revision if bound else None,
         "provenance": bound.provenance.value if bound else None,
     }
@@ -435,37 +482,42 @@ def analyze_once(
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
-    """Run conservative enhancement on a *copy* of current frame; original hash must stay stable."""
-    from app.vision.faces.adaptive_quality import trial_enhance_copy
+    """Paired ORIGINAL vs ENHANCED recognition on registry frame copy; original bytes immutable."""
+    from app.vision.camera.registry import FrameAccessError
+    from app.vision.faces.paired_inference import run_paired_recognition
 
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
     reg = state.camera_registry
-    bound = reg.get(camera_id) if reg else None
-    if bound is None:
+    if reg is None:
         raise HTTPException(status_code=503, detail="Chưa có nguồn khung hình")
-    fr = bound.gateway.get_latest_frame()
-    if fr is None:
-        raise HTTPException(status_code=503, detail="Chưa có khung hình")
+    bound0 = reg.get(camera_id)
+    try:
+        bound, fr = reg.get_frame(
+            camera_id,
+            allow_mock=bool(bound0 and bound0.provenance.value == "MOCK"),
+            allow_recorded=True,
+            allow_stale=False,
+            for_biometric=False,
+            max_age_s=5.0,
+        )
+    except FrameAccessError as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}) from exc
     original_hash = fr.pixel_sha256
     owned = fr.clone_pixels()
-    trial = trial_enhance_copy(owned)
-    # Prove original sealed buffer unchanged
-    import hashlib
-
-    import numpy as np
-
-    still = hashlib.sha256(np.ascontiguousarray(fr.bgr).tobytes()).hexdigest()
+    gallery: list = []
+    paired = run_paired_recognition(owned, pipeline=state.face_pipeline, gallery=gallery)
+    still = fr.pixel_sha256
     return {
         "original_pixel_sha256": original_hash,
         "original_unchanged": still == original_hash,
-        "enhancement_status": trial.status,
-        "applied_methods": list(trial.applied_methods),
-        "quality_flags": list(trial.quality_flags),
-        "processing_ms": trial.processing_ms,
+        "paired": paired,
+        "enhancement_status": paired.get("enhancement_status"),
+        "applied_methods": paired.get("applied_methods") or [],
         "effective_mode": "AUTO_TEST_ONLY",
-        "note_vi": "Kết quả enhanced chỉ để so sánh bóng — không kích hoạt AUTO_VALIDATED.",
+        "note_vi": paired.get("note_vi")
+        or "So sánh nhận diện gốc/xử lý (shadow) — không kích hoạt AUTO_VALIDATED.",
         "camera_lab_pass": False,
     }
 
@@ -519,26 +571,58 @@ def put_quality_settings(
     camera_id: int,
     body: dict[str, Any],
     db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
     """Transactional settings apply. Never silently promotes to AUTO_VALIDATED."""
     from app.models.entities import CameraQualitySettings
     from app.vision.faces.adaptive_quality import effective_auto_mode
+    from app.services.pilot_approval import revoke_approvals, verify_active_approval
 
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+
     requested = str(body.get("requested_mode") or "AUTO")
     force_revert = bool(body.get("revert"))
-    # Explicit validated=True in body alone is insufficient — require prior pin + admin flag
-    allow_validated = bool(body.get("admin_confirm_live_pilot")) and bool(
-        body.get("model_hash_pin") and body.get("gallery_revision_pin") and body.get("threshold_id_pin")
-    )
+    # JSON-only admin_confirm_live_pilot is REJECTED — require HMAC-signed server approval
+    if body.get("admin_confirm_live_pilot"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "UNSIGNED_APPROVAL_REJECTED",
+                "message_vi": (
+                    "Không thể bật AUTO_VALIDATED bằng cờ JSON. "
+                    "Cần bản ghi phê duyệt server đã ký (PILOT_APPROVE)."
+                ),
+            },
+        )
+    pins = {
+        "model_hash_pin": str(body.get("model_hash_pin") or ""),
+        "gallery_revision_pin": str(body.get("gallery_revision_pin") or ""),
+        "threshold_id_pin": str(body.get("threshold_id_pin") or ""),
+    }
+    approval = None
+    if not force_revert and requested.upper() in {"AUTO_VALIDATED", "AUTO"}:
+        approval = verify_active_approval(
+            db,
+            secret_key=state.settings.secret_key,
+            kind="AUTO_VALIDATED",
+            camera_id=camera_id,
+            model_hash_pin=pins["model_hash_pin"] or None,
+            gallery_revision_pin=pins["gallery_revision_pin"] or None,
+            threshold_id_pin=pins["threshold_id_pin"] or None,
+        )
+    allow_validated = approval is not None and approval.valid
     mode = effective_auto_mode(
-        requested, validated=allow_validated and not force_revert, reverted=force_revert
+        requested if requested.upper() != "AUTO_VALIDATED" else "AUTO",
+        validated=allow_validated and not force_revert,
+        reverted=force_revert,
     )
-    if mode.value == "AUTO_VALIDATED" and not allow_validated:
+    if requested.upper() == "AUTO_VALIDATED" and not allow_validated:
         mode = effective_auto_mode("AUTO", validated=False)
+    if force_revert:
+        revoke_approvals(db, kind="AUTO_VALIDATED", camera_id=camera_id, reason="OPERATOR_ROLLBACK")
     qs = db.scalar(
         select(CameraQualitySettings).where(CameraQualitySettings.camera_id == camera_id)
     )
@@ -629,8 +713,11 @@ def redacted_quality_report(
     db: Annotated[Session, Depends(get_db)],
     state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[dict[str, Any], Depends(get_current_user)],
-) -> dict:
+    download: bool = False,
+):
     """Export-safe report: camera_id/profile/status only — no URI, faces, embeddings."""
+    from fastapi.responses import Response
+
     from app.models.entities import AbEvaluationRun, CameraQualitySettings
     from app.vision.camera.rtsp_policy import diagnostic_rtsp_label
 
@@ -649,7 +736,7 @@ def redacted_quality_report(
     reg = state.camera_registry
     bound = reg.get(camera_id) if reg else None
     h = bound.gateway.health() if bound else None
-    return {
+    payload = {
         "camera_id": camera_id,
         "diagnostic_label": diagnostic_rtsp_label(
             camera_id=camera_id, profile=bound.profile if bound else "UNKNOWN"
@@ -673,10 +760,119 @@ def redacted_quality_report(
             }
             for r in runs
         ],
-        "camera_lab_pass": False,
-        "face_pilot_pass": False,
+        "camera_lab_pass": bool(state.settings.camera_lab_pass),
+        "face_pilot_pass": bool(state.settings.face_pilot_pass),
         "secrets_present": False,
         "note_vi": "Báo cáo đã ẩn URI/mật khẩu/ảnh khuôn mặt/embeddings.",
+    }
+    if download:
+        body = json.dumps(payload, ensure_ascii=False, indent=2)
+        return Response(
+            content=body.encode("utf-8"),
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="mypc-camera-{camera_id}-quality-report.json"'
+            },
+        )
+    return payload
+
+
+@router.post("/{camera_id}/quality/approvals", dependencies=[Depends(require_csrf)])
+def issue_pilot_approval(
+    camera_id: int,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """Issue HMAC-signed approval. CAMERA_MANAGE alone is insufficient."""
+    from app.services.pilot_approval import issue_approval
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    kind = str(body.get("kind") or "")
+    try:
+        rec = issue_approval(
+            db,
+            secret_key=state.settings.secret_key,
+            kind=kind,
+            camera_id=camera_id,
+            issued_by=user.username,
+            model_hash_pin=str(body.get("model_hash_pin") or ""),
+            gallery_revision_pin=str(body.get("gallery_revision_pin") or ""),
+            threshold_id_pin=str(body.get("threshold_id_pin") or ""),
+            ab_run_id=str(body.get("ab_run_id") or ""),
+            note_vi=str(body.get("note_vi") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "approval_id": rec.approval_id,
+        "kind": rec.kind,
+        "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
+        "note_vi": "Đã phát hành phê duyệt đã ký trên server — không dùng cờ JSON client.",
+    }
+
+
+@router.post("/{camera_id}/live/observe-shadow", dependencies=[Depends(require_csrf)])
+def live_observe_shadow(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """
+    Verified LIVE frame → detect/match → shadow observation metadata.
+    Never writes authoritative attendance until CAMERA_LAB + FACE_PILOT signed.
+    """
+    from app.vision.camera.registry import FrameAccessError
+    from app.vision.faces.types import MatchOutcome
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    reg = state.camera_registry
+    if reg is None:
+        raise HTTPException(status_code=503, detail="Registry chưa sẵn sàng")
+    try:
+        bound, fr = reg.get_frame(
+            camera_id,
+            require_live=True,
+            for_biometric=True,
+            allow_stale=False,
+            max_age_s=3.0,
+        )
+    except FrameAccessError as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}) from exc
+
+    gated = not (state.settings.camera_lab_pass and state.settings.face_pilot_pass)
+    pixels = fr.clone_pixels()
+    result = state.face_pipeline.verify(pixels, gallery=[])
+    return {
+        "shadow": True,
+        "authoritative": False,
+        "gated": gated,
+        "camera_id": camera_id,
+        "frame_id": fr.frame_id,
+        "config_revision": bound.config_revision,
+        "provenance": fr.provenance.value,
+        "clock_trust": fr.clock_trust.value,
+        "receive_time_utc": fr.receive_time_utc.isoformat(),
+        "pixel_sha256": fr.pixel_sha256,
+        "match_outcome": result.outcome.value,
+        "employee_id": result.employee_id,
+        "similarity": result.similarity,
+        "operator": user.username,
+        "note_vi": (
+            "Quan sát bóng từ khung LIVE đã xác minh nguồn. "
+            "Chưa ghi công chính thức — CAMERA_LAB/FACE_PILOT vẫn BLOCKED trừ khi có phê duyệt vật lý."
+            if gated
+            else "Cổng lab đã bật trong cấu hình — vẫn cần kiểm chứng chủ sở hữu trước production."
+        ),
+        "camera_lab_pass": bool(state.settings.camera_lab_pass),
+        "would_reject_unknown": result.outcome
+        in {MatchOutcome.UNKNOWN, MatchOutcome.AMBIGUOUS, MatchOutcome.NO_FACE},
     }
 
 

@@ -22,13 +22,13 @@ def test_sealed_frame_rejects_inplace_write():
     gw.start()
     fr = gw.get_latest_frame()
     assert fr is not None
-    assert fr.pixel_sha256 == _sha(fr.bgr)
+    assert fr.pixel_sha256 == _sha(np.frombuffer(fr._pixels, dtype=np.uint8))
     with pytest.raises(ValueError):
         fr.bgr[0, 0, 0] = 255
     # clone is writable and must not alias
     clone = fr.clone_pixels()
     clone[:] = 1
-    assert _sha(fr.bgr) == fr.pixel_sha256
+    assert fr.pixel_sha256 == _sha(np.frombuffer(fr._pixels, dtype=np.uint8))
     gw.stop()
 
 
@@ -53,6 +53,9 @@ def test_registry_revision_matches_frame():
     assert fr is not None
     assert fr.config_revision == bound.config_revision
     # Cross-camera isolation: camera 9 frame not served as 10
-    with pytest.raises(LookupError):
+    from app.vision.camera.registry import FrameAccessError
+
+    with pytest.raises(FrameAccessError) as ei:
         reg.get_frame(10, allow_mock=True)
+    assert ei.value.code == "CAMERA_SOURCE_UNBOUND"
     reg.shutdown_all()

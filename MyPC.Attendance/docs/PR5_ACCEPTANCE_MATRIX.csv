@@ -1,0 +1,21 @@
+case_id,category,scenario,required_result,evidence_type,gate,status
+PR5-A1,SESSION,Historic default secret signer,Forged session fails against strong key; production rejects weak key,UNIT_SYNTHETIC,P0-SESSION,PASS
+PR5-A2,SESSION,Restart preserves session secret file,Same secret across load_or_create calls,UNIT_SYNTHETIC,P0-SESSION,PASS
+PR5-A3,RTSP,DNS rebind to public IP,ValidationErrorVi reject,UNIT_SYNTHETIC,P0-SSRF,PASS
+PR5-A4,RTSP,ValidationErrorVi not swallowed,Public IP host raises,UNIT_SYNTHETIC,P0-SSRF,PASS
+PR5-A5,SECRETS,Camera secret store failure,HTTP 500 SECRET_STORE_FAILED no silent pass,INTEGRATION,P0-SECRETS,PASS (code path)
+PR5-B1,LIVE,ready true for STALE/MOCK,ready=false operationally_ready=false,INTEGRATION,P0-LIVE,PASS
+PR5-B2,LIVE,Cross-camera / unbound get_frame,FrameAccessError fail-closed,UNIT_SYNTHETIC,P0-LIVE,PASS
+PR5-B3,LIVE,Biometric path requires LIVE fresh,MOCK/STALE rejected,INTEGRATION,P0-LIVE,PASS
+PR5-C1,ENROLL,REAL_CAMERA without signed lab,503 CAMERA_LAB_BLOCKED,INTEGRATION,P0-ENROLL,PASS (existing+gate)
+PR5-C2,ENROLL,Client base64 as LIVE,Registry camera_id required; client not trusted as LIVE,INTEGRATION,P0-ENROLL,PASS (code)
+PR5-C3,ATTEND,live observe-shadow without LIVE,503 fail-closed; never authoritative,INTEGRATION,P0-ATTEND,PASS
+PR5-D1,IMMUTABLE,ndarray setflags/write on bytes frame,Cannot mutate original hash,UNIT_SYNTHETIC,P0-IMMUTABLE,PASS
+PR5-D2,AB,analyze-once paired inference,paired.can_auto_enable false; original_unchanged,INTEGRATION,P02Q-AB,PASS
+PR5-D3,AUTO,admin_confirm_live_pilot JSON,403 UNSIGNED_APPROVAL_REJECTED,INTEGRATION,P0-AUTO,PASS
+PR5-D4,AUTO,AUTO without signed approval,effective AUTO_TEST_ONLY,INTEGRATION,P0-AUTO,PASS
+PR5-E1,REPORT,download=true report,Content-Disposition attachment; no secrets,INTEGRATION,P02Q-UI,PASS
+PR5-E2,WINDOWS,Physical CAMERA_LAB,Owner Windows evidence required,OWNER_WINDOWS_LIVE,CAMERA_LAB,BLOCKED
+PR5-E3,FACE,FACE_PILOT,Owner pilot required,FACE_PILOT,FACE_PILOT,BLOCKED
+PR5-E4,EXIT,Person detector,License/weights missing,PHYSICAL_EXIT,P02-EXIT,BLOCKED
+PR5-E5,INSTALLER,Windows installer,Not built here,OWNER_WINDOWS_LIVE,INSTALLER,NOT_RUN

@@ -38,6 +38,8 @@ class AppState:
     auto_enrollment_service: Any = None
     camera_gateway: Any = None  # legacy singleton pointer
     camera_registry: Any = None  # CameraSourceRegistry — per-camera LIVE/REPLAY/MOCK
+    alembic_ok: bool = True
+    alembic_error: str | None = None
 
 
 def get_app_state(request: Request) -> AppState:
@@ -67,6 +69,11 @@ def get_current_user(
     )
     if not data or "uid" not in data or "sid" not in data:
         raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
+    # Server-side active-user check (reject revoked / disabled accounts)
+    with state.session_factory() as db:
+        row = db.get(User, data["uid"])
+        if row is None or not row.active:
+            raise HTTPException(status_code=401, detail="Người dùng không tồn tại hoặc đã bị vô hiệu")
     return data
 
 
