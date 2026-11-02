@@ -130,11 +130,15 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         session.commit()
         container.bootstrap_password_once = generated
         if generated:
-            write_first_run_secret_file(
-                settings.data_dir / "FIRST_RUN_ADMIN.txt",
-                user.username,
-                generated,
-            )
+            try:
+                write_first_run_secret_file(
+                    settings.data_dir / "FIRST_RUN_ADMIN.txt",
+                    user.username,
+                    generated,
+                )
+            except FileExistsError:
+                # Never overwrite an existing secret file; operator must resolve manually.
+                pass
 
     app = FastAPI(title=APP_NAME, version=__version__, docs_url="/api/docs", redoc_url=None)
     app.state.container = container

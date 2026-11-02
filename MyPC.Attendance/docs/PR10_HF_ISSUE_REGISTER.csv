@@ -1,0 +1,25 @@
+issue_id,priority,evidence_type,summary,evidence_or_scope,required_fix,status
+AUTH-01,P0,SOURCE+OWNER_LOG,Frontend does not honor must_change_password,App.tsx ignores login/me flag; dashboard accessible after first login,Forced-change gate and E2E UI test,FIXED
+AUTH-02,P0,SOURCE,Backend permissions do not deny must_change_password user,deps.get_current_user checks signed session + active user but not pending change,Server-side global protected-API guard; explicit allowlist,FIXED
+AUTH-03,P0,SOURCE,Older signed cookies remain valid after change,Session token has uid role sid; no persistent auth revision checked on requests,Invalidate every old session across restarts and test,FIXED
+AUTH-04,P1,SOURCE,Change-password deletes first-run file before DB transaction commit,auth.change_password flush then file unlink; get_db commits after response dependency,"Durable commit first, then secret cleanup and audit; failure recovery",FIXED
+AUTH-05,P1,SOURCE,Cookie contains role from login time,"get_current_user checks active only, but does not refresh role and auth epoch",Look up live role/auth epoch and reject changed privilege tokens,FIXED
+AUTH-06,P1,SOURCE,Bootstrap credential file Windows DACL not verified,bootstrap.write_text + os.chmod(0600) may not be sufficient on Windows,Atomic create with restrictive DACL and tests,FIXED
+AUTH-07,P1,OWNER_LOG,PowerShell password change attempt rejected,First attempt local new password under 10 or same; second old credential rejected 401,"Clear UX, local credential profile check and safe audited offline recovery",FIXED
+AUTH-08,P1,RISK_TO_VALIDATE,Multiple data profiles may confuse first-run login,Owner launched with LocalAppData; Windows launcher defaults ProgramData; config fallback relative,"Detect divergence, do not mix or overwrite databases",FIXED
+AUTH-09,P1,SOURCE,Browser login has no guided change screen,LoginPage and App.tsx use user type without must_change_password,Add Vietnamese responsive password form with confirmation,FIXED
+AUTH-10,P1,RISK_TO_VALIDATE,Login attempt abuse controls unverified,Need verify rate limiting across sessions and IPs,Bounded rate limit; no user enumeration,FIXED
+AUTH-11,P1,SOURCE,Logout only deletes browser cookie,auth.logout has no server-side revocation of sid,Revoke session record or epoch and protect against reused old token,FIXED
+WIN-01,P1,OWNER_LOG+SOURCE,Readiness-PR9 fails PS5.1 parser on UTF-8 without BOM,Owner workaround with UTF8 BOM copy parsed correctly,UTF8 BOM/ASCII source; actual Windows PS5.1 parser test,FIXED
+WIN-02,P1,OWNER_LOG,npm.ps1 blocked by execution policy,npm.cmd ci + run build succeeded,Use npm.cmd in all scripts and guides; no global policy changes,FIXED
+WIN-03,P0,SOURCE+OWNER_LOG,Fresh venv lacks cv2,Backend imports cv2 but backend/requirements.txt omits OpenCV,Lock one compatible OpenCV wheel and smoke import,FIXED
+WIN-04,P1,SOURCE,Launcher suggests wrong requirements path,Start-MyPCAttendance.ps1 prints root requirements.txt,Print/run backend/requirements-dev.txt or appropriate runtime file,FIXED
+WIN-05,P1,OWNER_LOG,Console appeared idle after Alembic,Later listener on port 8765 and HTTP 200 observed,Startup phases/progress and health hints; do not call hang,FIXED
+WIN-06,P1,OWNER_LOG,npm audit flagged four advisories,3 moderate +1 high from npm ci log; exact packages not yet captured,Capture npm audit json and classify; remediate safely,FIXED
+WIN-07,P1,RISK_TO_VALIDATE,Reproducible Windows installer not complete,"Manual env setup required, installer remains BLOCKED",Provide guarded bootstrap/health; keep installer BLOCKED,BLOCKED
+WIN-08,P1,OWNER_LOG,Local FFprobe uses GPL-enabled build,ffprobe 9.0.2 full build --enable-gpl,Review distribution/license before bundling,OPEN
+VISION-01,P1,SOURCE,Mock badge is hardcoded,Layout.tsx renders vi.mock without reading source,Server-authoritative mock/replay/live/unknown badge,FIXED
+VISION-02,P1,SOURCE,Development mock policy too permissive for pilot,mock_ingest_allowed returns true for development regardless allow_mock_observation=false,Separate test-only ingest from official attendance; fail closed,FIXED
+VISION-03,P0,OWNER_LOG,Camera LAN decode not demonstrated,TCP port 554 reachable only,Keep physical gates BLOCKED; require decoded distinct frames and pilot,BLOCKED
+VISION-04,P1,RISK_TO_VALIDATE,Real YuNet/SFace weights not yet verified on owner PC,"Only cv2 API availability checked, not model load","Verify licensing, hashes, source and inference readiness",BLOCKED
+UI-01,P2,OWNER_LOG,User expects first-login password setup,App immediately opened Windows Lab,Accessible onboarding messages and local support instructions,FIXED

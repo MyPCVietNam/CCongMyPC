@@ -47,7 +47,24 @@ class User(Base):
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Bumped on password change / recovery — invalidates all prior signed cookies
+    auth_epoch: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AuthSession(Base):
+    """Durable session rows — revoke on logout/password change; survives process restart."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sid: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    auth_epoch: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    revoke_reason: Mapped[str] = mapped_column(String(64), default="")
 
 
 class CameraDevice(Base):

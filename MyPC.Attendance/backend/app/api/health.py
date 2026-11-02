@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app import APP_NAME, SPEC_VERSION, __version__
-from app.api.deps import AppState, get_app_state
+from app.api.deps import AppState, get_app_state, get_current_user
 from app.core.database import check_integrity
 
 router = APIRouter(tags=["health"])
@@ -16,8 +16,19 @@ router = APIRouter(tags=["health"])
 
 @router.get("/api/v1/health")
 def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
+    # Distinguish MIGRATING/FAIL from READY — console quiet after Alembic ≠ hang.
+    # Dev/test may recover via create_all after a transient Alembic SQLite race;
+    # only mark FAIL when production and migrations did not apply.
+    alembic_ok = bool(getattr(state, "alembic_ok", True))
+    alembic_error = getattr(state, "alembic_error", None)
+    if not alembic_ok and alembic_error and state.settings.is_production():
+        phase = "FAIL"
+        status = "degraded"
+    else:
+        phase = "READY"
+        status = "ok"
     return {
-        "status": "ok",
+        "status": status,
         "app": APP_NAME,
         "version": __version__,
         "spec_version": SPEC_VERSION,
@@ -25,6 +36,75 @@ def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         "camera_fsm": state.camera.state.fsm.value,
         "config_version": state.config_service.active.version,
         "exit_verification_gate": state.config_service.active.exit_verification_gate,
+        "app_env": state.settings.app_env,
+        "demo_mode": state.settings.demo_mode,
+        "startup_phase": phase,
+        "alembic_ok": bool(getattr(state, "alembic_ok", True)),
+        "alembic_error": getattr(state, "alembic_error", None),
+        "data_dir": str(state.settings.data_dir),
+        "note_vi": (
+            "Nếu console dừng sau Alembic: kiểm tra startup_phase và HTTP /api/v1/health — "
+            "không kết luận treo khi listener + HTTP 200."
+        ),
+    }
+
+
+@router.get("/api/v1/system/runtime-badge")
+def runtime_badge(
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """Server-authoritative env + stream provenance — never imply LIVE from MOCK boot.
+
+    Requires auth. Pending password-change users are denied (not on allowlist) —
+    UI only shows this badge after forced change completes.
+    """
+    _ = user
+    provenance = "MOCK"
+    camera_id = None
+    config_revision = None
+    decoded = None
+    reg = state.camera_registry
+    if reg is not None:
+        try:
+            health_map = reg.health()
+            sources = health_map.get("sources") if isinstance(health_map, dict) else None
+            if sources:
+                s0 = sources[0]
+                provenance = str(s0.get("provenance") or "UNKNOWN")
+                camera_id = s0.get("camera_id")
+                config_revision = s0.get("config_revision")
+                decoded = {
+                    "width": s0.get("native_width"),
+                    "height": s0.get("native_height"),
+                    "fps_estimate": s0.get("fps_estimate"),
+                }
+        except Exception:  # noqa: BLE001
+            provenance = "UNKNOWN"
+    else:
+        provenance = "MOCK" if state.camera.state.mock_mode else "UNKNOWN"
+    # LIVE label only if provenance claims CAMERA_LIVE — still not CAMERA_LAB PASS
+    label_vi = {
+        "CAMERA_LIVE": "Nguồn LIVE (chưa chứng minh CAMERA_LAB)",
+        "MOCK": "Dữ liệu mô phỏng / MOCK",
+        "AUTHORIZED_RECORDED": "REPLAY đã ủy quyền",
+        "UNKNOWN": "Nguồn chưa xác minh",
+    }.get(provenance, f"Nguồn: {provenance}")
+    return {
+        "schema": "mypc.runtime-badge.v1",
+        "app_env": state.settings.app_env,
+        "demo_mode": bool(state.settings.demo_mode),
+        "stream_provenance": provenance,
+        "label_vi": label_vi,
+        "camera_id": camera_id,
+        "config_revision": config_revision,
+        "decoded": decoded,
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
+        "note_vi": (
+            "Nhãn MOCK/LIVE lấy từ server. TCP camera ≠ decode LIVE. "
+            "CAMERA_LAB/FACE_PILOT vẫn BLOCKED đến khi có bằng chứng vật lý."
+        ),
     }
 
 

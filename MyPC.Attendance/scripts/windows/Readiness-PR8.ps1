@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Kiểm tra sẵn sàng máy Windows (chỉ đọc) cho MyPC Attendance / camera EZVIZ.

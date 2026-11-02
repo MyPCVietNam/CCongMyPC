@@ -4,6 +4,7 @@ from app.models.entities import (
     AbEvaluationRun,
     AttendanceEvent,
     AuditLog,
+    AuthSession,
     CameraDevice,
     CameraLiveBinding,
     CameraQualitySettings,
@@ -20,6 +21,7 @@ from app.models.entities import (
 __all__ = [
     "Employee",
     "User",
+    "AuthSession",
     "CameraDevice",
     "RecognitionRegion",
     "RawObservation",

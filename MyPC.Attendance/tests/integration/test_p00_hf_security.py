@@ -157,21 +157,41 @@ def test_csrf_two_sessions_independent(app_client):
     state = client.app.state.container
     sid_a = data_a["session_id"]
     assert sid_a in state.csrf_by_session
-    # Create second session token manually
+    # Create second durable session + CSRF (PR10: cookies without AuthSession are 401)
     from app.core.security import issue_session_token
     import secrets
 
-    sid_b = secrets.token_urlsafe(24)
     from app.api.deps import ensure_csrf
+    from app.models.entities import User
+    from app.services.auth_session_service import create_session
+    from sqlalchemy import select
 
+    sid_b = secrets.token_urlsafe(24)
+    with state.session_factory() as db:
+        user = db.scalar(select(User).where(User.username == "admin"))
+        assert user is not None
+        create_session(
+            db,
+            user=user,
+            sid=sid_b,
+            max_age_seconds=state.settings.session_max_age_seconds,
+        )
+        epoch = int(user.auth_epoch or 1)
+        db.commit()
     csrf_b = ensure_csrf(state, sid_b)
     assert csrf_a != csrf_b
     assert state.csrf_by_session[sid_a] == csrf_a
     assert state.csrf_by_session[sid_b] == csrf_b
-    # Cross-use must fail
+    # Cross-use must fail CSRF (valid session B + CSRF from session A)
     token_b = issue_session_token(
         state.settings.secret_key,
-        {"uid": data_a["user"]["id"], "username": "admin", "role": "SYSTEM_ADMIN", "sid": sid_b},
+        {
+            "uid": data_a["user"]["id"],
+            "username": "admin",
+            "role": "SYSTEM_ADMIN",
+            "sid": sid_b,
+            "auth_epoch": epoch,
+        },
     )
     client.cookies.set("mypc_session", token_b)
     r = client.post(
