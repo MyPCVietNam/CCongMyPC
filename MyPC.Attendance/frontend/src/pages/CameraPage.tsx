@@ -311,15 +311,27 @@ export function CameraPage() {
   async function deleteCam() {
     if (selected == null) return;
     const cam = cams.find((c) => c.id === selected);
-    if (
-      !window.confirm(
-        `Xóa cứng camera #${selected} “${cam?.name || ""}”?\nChỉ thành công nếu không còn dữ liệu lịch sử. Nên dùng Lưu trữ.`
-      )
-    ) {
-      return;
-    }
     setBusy(true);
     try {
+      const pre = await api<{
+        can_hard_delete: boolean;
+        prefer_archive: boolean;
+        blockers: Record<string, number>;
+        message_vi: string;
+      }>(`/api/v1/cameras/${selected}/delete-blockers`);
+      if (!pre.can_hard_delete) {
+        setError(
+          `${pre.message_vi} blockers=${JSON.stringify(pre.blockers)}. Hãy dùng Lưu trữ.`
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Xóa cứng camera #${selected} “${cam?.name || ""}”?\nKhông còn phụ thuộc lịch sử. Thao tác không hoàn tác.`
+        )
+      ) {
+        return;
+      }
       await api(`/api/v1/cameras/${selected}`, { method: "DELETE" });
       setAnalyzeMsg(`Đã xóa camera #${selected}`);
       startNew();

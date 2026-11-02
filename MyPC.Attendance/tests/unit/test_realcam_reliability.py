@@ -54,6 +54,31 @@ def test_registry_rejects_corrupt_for_biometric(tmp_path=None):
         assert exc.code in {"LIVE_REQUIRED", "BIOMETRIC_REQUIRES_LIVE", "MOCK_NOT_ALLOWED"}
 
 
+def test_native_frame_rejects_degraded_or_corrupt():
+    from datetime import datetime, timezone
+
+    from app.vision.camera.gateway import CameraFrame, ClockTrust, DecoderStatus, StreamProvenance
+    from app.vision.camera.native_frame import NativeDecodedFrame
+
+    img = np.full((64, 64, 3), 80, dtype=np.uint8)
+    now = datetime.now(timezone.utc)
+    fr = CameraFrame.from_bgr(
+        img,
+        frame_id="f1",
+        camera_id="1",
+        capture_time_utc=now,
+        receive_time_utc=now,
+        provenance=StreamProvenance.CAMERA_LIVE,
+        decoder_status=DecoderStatus.DEGRADED,
+        integrity_ok=False,
+    )
+    try:
+        NativeDecodedFrame.from_camera_frame(fr, receive_monotonic=1.0)
+        assert False, "expected reject"
+    except ValueError as exc:
+        assert "integrity" in str(exc).lower() or "DEGRADED" in str(exc)
+
+
 def test_lab_next_step_distinguishes_pass_from_physical():
     from types import SimpleNamespace
 

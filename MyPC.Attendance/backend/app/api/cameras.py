@@ -830,8 +830,24 @@ def delete_camera(
                 "blockers": blockers_after,
             },
         )
-    db.delete(row)
-    db.flush()
+    try:
+        db.delete(row)
+        db.flush()
+    except Exception as exc:  # noqa: BLE001
+        # Map unexpected FK races to actionable 409 (never generic 500)
+        db.rollback()
+        blockers_now = _camera_delete_blockers(db, camera_id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_DELETE_FK_BLOCKED",
+                "message_vi": (
+                    "Không xóa cứng được do ràng buộc dữ liệu — dùng Lưu trữ. "
+                    f"Chi tiết: {type(exc).__name__}"
+                ),
+                "blockers": blockers_now,
+            },
+        ) from exc
     if secret_ref:
         try:
             state.secrets.delete_camera_secret(secret_ref)
@@ -848,6 +864,30 @@ def delete_camera(
         )
     )
     return {"ok": True, "deleted_id": camera_id}
+
+
+@router.get("/{camera_id}/delete-blockers")
+def get_delete_blockers(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """Preflight hard-delete — never mutates. Prefer archive when total > 0."""
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    blockers = _camera_delete_blockers(db, camera_id)
+    return {
+        "camera_id": camera_id,
+        "can_hard_delete": blockers["total"] == 0,
+        "prefer_archive": blockers["total"] > 0,
+        "blockers": blockers,
+        "message_vi": (
+            "Có thể xóa cứng (không còn lịch sử)."
+            if blockers["total"] == 0
+            else "Còn phụ thuộc lịch sử — hãy Lưu trữ; không cascade xóa evidence/chấm công."
+        ),
+    }
 
 
 
@@ -1126,10 +1166,18 @@ def quality_diagnostics(
             "reverted_reason": qs.reverted_reason if qs else None,
             "note_vi": "Ảnh gốc là quyết định chính thức; enhanced chỉ shadow A/B cho đến khi có phê duyệt server đã ký.",
         },
-        "camera_lab_pass": bool(state.settings.camera_lab_pass),
-        "face_pilot_pass": bool(state.settings.face_pilot_pass),
+        # Settings staging flags ≠ signed CAMERA_LAB / FACE_PILOT pass
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
+        "settings_flag_camera_lab": bool(state.settings.camera_lab_pass),
+        "settings_flag_face_pilot": bool(state.settings.face_pilot_pass),
         "config_revision": bound.config_revision if bound else None,
         "provenance": bound.provenance.value if bound else None,
+        "decoder_status": (
+            h.decoder_status.value if h and hasattr(h.decoder_status, "value") else None
+        ),
+        "corrupt_frames": (h.extras or {}).get("corrupt_frames") if h else None,
+        "hevc_ref_events": (h.extras or {}).get("hevc_ref_events") if h else None,
     }
 
 
@@ -2273,14 +2321,12 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
         "ab_runs": 0,
         "evidence_records": 0,
     }
+    # Do not swallow count failures as zero — treat query errors as hard blockers
     try:
         counts["lab_runs"] = int(
             db.scalar(select(func.count()).select_from(CameraLabRun).where(CameraLabRun.camera_id == camera_id))
             or 0
         )
-    except Exception:
-        pass
-    try:
         counts["approvals"] = int(
             db.scalar(
                 select(func.count())
@@ -2289,16 +2335,10 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
             )
             or 0
         )
-    except Exception:
-        pass
-    try:
         counts["ab_runs"] = int(
             db.scalar(select(func.count()).select_from(AbEvaluationRun).where(AbEvaluationRun.camera_id == camera_id))
             or 0
         )
-    except Exception:
-        pass
-    try:
         counts["evidence_records"] = int(
             db.scalar(
                 select(func.count())
@@ -2308,8 +2348,8 @@ def _camera_delete_blockers(db: Session, camera_id: int) -> dict[str, int]:
             or 0
         )
     except Exception:
-        pass
-    counts["total"] = int(sum(v for k, v in counts.items() if k != "total"))
+        counts["blocker_query_failed"] = 1
+    counts["total"] = int(sum(int(v) for k, v in counts.items() if k != "total"))
     return counts
 
 

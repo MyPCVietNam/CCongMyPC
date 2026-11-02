@@ -36,7 +36,17 @@ class NativeDecodedFrame:
         profile: str = "MAIN",
         receive_monotonic: float,
         processing_model_hash: str = "",
+        require_ok: bool = True,
     ) -> "NativeDecodedFrame":
+        """Seal a biometric/recognition frame. Rejects DEGRADED/STALE/corrupt when require_ok."""
+        if require_ok:
+            status = getattr(fr, "decoder_status", None)
+            if status not in {DecoderStatus.OK, None}:
+                raise ValueError(
+                    f"NativeDecodedFrame rejects decoder_status={getattr(status, 'value', status)}"
+                )
+            if hasattr(fr, "integrity_ok") and not bool(fr.integrity_ok):
+                raise ValueError("NativeDecodedFrame rejects integrity_ok=False (corrupt/HEVC)")
         owned = np.array(fr.bgr, copy=True, order="C")
         owned.setflags(write=False)
         digest = hashlib.sha256(np.ascontiguousarray(owned).tobytes()).hexdigest()

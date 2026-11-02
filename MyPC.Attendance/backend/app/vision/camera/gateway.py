@@ -522,11 +522,22 @@ class LiveRTSPGateway(CameraGateway):
             if not ok or frame is None:
                 self._decode_errors += 1
                 self._hevc_ref_events += 1  # often accompanies HEVC ref-loss storms
+                self._reconnects += 1  # decode-fail reopen counts toward budget (R09)
                 self._status = DecoderStatus.RECONNECTING
                 self._last_error_class = "DECODE_FAILED"
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
                 self._release()
+                if self._reconnects >= self._max_reconnect_attempts:
+                    self._status = DecoderStatus.STOPPED
+                    self._last_error_class = "RECONNECT_EXHAUSTED"
+                    logger.warning(
+                        "rtsp_decode_fail_exhausted camera_id=%s attempts=%s",
+                        self.camera_id,
+                        self._reconnects,
+                    )
+                    break
+                backoff = self._sleep_backoff(backoff)
                 continue
 
             corrupt = frame_looks_corrupt(frame)
