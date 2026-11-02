@@ -2,7 +2,7 @@
 
 **Baseline:** `cursor/pr11-realcam-reliability-83a8` @ `416bc2dcca4c6b117249aca02c5293a8e53ffeae`  
 **Delivery branch:** `cursor/pr11-realcam-ux-harden-83a8`  
-**Final HEAD:** `db571d995714dfbda3ce006f900f9ecb34a315c7` (feature) + delivery docs commit on push tip
+**Final HEAD:** `325af96459fdeaaa16b6e03b9aad4675df1baed5`
 **Timezone note:** owner times Asia/Bangkok (UTC+7).
 
 Codes: `PASS` only with automated evidence at this HEAD; `BLOCKED` until owner Windows/camera evidence; never invent physical PASS.
