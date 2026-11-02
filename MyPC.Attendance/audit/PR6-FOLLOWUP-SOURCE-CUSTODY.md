@@ -3,6 +3,7 @@
 - **Working repo:** https://github.com/MyPCVietNam/CCongMyPC
 - **Audited PR #6:** https://github.com/MyPCVietNam/CCongMyPC/pull/6
 - **Audited immutable base:** `36c49b12d0474f03561f7549aa4235a8a5ba3212`
+- **Follow-up tip (this PR):** `2b258239680bae2b43365b34f892cf8aed4528d9`
 - **Feature branch:** `cursor/pr6-followup-secure-pilot-83a8`
 - **Base branch for PR:** `cursor/pr5-corrective-p02q-83a8` (PR #6 head)
 - **Instruction date:** 2026-11-02 (Asia/Bangkok)
