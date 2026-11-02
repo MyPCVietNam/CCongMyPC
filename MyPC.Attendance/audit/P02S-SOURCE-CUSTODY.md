@@ -6,3 +6,5 @@
 - Final HEAD: see git rev-parse after packaging commit
 - No merge to main
 HEAD=56948487ecea417149b35b0132aadb14a72928a7
+
+Final HEAD: `5bdb420aed135c796d4f45b54859c3ef9351bf18`
