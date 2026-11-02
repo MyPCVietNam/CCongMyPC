@@ -113,10 +113,11 @@ class AppSettings(BaseSettings):
         return self.app_env == "production" and not self.demo_mode
 
     def mock_ingest_allowed(self) -> bool:
-        """Production never allows mock observation ingest into attendance."""
+        """Official attendance from MOCK only when explicitly enabled (never silent in development)."""
         if self.is_production():
             return False
-        return bool(self.allow_mock_observation or self.demo_mode or self.app_env == "development")
+        # development alone is NOT enough — require demo_mode or allow_mock_observation
+        return bool(self.allow_mock_observation or self.demo_mode)
 
     def synthetic_fixtures_allowed(self) -> bool:
         if self.is_production():

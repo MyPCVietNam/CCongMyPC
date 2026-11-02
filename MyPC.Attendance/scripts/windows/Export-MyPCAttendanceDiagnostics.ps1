@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Xuất gói chẩn đoán đã làm sạch — không gồm mật khẩu, embedding, ảnh sinh trắc, DB đầy đủ.

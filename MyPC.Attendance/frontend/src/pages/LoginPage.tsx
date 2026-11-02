@@ -8,6 +8,8 @@ type User = {
   username: string;
   display_name: string;
   role: string;
+  must_change_password?: boolean;
+  data_dir_hint?: string;
 };
 
 export function LoginPage({
@@ -25,15 +27,25 @@ export function LoginPage({
     setBusy(true);
     setError("");
     try {
-      const res = await api<{ user: User; csrf_token: string }>(
-        "/api/v1/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ username, password }),
-        }
-      );
+      const res = await api<{
+        user: User;
+        csrf_token: string;
+        must_change_password?: boolean;
+        data_dir_hint?: string;
+      }>("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
       setCsrfToken(res.csrf_token);
-      onLoggedIn(res.user, res.csrf_token);
+      onLoggedIn(
+        {
+          ...res.user,
+          must_change_password:
+            res.user.must_change_password ?? res.must_change_password,
+          data_dir_hint: res.data_dir_hint,
+        },
+        res.csrf_token
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng nhập thất bại");
     } finally {

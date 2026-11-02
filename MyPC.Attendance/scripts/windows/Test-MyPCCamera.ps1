@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Kiểm tra camera EZVIZ theo từng bước (đọc-only diagnostics) trên Windows.

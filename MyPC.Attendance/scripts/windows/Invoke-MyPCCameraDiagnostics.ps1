@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   DEPRECATED (P02S): không nhận session cookie/CSRF trên CLI.

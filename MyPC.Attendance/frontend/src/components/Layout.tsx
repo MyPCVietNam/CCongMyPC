@@ -21,10 +21,12 @@ export function Layout({
   user,
   onLogout,
   children,
+  provenanceLabel,
 }: {
   user: { display_name: string; username: string; role: string };
   onLogout: () => void;
   children: ReactNode;
+  provenanceLabel?: string;
 }) {
   return (
     <div className="min-h-screen flex flex-col">
@@ -41,7 +43,7 @@ export function Layout({
               <div className="text-xs text-muted flex items-center gap-2">
                 <span className="inline-flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse-dot" />
-                  {vi.mock}
+                  {provenanceLabel || "Nguồn chưa xác minh"}
                 </span>
                 <span>· đặc tả v1.5</span>
               </div>

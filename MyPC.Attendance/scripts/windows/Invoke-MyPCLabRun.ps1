@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   DEPRECATED (P02S): không dùng cookie/CSRF/challenge trên dòng lệnh.
