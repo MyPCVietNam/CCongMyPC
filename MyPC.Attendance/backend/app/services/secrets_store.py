@@ -4,51 +4,33 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-
-def _restrict_windows_acl(path: Path) -> None:
-    if sys.platform != "win32":
-        return
-    try:
-        import subprocess
-
-        user = os.environ.get("USERNAME") or os.getlogin()
-        subprocess.run(
-            ["icacls", str(path), "/inheritance:r"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["icacls", str(path), "/grant:r", f"{user}:(R,W)"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        for principal in ("Everyone", "Users", "Authenticated Users", "BUILTIN\\Users"):
-            subprocess.run(
-                ["icacls", str(path), "/remove", principal],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-    except Exception:  # noqa: BLE001
-        pass
+from app.core.windows_secrets_acl import (
+    SecretAccessDeniedError,
+    apply_new_secret_file_acl,
+    assert_readable_existing_secret,
+    ensure_secrets_dir_acl,
+    prepare_secrets_dir_for_app,
+)
 
 
 class SecretsStore:
     def __init__(self, data_dir: Path, master_key: bytes | None = None) -> None:
         self._dir = data_dir / "secrets"
+        prepare_secrets_dir_for_app(data_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         key_path = self._dir / "master.key"
         if master_key is not None:
             self._fernet = Fernet(master_key)
         elif key_path.exists():
-            self._fernet = Fernet(key_path.read_bytes())
+            assert_readable_existing_secret(key_path)
+            try:
+                self._fernet = Fernet(key_path.read_bytes())
+            except PermissionError as exc:
+                raise SecretAccessDeniedError(key_path) from exc
         else:
             key = Fernet.generate_key()
             key_path.write_bytes(key)
@@ -56,13 +38,14 @@ class SecretsStore:
                 os.chmod(key_path, 0o600)
             except OSError:
                 pass
-            _restrict_windows_acl(key_path)
+            apply_new_secret_file_acl(key_path)
             self._fernet = Fernet(key)
         try:
             os.chmod(self._dir, 0o700)
         except OSError:
             pass
-        _restrict_windows_acl(self._dir)
+        # Idempotent: skip destructive reset when inheritable ACL already healthy
+        ensure_secrets_dir_acl(self._dir, force=False)
 
     def put_camera_secret(self, camera_id: int, username: str, password: str) -> str:
         payload = json.dumps({"username": username, "password": password}).encode()
@@ -74,14 +57,18 @@ class SecretsStore:
             os.chmod(path, 0o600)
         except OSError:
             pass
-        _restrict_windows_acl(path)
+        apply_new_secret_file_acl(path)
         return ref
 
     def get_camera_secret(self, secret_ref: str) -> dict[str, str] | None:
         path = self._dir / secret_ref
         if not path.exists():
             return None
-        data = json.loads(self._fernet.decrypt(path.read_bytes()).decode())
+        assert_readable_existing_secret(path)
+        try:
+            data = json.loads(self._fernet.decrypt(path.read_bytes()).decode())
+        except PermissionError as exc:
+            raise SecretAccessDeniedError(path) from exc
         return {"username": data["username"], "password": data["password"]}
 
     def peek_username(self, secret_ref: str) -> str | None:
@@ -96,8 +83,7 @@ class SecretsStore:
     def delete_camera_secret(self, secret_ref: str) -> None:
         if not secret_ref:
             return
-        # Never delete master.key via this path
-        if secret_ref in {"master.key", "session.secret"} or ".." in secret_ref or "/" in secret_ref:
+        if secret_ref in {"master.key", "session.secret", "face_templates.key"} or ".." in secret_ref or "/" in secret_ref or "\\" in secret_ref:
             raise ValueError("ref không hợp lệ")
         path = self._dir / secret_ref
         if not path.exists():
@@ -109,6 +95,8 @@ class SecretsStore:
                 f.flush()
                 os.fsync(f.fileno())
             path.unlink(missing_ok=True)
+        except PermissionError as exc:
+            raise SecretAccessDeniedError(path) from exc
         except OSError:
             try:
                 path.unlink(missing_ok=True)

@@ -5,16 +5,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from app.core.windows_secrets_acl import (
+    SecretAccessDeniedError,
+    apply_new_secret_file_acl,
+    assert_readable_existing_secret,
+    prepare_secrets_dir_for_app,
+)
 from app.vision.faces.embedder import packing_floats, unpacking_floats
-import numpy as np
 
 
 class MediaCrypto:
     """Process-local key for templates + enrollment sample blobs."""
 
     def __init__(self, data_dir: Path, key_filename: str = "face_templates.key") -> None:
+        prepare_secrets_dir_for_app(data_dir)
         self._dir = data_dir / "secrets"
         self._dir.mkdir(parents=True, exist_ok=True)
         self._key_path = self._dir / key_filename
@@ -23,13 +30,28 @@ class MediaCrypto:
 
     def _load_or_create_key(self) -> bytes:
         if self._key_path.exists():
-            return self._key_path.read_bytes()
+            # Access failure must NEVER be interpreted as missing key
+            assert_readable_existing_secret(self._key_path)
+            try:
+                data = self._key_path.read_bytes()
+            except PermissionError as exc:
+                raise SecretAccessDeniedError(self._key_path) from exc
+            if len(data) != 32:
+                raise SecretAccessDeniedError(
+                    self._key_path,
+                    detail_vi=(
+                        f"SECRET_ACCESS_DENIED: '{self._key_path.name}' tồn tại nhưng "
+                        f"độ dài không hợp lệ ({len(data)} ≠ 32) — không tái tạo tự động."
+                    ),
+                )
+            return data
         key = AESGCM.generate_key(bit_length=256)
         self._key_path.write_bytes(key)
         try:
             os.chmod(self._key_path, 0o600)
         except OSError:
             pass
+        apply_new_secret_file_acl(self._key_path)
         return key
 
     def encrypt_bytes(self, plain: bytes, aad: bytes) -> tuple[bytes, bytes]:

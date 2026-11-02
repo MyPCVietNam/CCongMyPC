@@ -48,8 +48,10 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     clock = clock or SystemClock()
 
-    # Persistent session signer — never serve production with historic weak default
+    # Persistent session signer — never serve production with historic weak default.
+    # Existing but unreadable secrets → SECRET_ACCESS_DENIED (never regenerate).
     from app.core.secret_bootstrap import WeakSecretError, load_or_create_session_secret
+    from app.core.windows_secrets_acl import SecretAccessDeniedError
 
     try:
         settings.secret_key = load_or_create_session_secret(
@@ -59,6 +61,8 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
             demo_mode=settings.demo_mode,
             allow_ephemeral_dev=settings.app_env in {"development", "demo", "test"} or settings.demo_mode,
         )
+    except SecretAccessDeniedError:
+        raise
     except WeakSecretError:
         raise
 
