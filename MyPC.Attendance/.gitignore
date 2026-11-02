@@ -16,6 +16,10 @@ frontend/dist/
 # release/*.zip  — phase audit ZIPs are committed for delivery
 release/*.exe
 
+# Cloud/runtime fingerprints — never commit as audit truth
+runtime/
+**/runtime/
+
 *.egg-info/
 .coverage
 htmlcov/

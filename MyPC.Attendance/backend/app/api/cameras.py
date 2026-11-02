@@ -303,9 +303,14 @@ def configure_live_gateway(
         binding = CameraLiveBinding(camera_id=camera_db_id)
         db.add(binding)
     else:
-        # Profile/config change invalidates prior signed approvals for this camera
+        # Profile/config change invalidates prior signed approvals + lab runs
         if binding.config_revision and binding.config_revision != bound.config_revision:
             revoke_approvals(
+                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
+            )
+            from app.services.lab_run_service import revoke_lab_runs_for_camera
+
+            revoke_lab_runs_for_camera(
                 db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
             )
     binding.scheme = endpoint.scheme
@@ -853,6 +858,243 @@ def redacted_quality_report(
     return payload
 
 
+def _lab_run_http(exc: Exception) -> HTTPException:
+    from app.services.lab_run_service import LabRunError
+
+    if isinstance(exc, LabRunError):
+        return HTTPException(
+            status_code=422, detail={"code": exc.code, "message_vi": exc.message_vi}
+        )
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+def _lab_run_out(run: Any) -> dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "nonce": run.nonce,
+        "kind": run.kind,
+        "camera_id": run.camera_id,
+        "state": run.state,
+        "profile": run.profile,
+        "config_revision": run.config_revision or None,
+        "provenance": run.provenance or None,
+        "decoded_w": run.decoded_w,
+        "decoded_h": run.decoded_h,
+        "fps_measured": run.fps_measured,
+        "frame_age_ms": run.frame_age_ms,
+        "owner_challenge": run.owner_challenge,
+        "owner_reviewed_by": run.owner_reviewed_by or None,
+        "expires_at": run.expires_at.isoformat() if run.expires_at else None,
+        "revoked": bool(run.revoked),
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
+        "note_vi": run.note_vi,
+    }
+
+
+@router.post("/{camera_id}/lab-runs", dependencies=[Depends(require_csrf)])
+def start_camera_lab_run(
+    camera_id: int,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """Server-issued lab run (CREATED). PHYSICAL_VERIFIED requires measure→owner→promote."""
+    from app.services.lab_run_service import LabRunError, start_lab_run
+    from app.services.server_pins import derive_live_pins
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if state.face_pipeline is None or state.template_store is None:
+        raise HTTPException(status_code=503, detail="Pipeline chưa sẵn sàng")
+    try:
+        pins, _ = derive_live_pins(db, pipeline=state.face_pipeline, store=state.template_store)
+        run = start_lab_run(
+            db,
+            camera_id=camera_id,
+            kind=str(body.get("kind") or "CAMERA_LAB"),
+            operator=user.username,
+            pins=pins,
+            profile=str(body.get("profile") or "MAIN"),
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _lab_run_out(run)
+
+
+@router.post("/{camera_id}/lab-runs/{run_id}/measure", dependencies=[Depends(require_csrf)])
+def measure_camera_lab_run(
+    camera_id: int,
+    run_id: str,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """Capture fresh CAMERA_LIVE frames NOW — rejects MOCK/stale/health-only claims."""
+    from app.services.lab_run_service import LabRunError, measure_live_frames
+
+    _ = user
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    samples = int(body.get("samples") or 5)
+    try:
+        run = measure_live_frames(
+            db,
+            run_id=run_id,
+            camera_id=camera_id,
+            registry=state.camera_registry,
+            samples=samples,
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+    return _lab_run_out(run)
+
+
+@router.post("/{camera_id}/lab-runs/{run_id}/face-cases", dependencies=[Depends(require_csrf)])
+def record_lab_face_case(
+    camera_id: int,
+    run_id: str,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """Server-measured FACE_PILOT case — client labeled_known/unknown counts are insufficient."""
+    from app.services.lab_run_service import LabRunError, record_face_pilot_case
+    from app.services.server_pins import derive_live_pins
+
+    _ = user
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if state.face_pipeline is None or state.template_store is None:
+        raise HTTPException(status_code=503, detail="Pipeline chưa sẵn sàng")
+    try:
+        pins, gallery = derive_live_pins(
+            db, pipeline=state.face_pipeline, store=state.template_store
+        )
+        pairs = list(getattr(gallery, "pairs", None) or [])
+        case = record_face_pilot_case(
+            db,
+            run_id=run_id,
+            camera_id=camera_id,
+            registry=state.camera_registry,
+            pipeline=state.face_pipeline,
+            gallery_pairs=pairs,
+            pins=pins,
+            truth_label=str(body.get("truth_label") or ""),
+            condition=str(body.get("condition") or "DAY"),
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "case_id": case.case_id,
+        "lab_run_id": case.lab_run_id,
+        "truth_label": case.truth_label,
+        "pred_label": case.pred_label,
+        "outcome": case.outcome,
+        "similarity": case.similarity,
+        "condition": case.condition,
+        "latency_ms": case.latency_ms,
+        "native_face_width_px": case.native_face_width_px,
+        "note_vi": case.note_vi,
+    }
+
+
+@router.post("/{camera_id}/lab-runs/{run_id}/owner-review", dependencies=[Depends(require_csrf)])
+def owner_review_lab_run(
+    camera_id: int,
+    run_id: str,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """One-time owner challenge confirmation after LIVE_MEASURED (+ face cases for FACE_PILOT)."""
+    from app.services.lab_run_service import LabRunError, owner_review
+
+    _ = state
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    try:
+        run = owner_review(
+            db,
+            run_id=run_id,
+            camera_id=camera_id,
+            operator=user.username,
+            challenge=str(body.get("challenge") or ""),
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+    return _lab_run_out(run)
+
+
+@router.post(
+    "/{camera_id}/lab-runs/{run_id}/promote-physical", dependencies=[Depends(require_csrf)]
+)
+def promote_lab_run_physical(
+    camera_id: int,
+    run_id: str,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """PHYSICAL_VERIFIED only after OWNER_REVIEWED + fresh LIVE recheck (EV11)."""
+    from app.services.lab_run_service import LabRunError, promote_physical
+    from app.services.server_pins import derive_live_pins
+
+    _ = body
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if state.face_pipeline is None or state.template_store is None:
+        raise HTTPException(status_code=503, detail="Pipeline chưa sẵn sàng")
+    try:
+        pins, _ = derive_live_pins(db, pipeline=state.face_pipeline, store=state.template_store)
+        ev = promote_physical(
+            db,
+            run_id=run_id,
+            camera_id=camera_id,
+            operator=user.username,
+            registry=state.camera_registry,
+            pins=pins,
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "evidence_id": ev.evidence_id,
+        "lab_run_id": ev.lab_run_id,
+        "kind": ev.kind,
+        "evidence_class": ev.evidence_class,
+        "camera_id": camera_id,
+        "decoded_measured": {
+            "width": ev.decoded_w,
+            "height": ev.decoded_h,
+            "fps": ev.fps_measured,
+        },
+        "labeled_known": ev.labeled_known,
+        "labeled_unknown": ev.labeled_unknown,
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
+        "note_vi": (
+            "PHYSICAL_VERIFIED từ lab run đã owner-review — vẫn cần ký phê duyệt riêng. "
+            "Không chứa ảnh/mật khẩu."
+        ),
+    }
+
+
 @router.post("/{camera_id}/evidence/record", dependencies=[Depends(require_csrf)])
 def record_pilot_evidence(
     camera_id: int,
@@ -862,8 +1104,9 @@ def record_pilot_evidence(
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
     """
-    Record lab/face-pilot evidence. PHYSICAL_VERIFIED only when LIVE measured fields match
-    registry health — admin checkbox alone is rejected.
+    Record non-physical evidence only (LIVE_PENDING / UNTRUSTED_IMPORT).
+    PHYSICAL_VERIFIED requires lab-run FSM: start → measure → owner-review → promote-physical.
+    Client labeled_known/unknown counts alone are rejected for FACE_PILOT physical (EV01/EV11).
     """
     from app.services.evidence_store import (
         EVIDENCE_LIVE_PENDING,
@@ -886,6 +1129,19 @@ def record_pilot_evidence(
         )
     kind = str(body.get("kind") or "")
     want_class = str(body.get("evidence_class") or EVIDENCE_LIVE_PENDING).upper()
+    if want_class == EVIDENCE_PHYSICAL or want_class == "PHYSICAL_VERIFIED":
+        # EV01/EV06/EV11 — health W/H + client label counts are insufficient
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "NEED_LAB_RUN_PROMOTE",
+                "message_vi": (
+                    "PHYSICAL_VERIFIED không ghi trực tiếp qua /evidence/record. "
+                    "Dùng lab-runs: measure LIVE tươi → owner-review → promote-physical. "
+                    "Số labeled_known/unknown client không đủ cho FACE_PILOT."
+                ),
+            },
+        )
     if state.face_pipeline is None or state.template_store is None:
         raise HTTPException(status_code=503, detail="Pipeline chưa sẵn sàng")
     try:
@@ -902,41 +1158,7 @@ def record_pilot_evidence(
     fps = float(h.fps_estimate) if h and h.fps_estimate else None
     config_revision = bound.config_revision if bound else ""
 
-    if want_class == EVIDENCE_PHYSICAL:
-        if provenance != "CAMERA_LIVE" or measured_w <= 0 or measured_h <= 0:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "PHYSICAL_REQUIRES_LIVE_DECODE",
-                    "message_vi": (
-                        "PHYSICAL_VERIFIED cần nguồn CAMERA_LIVE đã giải mã (DECODED_MEASURED). "
-                        "Môi trường cloud/MOCK không đủ."
-                    ),
-                },
-            )
-        claim_w = int(body.get("observed_width") or 0)
-        claim_h = int(body.get("observed_height") or 0)
-        if claim_w != measured_w or claim_h != measured_h:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "OBSERVED_SIZE_MISMATCH",
-                    "message_vi": "Kích thước khai báo không khớp khung LIVE đã đo trên server.",
-                },
-            )
-        if kind == "FACE_PILOT":
-            known = int(body.get("labeled_known") or 0)
-            unknown = int(body.get("labeled_unknown") or 0)
-            if known < 1 or unknown < 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "code": "FACE_PILOT_LABELS_REQUIRED",
-                        "message_vi": "FACE_PILOT cần số mẫu labeled known và unknown (>0).",
-                    },
-                )
-        evidence_class = EVIDENCE_PHYSICAL
-    elif want_class == EVIDENCE_UNTRUSTED_IMPORT:
+    if want_class == EVIDENCE_UNTRUSTED_IMPORT:
         evidence_class = EVIDENCE_UNTRUSTED_IMPORT
     else:
         evidence_class = EVIDENCE_LIVE_PENDING
@@ -969,7 +1191,10 @@ def record_pilot_evidence(
         "camera_id": camera_id,
         "decoded_measured": {"width": measured_w or None, "height": measured_h or None, "fps": fps},
         "camera_lab_pass": False,
-        "note_vi": "Đã ghi bằng chứng (không chứa ảnh/mật khẩu). PHYSICAL_VERIFIED vẫn cần máy Windows LAN.",
+        "note_vi": (
+            "Đã ghi bằng chứng không-PHYSICAL (không chứa ảnh/mật khẩu). "
+            "PHYSICAL_VERIFIED cần lab-run FSM trên máy Windows LAN."
+        ),
     }
 
 

@@ -1,0 +1,58 @@
+CaseID,Priority,Area,Scenario,Expected,InitialStatus
+ENV01,P0,Cloud,Initial HEAD exactly pinned PR8,Exact SHA or refuse,NOT_RUN
+ENV02,P0,Cloud,Later feature HEAD descendant of PR8,Git ancestry verified,NOT_RUN
+ENV03,P0,Cloud,Reject P00 and main branches,Nonzero exit,NOT_RUN
+ENV04,P0,Cloud,Unexpected divergent branch,Nonzero exit not INFO,NOT_RUN
+ENV05,P0,Cloud,Setup twice with tracked-tree preservation,Idempotent/no tracked edits,NOT_RUN
+ENV06,P1,Cloud,Restart Cloud Agent same commit,Version pinned after restart,NOT_RUN
+ENV07,P1,Cloud,Frontend build from current branch,Current SHA recorded and build OK,NOT_RUN
+ENV08,P1,Cloud,Backend pytest all suites,"Exact test count, code SHA",NOT_RUN
+ENV09,P1,Cloud,Health and browser smoke,Localhost 127.0.0.1 only,NOT_RUN
+ENV10,P0,Cloud,Mock frames cannot unlock CAMERA_LAB,Gate remains BLOCKED,NOT_RUN
+SEC01,P0,Auth,Unprivileged evidence record,403,NOT_RUN
+SEC02,P0,Auth,Unprivileged approval issue,403,NOT_RUN
+SEC03,P0,Auth,CSRF missing evidence action,Reject,NOT_RUN
+SEC04,P0,Auth,Default production session secret,Fail startup,NOT_RUN
+SEC05,P0,Auth,Secret and face leakage in reports,No sensitive content,NOT_RUN
+EV01,P0,Evidence,Claim known/unknown counts without server cases,Reject PHYSICAL_VERIFIED FACE_PILOT,NOT_RUN
+EV02,P0,Evidence,Health dimensions from disconnected camera,Reject PHYSICAL_VERIFIED,NOT_RUN
+EV03,P0,Evidence,Camera source switched since measurement,Reject and invalidate,NOT_RUN
+EV04,P0,Evidence,Camera config revised after run,Reject and invalidate,NOT_RUN
+EV05,P0,Evidence,Source provenance MOCK or REPLAY,Reject PHYSICAL_VERIFIED,NOT_RUN
+EV06,P0,Evidence,Native dimensions only claimed in request,Derive exclusively from server frames,NOT_RUN
+EV07,P0,Evidence,Wrong camera ID in approval,Reject,NOT_RUN
+EV08,P0,Evidence,Old run nonce reused,Reject replay,NOT_RUN
+EV09,P0,Evidence,Old evidence after model/gallery threshold change,Invalidate,NOT_RUN
+EV10,P0,Evidence,Signed approval after evidence revocation,Reject,NOT_RUN
+EV11,P0,Evidence,Physical evidence created without owner review,Remain LIVE_PENDING,NOT_RUN
+EV12,P0,Evidence,Physical evidence signed without same-run evaluation,Reject,NOT_RUN
+EV13,P0,Evidence,A/B client import labelled LIVE,UNTRUSTED_IMPORT,NOT_RUN
+EV14,P0,Evidence,A/B can_auto_enable false,AUTO_VALIDATED rejected,NOT_RUN
+EV15,P0,Evidence,Enhanced original-correct case becomes wrong,AUTO_REVERTED or fail gate,NOT_RUN
+EV16,P1,Evidence,Atomic update interrupted before sign,No partial authoritative approval,NOT_RUN
+EV17,P0,Evidence,Outdated frame PTS reused after reconnect,Reject stale generation,NOT_RUN
+CAM01,P0,Camera,LIVE main decoded resolution on Windows,Actual frame.shape W/H recorded,NOT_RUN
+CAM02,P1,Camera,Main and substream profile measured,Resolution/FPS separated,NOT_RUN
+CAM03,P1,Camera,Browser preview resizes image,Original native pixels unchanged,NOT_RUN
+CAM04,P0,Camera,YuNet landmark original mapping,All five points correct,NOT_RUN
+CAM05,P0,Camera,Upscaling fake face size,Native pixel thresholds unchanged,NOT_RUN
+CAM06,P0,Camera,IR night and backlight evaluation,Per-lighting report and blockers,NOT_RUN
+CAM07,P0,Camera,LIVE frame stale after unplug,Preview/evidence fail-closed,NOT_RUN
+CAM08,P1,Camera,Restart device/service,Reconnect then fresh source verified,NOT_RUN
+CAM09,P1,Camera,Wrong RTSP password or path,No secrets in logs and actionable error,NOT_RUN
+CAM10,P0,Camera,Real YuNet/SFace gallery matches and unknowns,Correct/wrong/unknown statistics,NOT_RUN
+BUS01,P0,Attendance,AM 08:15 through 08:45 window,Existing policy preserved,NOT_RUN
+BUS02,P0,Attendance,Late 08:30:00 vs 08:30:01,Zero grace,NOT_RUN
+BUS03,P0,Attendance,PM selection after 19:00,17:00-23:56 considered,NOT_RUN
+BUS04,P0,Attendance,18:00 tie in PM observations,Prefer earlier per policy,NOT_RUN
+BUS05,P0,Attendance,Duplicate AM/PM from repeated frame,Exactly one authoritative punch each,NOT_RUN
+BUS06,P0,Attendance,Overtime exit without verified departure,Only TIMEKEEPER queue,NOT_RUN
+BUS07,P0,Attendance,Mock or A/B shadow event,No official attendance write,NOT_RUN
+WIN01,P1,Windows,Read-only system readiness,"Sanitized preflight, no secret logs",NOT_RUN
+WIN02,P0,Windows,Company LAN real camera pilot,"Owner evidence only, until then BLOCKED",NOT_RUN
+WIN03,P0,Windows,Known/unknown consented face pilot,"Owner labeled test, until then BLOCKED",NOT_RUN
+WIN04,P0,Windows,Installer first install/upgrade/uninstall,Actual Windows results or BLOCKED,NOT_RUN
+REL01,P1,Release,Changed-source ZIP complete,Manifest and repository paths,NOT_RUN
+REL02,P1,Release,Full-source ZIP separate,No biometric/credential/model weight leakage,NOT_RUN
+REL03,P1,Release,SHA256 hashes verified,Every artifact hash matches,NOT_RUN
+REL04,P0,Release,Do not merge to main,Feature PR only,NOT_RUN

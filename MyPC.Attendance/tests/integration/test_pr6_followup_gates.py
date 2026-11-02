@@ -197,6 +197,7 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
             decoded_w=160,
             decoded_h=120,
             fps_measured=5.0,
+            lab_run_id="test-lab-run-pr6-bind",
         )
         issue_approval(
             db,

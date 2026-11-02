@@ -170,7 +170,10 @@ def test_physical_evidence_rejected_on_mock(app_client):
         },
     )
     assert r.status_code == 422
-    assert r.json()["detail"]["code"] == "PHYSICAL_REQUIRES_LIVE_DECODE"
+    assert r.json()["detail"]["code"] in {
+        "PHYSICAL_REQUIRES_LIVE_DECODE",
+        "NEED_LAB_RUN_PROMOTE",
+    }
 
 
 def test_gateway_health_separates_settings_flag(app_client):
@@ -221,6 +224,7 @@ def test_config_revision_invalidation_persists(app_client):
             provenance="CAMERA_LIVE",
             decoded_w=160,
             decoded_h=120,
+            lab_run_id="test-lab-run-pr7-inv",
         )
         issue_approval(
             db,

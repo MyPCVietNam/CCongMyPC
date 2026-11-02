@@ -99,6 +99,7 @@ def create_evidence(
     frame_ids_json: str = "[]",
     note_vi: str = "",
     ab_run_id: str = "",
+    lab_run_id: str = "",
     clock: datetime | None = None,
 ) -> PilotEvidenceRecord:
     if kind not in {KIND_CAMERA_LAB, KIND_FACE_PILOT, KIND_AB_REVIEW}:
@@ -110,6 +111,10 @@ def create_evidence(
     }:
         raise ValueError("Hạng bằng chứng không hợp lệ.")
     if evidence_class == EVIDENCE_PHYSICAL:
+        if not (lab_run_id or "").strip():
+            raise ValueError(
+                "PHYSICAL_VERIFIED cần lab_run_id server (CREATED→LIVE_MEASURED→OWNER_REVIEWED)."
+            )
         if kind == KIND_CAMERA_LAB and not (
             provenance == "CAMERA_LIVE"
             and decoded_w
@@ -131,6 +136,7 @@ def create_evidence(
         "kind": kind,
         "evidence_class": evidence_class,
         "camera_id": camera_id,
+        "lab_run_id": lab_run_id or "",
         "config_revision": config_revision,
         "provenance": provenance,
         "decoded_w": decoded_w,
@@ -148,6 +154,7 @@ def create_evidence(
         kind=kind,
         evidence_class=evidence_class,
         camera_id=camera_id,
+        lab_run_id=lab_run_id or "",
         config_revision=config_revision or "",
         provenance=provenance or "",
         decoded_w=decoded_w,
@@ -222,6 +229,16 @@ def require_physical_evidence(
             False,
             "EVIDENCE_NOT_PHYSICAL",
             f"Hạng {row.evidence_class} không đủ — cần PHYSICAL_VERIFIED.",
+        )
+    if not (row.lab_run_id or "").strip():
+        return EvidenceView(
+            evidence_id,
+            kind,
+            row.evidence_class,
+            camera_id,
+            False,
+            "EVIDENCE_MISSING_LAB_RUN",
+            "PHYSICAL_VERIFIED thiếu lab_run_id — từ chối ký (cần FSM lab run).",
         )
     if (
         row.model_hash_pin != pins.get("model_hash_pin")
