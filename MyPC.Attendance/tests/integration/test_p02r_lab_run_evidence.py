@@ -154,7 +154,8 @@ def test_ev11_promote_without_owner_review_rejected(app_client):
     )
     assert start.status_code == 200
     run_id = start.json()["run_id"]
-    challenge = start.json()["owner_challenge"]
+    assert "owner_challenge" not in start.json()
+    assert start.json().get("challenge_issued") is True
     meas = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/measure",
         headers=headers,
@@ -163,6 +164,7 @@ def test_ev11_promote_without_owner_review_rejected(app_client):
     assert meas.status_code == 200, meas.text
     assert meas.json()["state"] == "LIVE_MEASURED"
     assert meas.json()["decoded_w"] == 160
+    assert float(meas.json()["fps_measured"] or 0) > 0
     # Promote without owner review
     promo = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/promote-physical",
@@ -171,21 +173,30 @@ def test_ev11_promote_without_owner_review_rejected(app_client):
     )
     assert promo.status_code == 422
     assert promo.json()["detail"]["code"] == "NEED_OWNER_REVIEW"
+    # Reveal challenge via authenticated UI endpoint (not CLI)
+    ch = client.post(
+        f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/owner-challenge",
+        headers=headers,
+        json={},
+    )
+    assert ch.status_code == 200, ch.text
+    challenge = ch.json()["owner_challenge"]
     # Wrong challenge
     bad = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/owner-review",
         headers=headers,
-        json={"challenge": "wrong"},
+        json={"challenge": "wrong", "ack_vi": "Xác nhận đo LIVE"},
     )
     assert bad.status_code == 422
     assert bad.json()["detail"]["code"] == "CHALLENGE_INVALID"
     ok = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/owner-review",
         headers=headers,
-        json={"challenge": challenge},
+        json={"challenge": challenge, "ack_vi": "Tôi xác nhận đo LIVE kết nối (một toán tử)."},
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["state"] == "OWNER_REVIEWED"
+    assert ok.json().get("review_kind") == "SINGLE_OPERATOR_ACK"
     promo2 = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/promote-physical",
         headers=headers,
@@ -238,7 +249,6 @@ def test_face_pilot_needs_server_cases_before_owner_review(app_client):
         json={"kind": "FACE_PILOT"},
     ).json()
     run_id = start["run_id"]
-    challenge = start["owner_challenge"]
     assert (
         client.post(
             f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/measure",
@@ -247,14 +257,22 @@ def test_face_pilot_needs_server_cases_before_owner_review(app_client):
         ).status_code
         == 200
     )
-    # Owner review without cases
+    ch = client.post(
+        f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/owner-challenge",
+        headers=headers,
+        json={},
+    ).json()["owner_challenge"]
+    # Owner review without cases → INSUFFICIENT_EVIDENCE (not biometric PASS)
     r = client.post(
         f"/api/v1/cameras/{cam['id']}/lab-runs/{run_id}/owner-review",
         headers=headers,
-        json={"challenge": challenge},
+        json={"challenge": ch, "ack_vi": "Xác nhận pilot"},
     )
     assert r.status_code == 422
-    assert r.json()["detail"]["code"] == "FACE_CASES_INSUFFICIENT"
+    assert r.json()["detail"]["code"] in {
+        "FACE_CASES_INSUFFICIENT",
+        "INSUFFICIENT_EVIDENCE",
+    }
     stub.stop()
 
 

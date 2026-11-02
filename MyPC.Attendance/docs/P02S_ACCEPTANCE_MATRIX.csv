@@ -1,0 +1,59 @@
+case_id,priority,category,expected_result,evidence_required,status
+SRC01,P0,Source,Require exact PR9 anchor or verified descendant,git ancestry log,NOT_RUN
+SRC02,P0,Source,Reject P00 and old PR8-only for P02S pilot,negative checkout test,NOT_RUN
+SRC03,P1,Source,No silent overwrite of tracked or untracked WIP,git status and backup,NOT_RUN
+SRC04,P1,Source,Final pytest and frontend build match exact final HEAD,full test transcript,NOT_RUN
+FRM01,P0,Frame,Same cached frame ID repeated fails LIVE measurement,unit negative,NOT_RUN
+FRM02,P0,Frame,Zero measured FPS cannot produce PHYSICAL evidence,unit negative,NOT_RUN
+FRM03,P1,Frame,Positive distinct advancing frames pass provisional LIVE measurement,unit positive,NOT_RUN
+FRM04,P1,Frame,Stale receive time fails closed,unit negative,NOT_RUN
+FRM05,P1,Frame,Negative frame age clock skew cannot pass as fresh,unit negative,NOT_RUN
+FRM06,P1,Frame,Missing receive monotonic cannot fabricate timing,unit negative,NOT_RUN
+FRM07,P1,Frame,Config revision drift invalidates measurement,unit negative,NOT_RUN
+FRM08,P1,Frame,Decoder disconnect mid-window fails closed,integration negative,NOT_RUN
+FRM09,P1,Frame,Unstable native frame dimensions fail closed,integration negative,NOT_RUN
+FRM10,P1,Frame,Camera source mismatch and swapped camera ID rejected,integration negative,NOT_RUN
+FRM11,P1,Frame,MOCK and REPLAY never PHYSICAL approval,integration negative,NOT_RUN
+FRM12,P2,Frame,Native BGR frame unchanged by preview or enhancement,unit buffer/hash check,NOT_RUN
+FPT01,P0,FacePilot,KNOWN truth with empty gallery rejected,integration negative,NOT_RUN
+FPT02,P0,FacePilot,Nonexistent or inactive KNOWN ID rejected,integration negative,NOT_RUN
+FPT03,P0,FacePilot,Known WRONG outcome blocks biometric approval,integration negative,NOT_RUN
+FPT04,P0,FacePilot,Unknown FALSE_ACCEPT blocks biometric approval,integration negative,NOT_RUN
+FPT05,P0,FacePilot,One known and one unknown alone does not claim production accuracy,integration negative,NOT_RUN
+FPT06,P1,FacePilot,Repeated same frame cannot inflate case count,integration negative,NOT_RUN
+FPT07,P1,FacePilot,Duplicate subject cannot satisfy distinct-person coverage,integration negative,NOT_RUN
+FPT08,P1,FacePilot,Ambiguous or missed samples reflected accurately in report,integration report,NOT_RUN
+FPT09,P1,FacePilot,Truth label linked to approved supervised case,authorized Windows human protocol,BLOCKED
+FPT10,P1,FacePilot,Model/gallery threshold drift invalidates recorded case,integration negative,NOT_RUN
+FPT11,P1,FacePilot,DAY/DUSK/IR/BACKLIGHT claims treated as operator labels,lab protocol and data provenance,BLOCKED
+FPT12,P1,FacePilot,Known and unknown trials use real approved gallery,real model and local pilot,BLOCKED
+FPT13,P1,FacePilot,Face trials never create official attendance punches,regression integration,NOT_RUN
+APP01,P0,Approval,Approval refused when FACE_PILOT outcomes fail,negative signing test,NOT_RUN
+APP02,P1,Approval,Owner challenge replay rejected after use,negative unit test,NOT_RUN
+APP03,P1,Approval,Challenge cannot be used across camera IDs,negative integration,NOT_RUN
+APP04,P1,Approval,Challenge cannot be used after run expiration,negative integration,NOT_RUN
+APP05,P1,Approval,Owner review role separation matches claims,permissions test,NOT_RUN
+APP06,P1,Approval,Config gallery or model change invalidates approval,negative integration,NOT_RUN
+APP07,P1,Approval,Client label counters cannot trigger physical approval,negative integration,NOT_RUN
+APP08,P1,Approval,Original image remains official pending validated A/B,regression integration,NOT_RUN
+SEC01,P0,Security,No session cookie or CSRF on PowerShell command line,static/dynamic inspection,NOT_RUN
+SEC02,P0,Security,No owner challenge printed or stored in plain JSON,static/dynamic inspection,NOT_RUN
+SEC03,P1,Security,Local log outputs have restricted ACL and redaction,Windows ACL inspection,BLOCKED
+SEC04,P1,Security,RTSP passwords never in source logs or audit ZIP,sanitized archive audit,NOT_RUN
+SEC05,P1,Security,No WAN listener or public camera tunnel,Windows networking evidence,BLOCKED
+SEC06,P1,Security,Real employee images embeddings do not appear in public artifacts,archive content review,NOT_RUN
+WIN01,P1,Windows,Preflight checks PR9 ancestry not only PR8,Windows or static test,NOT_RUN
+WIN02,P1,Windows,Real RTSP decoded resolution and distinct frame FPS recorded,Windows EZVIZ company LAN,BLOCKED
+WIN03,P1,Windows,Disconnect and reconnect do not accept stale evidence,Windows EZVIZ company LAN,BLOCKED
+WIN04,P1,Windows,Native face quality and alignment validated,consented physical pilot,BLOCKED
+WIN05,P1,Windows,Model licenses and checksums independently verified,local installed model hashes,NOT_RUN
+WIN06,P1,Windows,Windows 10 and 11 UI test at localhost,Windows browser lab,BLOCKED
+WIN07,P1,Windows,No Defender firewall or policy weakening during pilot,operator evidence,BLOCKED
+WIN08,P2,Windows,Installer actual x64 package and uninstall validated,physical Windows installer smoke,BLOCKED
+POL01,P0,Timekeeping,08:30 shift and zero late grace unchanged,unit regression,NOT_RUN
+POL02,P0,Timekeeping,Morning 08:15-08:45 and afternoon until 23:56 unchanged,unit regression,NOT_RUN
+POL03,P0,Timekeeping,Nearest eligible 18:00 reference and no synthetic exit unchanged,unit regression,NOT_RUN
+POL04,P0,Timekeeping,No duplicate AM PM records and approved leave intact,unit regression,NOT_RUN
+PKG01,P1,Packaging,Separate changed/full source ZIP relative paths and manifests,archive tool plus manifest comparison,NOT_RUN
+PKG02,P1,Packaging,Full SHA256SUMS verified and no unsafe entries,archive tool output,NOT_RUN
+PKG03,P1,Packaging,Exact full final Git SHA recorded in release report,custody report,NOT_RUN
