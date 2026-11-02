@@ -39,8 +39,12 @@ class _StubGw:
             fps_estimate=8.0,
             detail_vi="stub",
             camera_lab_pass=False,
-            operationally_ready=False,
+            operationally_ready=bool(self._running),
         )
+
+    def get_latest_good_frame(self):
+        fr = self.get_latest_frame()
+        return fr if fr is not None and getattr(fr, "integrity_ok", True) else None
 
     def get_latest_frame(self):
         now = datetime.now(timezone.utc)

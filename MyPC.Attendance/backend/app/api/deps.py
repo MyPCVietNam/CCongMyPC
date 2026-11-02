@@ -48,6 +48,8 @@ class AppState:
     # Soft rate limit: username/ip -> (fail_count, locked_until_mono)
     login_failures: dict[str, tuple[int, float]] = field(default_factory=dict)
     pending_secret_cleanup: str | None = None
+    # Camera credential refs to scrub ONLY after durable DB commit (never pre-commit)
+    pending_camera_secret_deletes: list[str] = field(default_factory=list)
     face_pipeline: Any = None
     template_store: Any = None
     enrollment_service: Any = None
@@ -78,8 +80,21 @@ def get_db(state: Annotated[AppState, Depends(get_app_state)]):
                 secure_delete_file(Path(str(pending)))
             finally:
                 state.pending_secret_cleanup = None  # type: ignore[attr-defined]
+        # Camera credential files — only after camera row commit succeeds
+        pending_cams = list(getattr(state, "pending_camera_secret_deletes", None) or [])
+        if pending_cams:
+            state.pending_camera_secret_deletes = []  # type: ignore[attr-defined]
+            for ref in pending_cams:
+                try:
+                    state.secrets.delete_camera_secret(ref)
+                except Exception:
+                    # DB already committed; log-only — never resurrect deleted row
+                    pass
     except Exception:
         db.rollback()
+        # Never scrub camera secrets if the transaction rolled back
+        if getattr(state, "pending_camera_secret_deletes", None):
+            state.pending_camera_secret_deletes = []  # type: ignore[attr-defined]
         raise
     finally:
         db.close()

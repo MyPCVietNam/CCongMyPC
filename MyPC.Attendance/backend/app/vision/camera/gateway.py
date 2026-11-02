@@ -26,6 +26,10 @@ import numpy as np
 
 logger = logging.getLogger("mypc.camera")
 
+# Serialize OpenCV/FFmpeg open so process-global OPENCV_FFMPEG_CAPTURE_OPTIONS
+# cannot race across simultaneous stream opens.
+_FFMPEG_OPEN_LOCK = threading.Lock()
+
 
 class StreamProvenance(str, Enum):
     CAMERA_LIVE = "CAMERA_LIVE"
@@ -415,28 +419,38 @@ class LiveRTSPGateway(CameraGateway):
                 pass
             self._cap = None
 
-    def _apply_ffmpeg_options(self) -> None:
+    def _ffmpeg_options_for_transport(self) -> str:
         """Prefer TCP interleaved as first controlled transport — overridable via env."""
-        # OpenCV reads OPENCV_FFMPEG_CAPTURE_OPTIONS as key;value|key;value
         # Do not set skip_frame / nobuffer globally without A/B evidence.
         transport = self._transport if self._transport in {"tcp", "udp"} else "tcp"
-        opts = os.environ.get("MYPC_FFMPEG_CAPTURE_OPTIONS") or (
+        return os.environ.get("MYPC_FFMPEG_CAPTURE_OPTIONS") or (
             f"rtsp_transport;{transport}|stimeout;5000000"
         )
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = opts
 
     def _open(self) -> bool:
         import cv2
 
         self._status = DecoderStatus.CONNECTING
-        self._apply_ffmpeg_options()
+        # Clear prior good frames — never leave a stale good buffer across reopen
+        with self._lock:
+            self._latest_good = None
         t0 = time.monotonic()
-        self._cap = cv2.VideoCapture(self._uri, cv2.CAP_FFMPEG)
+        with _FFMPEG_OPEN_LOCK:
+            prev = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = self._ffmpeg_options_for_transport()
+            try:
+                self._cap = cv2.VideoCapture(self._uri, cv2.CAP_FFMPEG)
+            finally:
+                if prev is None:
+                    os.environ.pop("OPENCV_FFMPEG_CAPTURE_OPTIONS", None)
+                else:
+                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = prev
         try:
-            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+            if self._cap is not None:
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
         except Exception:
             pass
-        ok = bool(self._cap.isOpened())
+        ok = bool(self._cap is not None and self._cap.isOpened())
         self._open_latency_ms = (time.monotonic() - t0) * 1000.0
         if not ok:
             logger.warning(
@@ -492,8 +506,10 @@ class LiveRTSPGateway(CameraGateway):
                 self._last_error_class = ""
                 self._reconnects = 0
             else:
+                self._latest_good = None
                 self._status = DecoderStatus.DEGRADED
-                self._last_error_class = "CORRUPT_OR_WARMUP"
+                if not self._last_error_class:
+                    self._last_error_class = "CORRUPT_OR_WARMUP"
 
     def _loop(self) -> None:
         backoff = 1.0
@@ -527,6 +543,8 @@ class LiveRTSPGateway(CameraGateway):
                 self._last_error_class = "DECODE_FAILED"
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
+                with self._lock:
+                    self._latest_good = None
                 self._release()
                 if self._reconnects >= self._max_reconnect_attempts:
                     self._status = DecoderStatus.STOPPED
@@ -560,10 +578,14 @@ class LiveRTSPGateway(CameraGateway):
                 self._good_streak = 0
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
+                # Invalidate last good — biometric must not reuse pre-corruption frame
+                with self._lock:
+                    self._latest_good = None
                 # Wait for next independently decodable keyframe window
                 self._warmup_remaining = max(2, self._keyframe_warmup // 2)
                 h, w = frame.shape[:2]
                 self._native = (w, h)
+                self._last_error_class = "HEVC_REF_OR_CORRUPT"
                 # Publish DEGRADED only for UI honesty — biometric paths must reject integrity_ok=False
                 try:
                     fr_bad = CameraFrame.from_bgr(
@@ -615,14 +637,29 @@ class LiveRTSPGateway(CameraGateway):
             return fr
 
     def get_latest_good_frame(self) -> CameraFrame | None:
-        """Recognition path prefers last integrity-ok frame (still subject to stale checks)."""
+        """Last integrity-ok frame — None while decoder is unhealthy (no silent reuse)."""
         with self._lock:
+            if self._status in {
+                DecoderStatus.DEGRADED,
+                DecoderStatus.RECONNECTING,
+                DecoderStatus.CONNECTING,
+                DecoderStatus.OFFLINE,
+                DecoderStatus.STOPPED,
+                DecoderStatus.AUTH_FAILED,
+                DecoderStatus.STREAM_NOT_FOUND,
+                DecoderStatus.DECODE_FAILED,
+                DecoderStatus.NOT_CONFIGURED,
+                DecoderStatus.BLOCKED,
+            }:
+                return None
             fr = self._latest_good
             if fr is None:
                 return None
             age = (datetime.now(timezone.utc) - fr.receive_time_utc).total_seconds()
             if age > self._stale_after:
                 return fr.with_status(DecoderStatus.STALE)
+            if not getattr(fr, "integrity_ok", True):
+                return None
             return fr
 
     def health(self) -> GatewayHealth:

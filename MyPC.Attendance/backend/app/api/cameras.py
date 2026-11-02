@@ -815,10 +815,23 @@ def delete_camera(
         RecognitionRegion,
     )
 
-    for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
-        for dep in list(db.scalars(select(model).where(model.camera_id == camera_id)).all()):  # type: ignore[attr-defined]
-            db.delete(dep)
-    db.flush()
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
+            for dep in list(db.scalars(select(model).where(model.camera_id == camera_id)).all()):  # type: ignore[attr-defined]
+                db.delete(dep)
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_CONFIG_CLEANUP_FK",
+                "message_vi": "Không dọn được cấu hình phụ thuộc — dùng Lưu trữ.",
+                "blockers": _camera_delete_blockers(db, camera_id),
+            },
+        ) from exc
     # Re-check blockers after config cleanup (should still be zero for hard-delete path)
     blockers_after = _camera_delete_blockers(db, camera_id)
     if blockers_after["total"] > 0:
@@ -833,8 +846,7 @@ def delete_camera(
     try:
         db.delete(row)
         db.flush()
-    except Exception as exc:  # noqa: BLE001
-        # Map unexpected FK races to actionable 409 (never generic 500)
+    except IntegrityError as exc:
         db.rollback()
         blockers_now = _camera_delete_blockers(db, camera_id)
         raise HTTPException(
@@ -848,11 +860,10 @@ def delete_camera(
                 "blockers": blockers_now,
             },
         ) from exc
-    if secret_ref:
-        try:
-            state.secrets.delete_camera_secret(secret_ref)
-        except Exception:
-            pass
+    except Exception:
+        # Real operational / DB failures — do not mask as 409
+        db.rollback()
+        raise
     db.add(
         AuditLog(
             actor=user.username,
@@ -863,7 +874,15 @@ def delete_camera(
             timestamp=utc_now(),
         )
     )
-    return {"ok": True, "deleted_id": camera_id}
+    # Queue filesystem credential scrub ONLY after get_db commits successfully.
+    # Never delete camera-*.bin before durable DB commit (rollback must keep secrets).
+    if secret_ref:
+        pending = getattr(state, "pending_camera_secret_deletes", None)
+        if pending is None:
+            state.pending_camera_secret_deletes = [secret_ref]  # type: ignore[attr-defined]
+        else:
+            pending.append(secret_ref)
+    return {"ok": True, "deleted_id": camera_id, "credential_delete_deferred": bool(secret_ref)}
 
 
 @router.get("/{camera_id}/delete-blockers")

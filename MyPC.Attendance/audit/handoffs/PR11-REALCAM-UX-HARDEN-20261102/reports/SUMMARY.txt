@@ -1,0 +1,4 @@
+295 passed
+frontend build: OK
+npm audit: 0 vulnerabilities
+physical gates: CAMERA_LAB FACE_PILOT EXIT_VERIFICATION INSTALLER = BLOCKED

@@ -197,7 +197,37 @@ class CameraSourceRegistry:
                 "Nhận diện/ghi công chính thức chỉ chấp nhận CAMERA_LIVE đã xác minh.",
             )
 
-        want_integrity = for_biometric if require_integrity is None else require_integrity
+        # Biometric paths ALWAYS require integrity — callers cannot bypass via require_integrity=False
+        want_integrity = True if for_biometric else (
+            True if require_integrity is None else bool(require_integrity)
+        )
+
+        # Live decoder health gate: never reuse a prior good frame while unhealthy
+        if for_biometric and hasattr(bound.gateway, "health"):
+            gh = bound.gateway.health()
+            st = gh.decoder_status
+            if st in {
+                DecoderStatus.DEGRADED,
+                DecoderStatus.RECONNECTING,
+                DecoderStatus.CONNECTING,
+                DecoderStatus.OFFLINE,
+                DecoderStatus.STOPPED,
+                DecoderStatus.AUTH_FAILED,
+                DecoderStatus.STREAM_NOT_FOUND,
+                DecoderStatus.DECODE_FAILED,
+                DecoderStatus.NOT_CONFIGURED,
+                DecoderStatus.BLOCKED,
+            }:
+                raise FrameAccessError(
+                    "DECODER_UNHEALTHY",
+                    f"Decoder={st.value} — không tái sử dụng khung tốt cũ cho chấm công.",
+                )
+            if not getattr(gh, "operationally_ready", False):
+                raise FrameAccessError(
+                    "DECODER_NOT_READY",
+                    "Decoder chưa operationally_ready — từ chối quan sát sinh trắc.",
+                )
+
         if want_integrity and hasattr(bound.gateway, "get_latest_good_frame"):
             fr = bound.gateway.get_latest_good_frame()  # type: ignore[attr-defined]
         else:
@@ -223,10 +253,14 @@ class CameraSourceRegistry:
             raise FrameAccessError("STALE_FRAME_REVISION", "Khung hình cũ sau đổi cấu hình.")
         if fr.provenance != bound.provenance:
             raise FrameAccessError("PROVENANCE_MISMATCH", "Provenance khung hình không khớp nguồn gắn.")
+        if for_biometric and fr.provenance != StreamProvenance.CAMERA_LIVE:
+            raise FrameAccessError("BIOMETRIC_REQUIRES_LIVE", "Sinh trắc yêu cầu CAMERA_LIVE.")
         if fr.decoder_status == DecoderStatus.STALE and (for_biometric or not allow_stale):
             raise FrameAccessError("STALE_FRAME", "Khung hình quá hạn — không dùng cho nhận diện.")
-        if fr.decoder_status == DecoderStatus.DEGRADED and for_biometric:
+        if fr.decoder_status == DecoderStatus.DEGRADED and (for_biometric or want_integrity):
             raise FrameAccessError("DEGRADED_FRAME", "Luồng đang DEGRADED — không dùng cho nhận diện.")
+        if for_biometric and fr.decoder_status != DecoderStatus.OK:
+            raise FrameAccessError("DECODER_NOT_OK", f"Decoder={fr.decoder_status.value}.")
         if fr.decoder_status not in {
             DecoderStatus.OK,
             DecoderStatus.STALE,
@@ -241,6 +275,19 @@ class CameraSourceRegistry:
             raise FrameAccessError("FRAME_TOO_OLD", f"Tuổi khung hình {age:.2f}s vượt ngưỡng.")
         if for_biometric and fr.clock_trust.value not in {"SERVER_RECEIVE"}:
             raise FrameAccessError("UNTRUSTED_CLOCK", "Đồng hồ khung hình chưa tin cậy cho chấm công.")
+
+        # Reject repeated frame_id for biometric (must be a new event)
+        if for_biometric:
+            last_ids: dict[int, str] = getattr(self, "_last_biometric_frame_ids", None) or {}
+            if not hasattr(self, "_last_biometric_frame_ids"):
+                self._last_biometric_frame_ids = last_ids  # type: ignore[attr-defined]
+            prev = last_ids.get(camera_db_id)
+            if prev and prev == fr.frame_id:
+                raise FrameAccessError(
+                    "DUPLICATE_FRAME_ID",
+                    "frame_id trùng lần quan sát trước — từ chối tái sử dụng.",
+                )
+            last_ids[camera_db_id] = fr.frame_id
         return bound, fr
 
     def health(self, camera_db_id: int | None = None) -> dict[str, Any]:

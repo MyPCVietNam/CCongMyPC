@@ -105,6 +105,8 @@ export function CameraPage() {
   const [viewMode, setViewMode] = useState<"mjpeg" | "snapshot">("mjpeg");
   const [mjpegNonce, setMjpegNonce] = useState(0);
   const [dupesMsg, setDupesMsg] = useState("");
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const selectGen = useRef(0);
   const hiddenRef = useRef(false);
   const inFlight = useRef(false);
@@ -483,14 +485,25 @@ export function CameraPage() {
       ? `/api/v1/cameras/${selected}/preview/mjpeg?max_fps=12&_=${mjpegNonce}`
       : "";
 
+  const statusHint =
+    statusLabel === "LIVE"
+      ? "Đang giải mã LIVE — chưa phải CAMERA_LAB_PASS"
+      : statusLabel === "DEGRADED"
+        ? "Khung hỏng/HEVC — không dùng nhận diện. Bấm Kết nối lại."
+        : statusLabel === "MOCK"
+          ? "Cấu hình MOCK — không đủ bằng chứng vật lý"
+          : statusLabel === "RECONNECTING" || statusLabel === "CONNECTING"
+            ? "Đang kết nối / khôi phục luồng"
+            : "Chưa LIVE — bấm Kết nối lại sau khi kiểm tra RTSP";
+
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-display">Quản lý Camera & RTSP</h1>
-        <p className="text-sm text-muted mt-1">
-          LIVE mượt qua MJPEG an toàn (cookie phiên). Snapshot vẫn là ảnh tĩnh.{" "}
+    <div className="space-y-5">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-display">Camera</h1>
+        <p className="text-sm text-muted">
+          Xem LIVE, trạng thái thật, thao tác chính. Cấu hình nâng cao dành cho quản trị.{" "}
           <a className="text-brand underline" href="https://mypc.vn" target="_blank" rel="noreferrer">
-            MyPC Viet Nam →
+            MyPC Việt Nam →
           </a>
         </p>
       </header>
@@ -506,20 +519,31 @@ export function CameraPage() {
                 const v = e.target.value;
                 if (!v) {
                   startNew();
+                  setEditOpen(true);
                   return;
                 }
                 setSelected(Number(v));
+                setEditOpen(false);
               }}
             >
               <option value="">— Thêm camera mới —</option>
               {cams.map((c) => (
                 <option key={c.id} value={c.id}>
-                  #{c.id} {c.name} {c.archived ? "(LƯU TRỮ)" : ""}{" "}
-                  {c.mock_mode ? "(MOCK)" : ""}{" "}
-                  {c.live_verified || c.runtime?.live_decoded ? "· LIVE" : ""}
+                  #{c.id} {c.name}
+                  {c.archived ? " (LƯU TRỮ)" : ""}
+                  {c.mock_mode ? " · MOCK" : ""}
+                  {c.live_verified || c.runtime?.live_decoded ? " · LIVE" : ""}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="text-sm flex items-center gap-2 pb-2">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            Hiện đã lưu trữ
           </label>
           <label className="text-sm space-y-1">
             <span className="text-muted">Lọc</span>
@@ -534,207 +558,39 @@ export function CameraPage() {
               <option value="MOCK">MOCK</option>
             </select>
           </label>
-          <label className="text-sm flex items-center gap-2 pb-2">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />
-            Hiện đã lưu trữ
-          </label>
-          <button
-            type="button"
-            onClick={startNew}
-            className="rounded-md border border-line px-3 py-2 text-sm hover:bg-panel2"
-          >
-            Thêm camera mới
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={dryRunDupes}
-            className="rounded-md border border-line px-3 py-2 text-sm"
-          >
-            Dry-run trùng lặp
-          </button>
-          {mode === "edit" && selected != null ? (
-            <span className="text-xs text-muted pb-2">
-              Trạng thái: <strong className="text-ink">{statusLabel}</strong>
-              {preview?.receive_time_utc ? (
-                <> · freshness {new Date(preview.receive_time_utc).toLocaleTimeString()}</>
-              ) : null}
-            </span>
-          ) : null}
         </div>
-        {dupesMsg ? (
-          <pre className="text-xs whitespace-pre-wrap bg-canvas border border-line rounded-md p-2">
-            {dupesMsg}
-          </pre>
+        {mode === "edit" && selected != null ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span
+              className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium ${
+                statusLabel === "LIVE"
+                  ? "border-brand/40 text-brand bg-brand/10"
+                  : statusLabel === "DEGRADED"
+                    ? "border-danger/40 text-danger bg-danger/10"
+                    : "border-line text-muted bg-canvas"
+              }`}
+            >
+              {statusLabel}
+            </span>
+            <span className="text-xs text-muted">{statusHint}</span>
+          </div>
         ) : null}
       </div>
 
-      <form
-        onSubmit={saveCam}
-        className="rounded-xl border border-line bg-panel p-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3"
-      >
-        <Field label="Tên" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-        <Field
-          label="IP LAN (IPv4)"
-          value={form.host}
-          onChange={(v) => setForm({ ...form, host: v })}
-        />
-        <Field
-          label="URI RTSP (không nhúng mật khẩu)"
-          value={form.rtsp_url_override}
-          onChange={(v) => setForm({ ...form, rtsp_url_override: v })}
-          placeholder="rtsp://192.168.0.211:554/ch1/main"
-        />
-        <Field
-          label="Tài khoản camera"
-          value={form.username}
-          onChange={(v) => setForm({ ...form, username: v })}
-          autoComplete="off"
-        />
-        <div className="text-sm space-y-1">
-          <span className="text-muted">Mật khẩu camera</span>
-          {mode === "edit" && selectedCam?.credential_saved && !form.changePassword ? (
-            <div className="rounded-md border border-line bg-canvas px-3 py-2 text-muted">
-              Đã lưu credential — ô trống = giữ nguyên.{" "}
-              <button
-                type="button"
-                className="text-brand underline"
-                onClick={() => setForm({ ...form, changePassword: true, password: "" })}
-              >
-                Đổi mật khẩu camera
-              </button>
-            </div>
-          ) : (
-            <input
-              type="password"
-              className="w-full rounded-md bg-canvas border border-line px-3 py-2"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              autoComplete="new-password"
-              placeholder={mode === "edit" ? "Mật khẩu mới" : "Mật khẩu"}
-            />
-          )}
-          {form.changePassword ? (
-            <button
-              type="button"
-              className="text-xs text-muted underline"
-              onClick={() => setForm({ ...form, changePassword: false, password: "" })}
-            >
-              Hủy đổi mật khẩu
-            </button>
-          ) : null}
-        </div>
-        <label className="text-sm flex items-end gap-2 pb-2">
-          <input
-            type="checkbox"
-            checked={form.mock_mode}
-            onChange={(e) => setForm({ ...form, mock_mode: e.target.checked })}
-          />
-          <span>Cấu hình chế độ mô phỏng (không phải trạng thái runtime LIVE)</span>
-        </label>
-        <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2">
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-md bg-brand text-canvas font-medium px-4 py-2 disabled:opacity-60"
-          >
-            {mode === "new" ? "Tạo camera" : "Lưu thay đổi"}
-          </button>
-          {mode === "edit" ? (
-            <>
-              <button
-                type="button"
-                disabled={busy || !!selectedCam?.archived}
-                onClick={configureLive}
-                className="rounded-md border border-brand/40 text-brand px-3 py-2 text-sm"
-              >
-                Kết nối LIVE
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={stopLive}
-                className="rounded-md border border-line px-3 py-2 text-sm"
-              >
-                Dừng LIVE
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={testRtsp}
-                className="rounded-md border border-line px-3 py-2 text-sm"
-              >
-                Kiểm RTSP
-              </button>
-              {selectedCam?.archived ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={restoreCam}
-                  className="rounded-md border border-line px-3 py-2 text-sm"
-                >
-                  Khôi phục
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={archiveCam}
-                  className="rounded-md border border-line px-3 py-2 text-sm"
-                >
-                  Lưu trữ camera
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={deleteCam}
-                className="rounded-md border border-danger/40 text-danger px-3 py-2 text-sm"
-              >
-                Xóa cứng (nếu không có lịch sử)
-              </button>
-            </>
-          ) : null}
-        </div>
-      </form>
-
       {error ? (
-        <div className="text-danger text-sm bg-danger/10 border border-danger/30 rounded-md px-3 py-2">
+        <div className="text-danger text-sm bg-danger/10 border border-danger/30 rounded-md px-3 py-2" role="alert">
           {error}
         </div>
       ) : null}
       {analyzeMsg ? <div className="text-sm text-muted">{analyzeMsg}</div> : null}
+      {dupesMsg ? (
+        <pre className="text-xs whitespace-pre-wrap bg-canvas border border-line rounded-md p-2">{dupesMsg}</pre>
+      ) : null}
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-medium">Xem trước</h2>
-            <div className="flex gap-2 text-xs">
-              <button
-                type="button"
-                className={`px-2 py-1 rounded border ${viewMode === "mjpeg" ? "border-brand text-brand" : "border-line"}`}
-                onClick={() => {
-                  setViewMode("mjpeg");
-                  setMjpegNonce((n) => n + 1);
-                }}
-              >
-                LIVE MJPEG
-              </button>
-              <button
-                type="button"
-                className={`px-2 py-1 rounded border ${viewMode === "snapshot" ? "border-brand text-brand" : "border-line"}`}
-                onClick={() => setViewMode("snapshot")}
-              >
-                SNAPSHOT
-              </button>
-            </div>
-          </div>
+      {mode === "edit" && selected != null ? (
+        <div className="rounded-xl border border-line bg-panel p-3 sm:p-4 space-y-3">
           <div className="relative aspect-video bg-canvas rounded-md overflow-hidden border border-line">
-            {mode === "edit" && selected != null && viewMode === "mjpeg" ? (
+            {viewMode === "mjpeg" ? (
               <>
                 <img
                   alt="LIVE MJPEG"
@@ -742,117 +598,211 @@ export function CameraPage() {
                   className="w-full h-full object-contain"
                   onError={() => setViewMode("snapshot")}
                 />
-                <div className="absolute left-2 top-2 text-xs bg-canvas/80 border border-brand/40 text-brand px-2 py-1 rounded">
-                  LIVE MJPEG · {statusLabel} · không phải CAMERA_LAB_PASS
+                <div className="absolute left-2 top-2 text-xs bg-canvas/85 border border-brand/40 text-brand px-2 py-1 rounded">
+                  LIVE MJPEG · {statusLabel}
                 </div>
               </>
             ) : preview ? (
               <>
                 <img
-                  alt="Snapshot camera"
+                  alt="Snapshot"
                   src={`data:${preview.mime};base64,${preview.data_base64}`}
                   className="w-full h-full object-contain"
                 />
-                <div
-                  className="absolute border-2 border-brand/80 pointer-events-none"
-                  style={{
-                    left: `${roi.x * 100}%`,
-                    top: `${roi.y * 100}%`,
-                    width: `${roi.w * 100}%`,
-                    height: `${roi.h * 100}%`,
-                  }}
-                />
-                <div className="absolute left-2 top-2 text-xs bg-canvas/80 border border-brand/40 text-brand px-2 py-1 rounded">
+                <div className="absolute left-2 top-2 text-xs bg-canvas/85 border border-line px-2 py-1 rounded">
                   {preview.indicator_vi || "SNAPSHOT"}
                 </div>
               </>
             ) : (
               <div className="grid place-items-center h-full text-muted text-sm px-4 text-center">
-                {mode === "new"
-                  ? "Chọn hoặc tạo camera để xem trước"
-                  : "Chưa có khung hình giải mã — bấm Kết nối LIVE"}
+                Chưa có khung hình — bấm Kết nối lại
               </div>
             )}
-          </div>
-          <div className="grid grid-cols-4 gap-2 text-xs">
-            {(["x", "y", "w", "h"] as const).map((k) => (
-              <label key={k} className="space-y-1">
-                <span className="text-muted uppercase">{k}</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  max={1}
-                  className="w-full rounded-md bg-canvas border border-line px-2 py-1"
-                  value={roi[k]}
-                  onChange={(e) => setRoi({ ...roi, [k]: Number(e.target.value) })}
-                />
-              </label>
-            ))}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={saveRoi}
-              disabled={selected == null}
-              className="rounded-md border border-line px-3 py-1.5 text-sm"
+              disabled={busy || !!selectedCam?.archived}
+              onClick={configureLive}
+              className="rounded-md bg-brand text-canvas font-medium px-4 py-2 text-sm disabled:opacity-50"
             >
-              Lưu vùng nhận diện
+              Kết nối lại
             </button>
             <button
               type="button"
-              onClick={runDiag}
-              disabled={selected == null}
-              className="rounded-md bg-brand/15 border border-brand/40 text-brand px-3 py-1.5 text-sm"
+              disabled={busy}
+              onClick={() => {
+                setEditOpen(true);
+                setShowAdmin(true);
+              }}
+              className="rounded-md border border-line px-4 py-2 text-sm"
             >
-              Chẩn đoán nhanh
+              Sửa
             </button>
             <button
               type="button"
-              onClick={loadQuality}
-              disabled={selected == null}
-              className="rounded-md border border-line px-3 py-1.5 text-sm"
+              disabled={busy}
+              onClick={async () => {
+                await testRtsp();
+                await runDiag();
+                await loadQuality();
+              }}
+              className="rounded-md border border-line px-4 py-2 text-sm"
             >
-              Đo chất lượng ảnh
+              Kiểm tra
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-line px-3 py-2 text-xs"
+              onClick={() => setViewMode((m) => (m === "mjpeg" ? "snapshot" : "mjpeg"))}
+            >
+              {viewMode === "mjpeg" ? "Chuyển SNAPSHOT" : "Chuyển LIVE MJPEG"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={stopLive}
+              className="rounded-md border border-line px-3 py-2 text-xs text-muted"
+            >
+              Dừng LIVE
             </button>
           </div>
         </div>
+      ) : null}
 
-        <div className="rounded-xl border border-line bg-panel p-4 space-y-3 text-sm">
-          <h2 className="font-medium">Chẩn đoán / chất lượng</h2>
-          {diag ? (
-            <ul className="space-y-1">
-              {diag.overall_status ? (
-                <li className="font-medium">Tổng: {diag.overall_status}</li>
-              ) : null}
-              {diag.stages?.map((s) => (
-                <li key={s.name}>
-                  <span className="text-muted">{s.name}</span>: {s.status} — {s.detail_vi}
-                </li>
-              ))}
-              <li className="text-muted text-xs">{diag.note_vi}</li>
-              <li className="text-xs">CAMERA_LAB_PASS={String(diag.camera_lab_pass)}</li>
-            </ul>
-          ) : (
-            <p className="text-muted">Chưa chạy kiểm RTSP / chẩn đoán.</p>
-          )}
-          {quality ? (
-            <div className="border-t border-line pt-3 space-y-1 text-xs">
-              <div>
-                DECODED_MEASURED: {quality.decoded_measured?.width ?? "?"}×
-                {quality.decoded_measured?.height ?? "?"} · FPS{" "}
-                {quality.decoded_measured?.fps_measured ?? "?"}
+      <details
+        className="rounded-xl border border-line bg-panel p-4"
+        open={showAdmin || mode === "new" || editOpen}
+        onToggle={(e) => setShowAdmin((e.target as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer font-medium text-sm">
+          Điều khiển quản trị (RTSP, credential, ROI, lưu trữ/xóa)
+        </summary>
+        <form onSubmit={saveCam} className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <Field label="Tên" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+          <Field label="IP LAN (IPv4)" value={form.host} onChange={(v) => setForm({ ...form, host: v })} />
+          <Field
+            label="URI RTSP (không nhúng mật khẩu)"
+            value={form.rtsp_url_override}
+            onChange={(v) => setForm({ ...form, rtsp_url_override: v })}
+            placeholder="rtsp://192.168.0.211:554/ch1/main"
+          />
+          <Field
+            label="Tài khoản camera"
+            value={form.username}
+            onChange={(v) => setForm({ ...form, username: v })}
+            autoComplete="off"
+          />
+          <div className="text-sm space-y-1">
+            <span className="text-muted">Mật khẩu camera</span>
+            {mode === "edit" && selectedCam?.credential_saved && !form.changePassword ? (
+              <div className="rounded-md border border-line bg-canvas px-3 py-2 text-muted text-xs">
+                Đã lưu — ô trống = giữ nguyên.{" "}
+                <button
+                  type="button"
+                  className="text-brand underline"
+                  onClick={() => setForm({ ...form, changePassword: true, password: "" })}
+                >
+                  Đổi mật khẩu
+                </button>
               </div>
-              <div>Provenance: {quality.provenance || "UNKNOWN"}</div>
-              <div>CAMERA_LAB_PASS={String(quality.camera_lab_pass)}</div>
+            ) : (
+              <input
+                type="password"
+                className="w-full rounded-md bg-canvas border border-line px-3 py-2"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                autoComplete="new-password"
+              />
+            )}
+          </div>
+          <label className="text-sm flex items-end gap-2 pb-2">
+            <input
+              type="checkbox"
+              checked={form.mock_mode}
+              onChange={(e) => setForm({ ...form, mock_mode: e.target.checked })}
+            />
+            <span>Cấu hình MOCK (không phải LIVE runtime)</span>
+          </label>
+          <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-md bg-brand text-canvas font-medium px-4 py-2 disabled:opacity-60"
+            >
+              {mode === "new" ? "Tạo camera" : "Lưu thay đổi"}
+            </button>
+            {mode === "edit" ? (
+              <>
+                <button type="button" disabled={busy} onClick={dryRunDupes} className="rounded-md border border-line px-3 py-2 text-sm">
+                  Dry-run trùng lặp
+                </button>
+                {selectedCam?.archived ? (
+                  <button type="button" disabled={busy} onClick={restoreCam} className="rounded-md border border-line px-3 py-2 text-sm">
+                    Khôi phục
+                  </button>
+                ) : (
+                  <button type="button" disabled={busy} onClick={archiveCam} className="rounded-md border border-line px-3 py-2 text-sm">
+                    Lưu trữ
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={deleteCam}
+                  className="rounded-md border border-danger/40 text-danger px-3 py-2 text-sm"
+                >
+                  Xóa cứng (nếu được phép)
+                </button>
+              </>
+            ) : null}
+          </div>
+        </form>
+
+        {mode === "edit" ? (
+          <div className="mt-4 border-t border-line pt-4 space-y-3">
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              {(["x", "y", "w", "h"] as const).map((k) => (
+                <label key={k} className="space-y-1">
+                  <span className="text-muted uppercase">ROI {k}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={1}
+                    className="w-full rounded-md bg-canvas border border-line px-2 py-1"
+                    value={roi[k]}
+                    onChange={(e) => setRoi({ ...roi, [k]: Number(e.target.value) })}
+                  />
+                </label>
+              ))}
             </div>
-          ) : null}
-          <p className="text-xs text-muted">
-            TCP là mặc định có kiểm soát. H.265 vs H.264 / Wi-Fi vs RJ45 chỉ so sánh tuần tự trên
-            cùng camera. Không dùng MOCK để vượt cổng CAMERA_LAB.
-          </p>
-        </div>
-      </div>
+            <button type="button" onClick={saveRoi} className="rounded-md border border-line px-3 py-1.5 text-sm">
+              Lưu vùng nhận diện
+            </button>
+            {diag ? (
+              <ul className="text-xs space-y-1">
+                {diag.overall_status ? <li>Tổng: {diag.overall_status}</li> : null}
+                {diag.stages?.map((s) => (
+                  <li key={s.name}>
+                    {s.name}: {s.status} — {s.detail_vi}
+                  </li>
+                ))}
+                <li className="text-muted">CAMERA_LAB_PASS={String(diag.camera_lab_pass)} (chỉ ký HMAC)</li>
+              </ul>
+            ) : null}
+            {quality ? (
+              <div className="text-xs text-muted">
+                DECODED {quality.decoded_measured?.width}×{quality.decoded_measured?.height} · FPS{" "}
+                {quality.decoded_measured?.fps_measured ?? "?"} · provenance {quality.provenance || "?"}
+              </div>
+            ) : null}
+            <p className="text-xs text-muted">
+              A/B vật lý: chỉ đổi một biến mỗi lần (H.265↔H.264, TCP↔UDP, Wi-Fi↔RJ45). Ghi log gián đoạn/khôi phục.
+            </p>
+          </div>
+        ) : null}
+      </details>
     </div>
   );
 }
