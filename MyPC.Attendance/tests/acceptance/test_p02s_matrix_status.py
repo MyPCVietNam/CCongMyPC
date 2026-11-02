@@ -43,11 +43,12 @@ def test_sec01_powershell_no_session_cookie_params():
     diag = (ROOT / "scripts" / "windows" / "Invoke-MyPCCameraDiagnostics.ps1").read_text(
         encoding="utf-8"
     )
-    assert "SessionCookie" not in lab or "DEPRECATED" in lab
-    assert "-SessionCookie" not in lab
-    assert "-CsrfToken" not in lab
-    assert "-SessionCookie" not in diag
+    assert "DEPRECATED" in lab
+    assert "param(" not in lab.lower() or "param()" in lab.replace(" ", "")
+    assert "[Parameter" not in lab
+    assert "[Parameter" not in diag
     assert "exit 2" in lab
+    assert "exit 2" in diag
 
 
 def test_sec02_api_lab_run_out_no_challenge_field_in_helper_docs():
