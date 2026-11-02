@@ -8,3 +8,8 @@
 - **Frontend:** `npm run build` — 1600 modules OK
 - **Matrix:** `docs/PR11_HF_ACCEPTANCE_MATRIX.csv` — 31 PASS / 5 BLOCKED
 - **Physical gates:** CAMERA_LAB / FACE_PILOT / EXIT / INSTALLER = **BLOCKED**
+
+
+Final HEAD: `80ef426264f259d5857ab0df0ce33e064fc6b8d8`
+Branch: `cursor/pr11-camera-rtsp-hf-83a8` (base `cursor/pr10-windows-auth-hf-83a8`)
+ManagePullRequest unavailable this turn — open PR via GitHub UI if needed.
