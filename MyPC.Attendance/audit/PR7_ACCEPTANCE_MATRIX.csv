@@ -1,0 +1,36 @@
+CaseID,Priority,Area,Scenario,Expected,InitialStatus
+ENV-01,P0,Source,Checkout PR7 feature head and capture full SHA,Exact commit or documented newer code-bearing commit,NOT_RUN
+ENV-02,P0,Source,Main LICENSE-only not used as runtime,No application validation on main,NOT_RUN
+ENV-03,P0,Cloud,Idempotent setup twice on PR7,No changes to pinned source or corrupt environment,NOT_RUN
+ENV-04,P0,Cloud,Autostart app fresh Cloud Agent,Authenticated health and UI launch,NOT_RUN
+ENV-05,P1,Cloud,Full pytest suite and frontend build on PR7,Actual counts and output recorded,NOT_RUN
+ENV-06,P1,Cloud,Synthetic browser login employee PM reference,Pass with synthetic-only labels,NOT_RUN
+APP-01,P0,Approval,Edited database row.kind from CAMERA_LAB to FACE_PILOT,Reject cross-kind signature replay,NOT_RUN
+APP-02,P0,Approval,Edited database row.approval_id,Reject mismatched signed field,NOT_RUN
+APP-03,P0,Approval,Edited database row.expires_at,Reject signed row mismatch,NOT_RUN
+APP-04,P1,Approval,Verify SQLite timestamp HMAC after restart,Pass valid before expiry and fail after,NOT_RUN
+APP-05,P0,Approval,Issue CAMERA_LAB without measured physical decode evidence,Reject,NOT_RUN
+APP-06,P0,Approval,Issue FACE_PILOT without labeled reviewed samples,Reject,NOT_RUN
+APP-07,P0,Approval,Issue AUTO_VALIDATED with client fabricated pairs and REAL label,Reject,NOT_RUN
+APP-08,P0,Approval,Issue AUTO_VALIDATED with can_auto_enable false,Reject,NOT_RUN
+APP-09,P0,Approval,Issue AUTO_VALIDATED with regression blocker,Reject,NOT_RUN
+APP-10,P0,Approval,Issue AUTO_VALIDATED without matching physical lab and face pilot evidence,Reject,NOT_RUN
+APP-11,P1,Approval,Revoke approval while server running,Reject next gated action,NOT_RUN
+PIN-01,P1,Pipeline,Replace YuNet only without changing SFace,Approval invalidated,NOT_RUN
+PIN-02,P1,Pipeline,Change matcher margin only,Approval invalidated,NOT_RUN
+PIN-03,P1,Gallery,Modify encrypted template with same ID and version,Revision must change and approval invalidated,NOT_RUN
+PIN-04,P1,Gallery,Delete or deactivate template,Approval invalidated,NOT_RUN
+ENR-01,P1,Enrollment,Change config during LIVE session,409 plus persistent FAILED after fresh DB session,NOT_RUN
+ENR-02,P0,Enrollment,Cross-camera frame injected into bound session,Reject,NOT_RUN
+ENR-03,P0,Enrollment,Client base64 on REAL_CAMERA session,Reject,NOT_RUN
+CAM-01,P1,Camera,LIVE preview dimensions source from decoded frame,Decoded measured with provenance not vendor label,NOT_RUN
+CAM-02,P1,Camera,Camera unplug then reconnect,Fresh frame and no stale substitution,NOT_RUN
+CAM-03,P1,Camera,MOCK session cannot become physical lab,Always blocked,NOT_RUN
+CAM-04,P1,Camera,Windows RTSP native decode and FPS,Measured with owner-approved evidence or BLOCKED,NOT_RUN
+CAM-05,P1,Camera,NIGHT_IR face pixel quality,Measured and documented with consent or BLOCKED,NOT_RUN
+CAM-06,P1,Camera,Missing ONNX real weights,Return BLOCKED_MODEL without synthetic fallback,NOT_RUN
+CAM-07,P1,Camera,Mismatched ONNX SHA,Reject before REAL validation,NOT_RUN
+CAM-08,P1,Camera,RTSP credential/log redaction,No secrets in reports logs or process argv,NOT_RUN
+OUT-01,P1,Exit,Exit verification with real camera,Physical evidence or BLOCKED,NOT_RUN
+OUT-02,P1,Packaging,Windows installer install upgrade rollback,Physical evidence or BLOCKED,NOT_RUN
+OUT-03,P1,Packaging,Changed-source and full-source ZIP differentiated,Hashes manifest and source provenance,NOT_RUN

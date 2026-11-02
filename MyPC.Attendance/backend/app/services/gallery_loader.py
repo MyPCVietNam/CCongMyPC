@@ -31,4 +31,10 @@ def load_active_gallery(db: Session, store: FaceTemplateStore) -> GallerySnapsho
         digest.update(str(tmpl.id).encode())
         digest.update(str(tmpl.vector_version or "").encode())
         digest.update(str(tmpl.key_version or "").encode())
+        # Content-sensitive: same ID/version with replaced embedding must change revision
+        digest.update(np.ascontiguousarray(vec).tobytes())
+        if getattr(tmpl, "encrypted_embedding", None) is not None:
+            digest.update(bytes(tmpl.encrypted_embedding))
+        if getattr(tmpl, "nonce", None) is not None:
+            digest.update(bytes(tmpl.nonce))
     return GallerySnapshot(pairs, digest.hexdigest()[:32], len(pairs), "OK")

@@ -244,6 +244,42 @@ class AbEvaluationRun(Base):
     approved_by: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     note_vi: Mapped[str] = mapped_column(Text, default="")
+    # PR7: trust class — client imports stay UNTRUSTED_IMPORT forever
+    evidence_class: Mapped[str] = mapped_column(String(32), default="UNTRUSTED_IMPORT")
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+
+
+class PilotEvidenceRecord(Base):
+    """Append-only lab / face-pilot evidence — PHYSICAL_VERIFIED required before signing gates."""
+
+    __tablename__ = "pilot_evidence_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    evidence_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # CAMERA_LAB|FACE_PILOT|AB_REVIEW
+    evidence_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), nullable=False, index=True)
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    provenance: Mapped[str] = mapped_column(String(32), default="")
+    decoded_w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decoded_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fps_measured: Mapped[float | None] = mapped_column(Float, nullable=True)
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+    windows_host: Mapped[str] = mapped_column(String(128), default="")
+    labeled_known: Mapped[int] = mapped_column(Integer, default=0)
+    labeled_unknown: Mapped[int] = mapped_column(Integer, default=0)
+    frame_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    ab_run_id: Mapped[str] = mapped_column(String(64), default="")
+    operator: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    note_vi: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
 class PilotApprovalRecord(Base):
@@ -259,6 +295,7 @@ class PilotApprovalRecord(Base):
     gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
     threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
     ab_run_id: Mapped[str] = mapped_column(String(64), default="")
+    evidence_id: Mapped[str] = mapped_column(String(64), default="")
     issued_by: Mapped[str] = mapped_column(String(128), default="")
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

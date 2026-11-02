@@ -60,6 +60,7 @@ def test_issue_commit_reopen_verify_hmac(db_session: Session, tmp_path):
         model_hash_pin="m1",
         gallery_revision_pin="g1",
         threshold_id_pin="t1",
+        evidence_id="ev-test-1",
         clock=clock,
     )
     db_session.commit()
@@ -103,6 +104,7 @@ def test_expiry_exact_utc_boundary(db_session: Session):
         model_hash_pin="m",
         gallery_revision_pin="g",
         threshold_id_pin="t",
+        evidence_id="ev-test-1",
         ttl_hours=1,
         clock=clock,
     )
@@ -144,6 +146,7 @@ def test_revoke_and_tamper_fail_closed(db_session: Session):
         model_hash_pin="m",
         gallery_revision_pin="g",
         threshold_id_pin="t",
+        evidence_id="ev-test-1",
         clock=clock,
     )
     db_session.commit()
@@ -172,6 +175,7 @@ def test_revoke_and_tamper_fail_closed(db_session: Session):
         model_hash_pin="m",
         gallery_revision_pin="g",
         threshold_id_pin="t",
+        evidence_id="ev-test-1",
         clock=clock,
     )
     db_session.commit()
@@ -217,6 +221,7 @@ def test_wrong_key_rotation_fail_closed(db_session: Session):
         model_hash_pin="m",
         gallery_revision_pin="g",
         threshold_id_pin="t",
+        evidence_id="ev-test-1",
         clock=clock,
     )
     db_session.commit()

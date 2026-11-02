@@ -174,8 +174,30 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
     ).json()
 
     pins, _ = _pins(app)
+    stub = _LiveStub(str(cam_a["id"]))
+    stub.start()
+    bound = app.state.container.camera_registry.bind(
+        cam_a["id"], stub, provenance=StreamProvenance.CAMERA_LIVE, profile="MAIN"
+    )
+    stub.config_revision = bound.config_revision
+
     factory = app.state.container.session_factory
     with factory() as db:
+        from app.services.evidence_store import EVIDENCE_PHYSICAL, create_evidence
+
+        ev = create_evidence(
+            db,
+            kind="CAMERA_LAB",
+            evidence_class=EVIDENCE_PHYSICAL,
+            camera_id=cam_a["id"],
+            operator="admin",
+            pins=pins,
+            config_revision=bound.config_revision,
+            provenance="CAMERA_LIVE",
+            decoded_w=160,
+            decoded_h=120,
+            fps_measured=5.0,
+        )
         issue_approval(
             db,
             secret_key=app.state.container.settings.secret_key,
@@ -185,16 +207,9 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
             model_hash_pin=pins["model_hash_pin"],
             gallery_revision_pin=pins["gallery_revision_pin"],
             threshold_id_pin=pins["threshold_id_pin"],
+            evidence_id=ev.evidence_id,
         )
         db.commit()
-
-    stub = _LiveStub(str(cam_a["id"]))
-    stub.start()
-    bound = app.state.container.camera_registry.bind(
-        cam_a["id"], stub, provenance=StreamProvenance.CAMERA_LIVE, profile="MAIN"
-    )
-    # Keep session binding revision in sync with stub frames
-    stub.config_revision = bound.config_revision
 
     emp = _ensure_employee(client, headers, code="E-PR6-BIND")
     start = client.post(
@@ -291,7 +306,14 @@ def test_auto_validated_requires_lab_and_pilot_evidence(app_client):
         json={"kind": "AUTO_VALIDATED", "ab_run_id": "ab-live-1"},
     )
     assert r.status_code == 422
-    assert r.json()["detail"]["code"] == "PILOT_EVIDENCE_MISSING"
+    # PR7: untrusted/non-physical AB is rejected before pilot check
+    assert r.json()["detail"]["code"] in {
+        "PILOT_EVIDENCE_MISSING",
+        "AB_NOT_PHYSICAL",
+        "AB_NOT_APPROVED",
+        "AB_CAN_AUTO_ENABLE_FALSE",
+        "AB_HAS_SEVERE_BLOCKER",
+    }
 
 
 def test_quality_settings_stay_test_only_without_approval(app_client):

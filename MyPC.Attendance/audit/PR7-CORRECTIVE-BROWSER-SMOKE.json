@@ -1,0 +1,39 @@
+{
+  "synthetic_only": true,
+  "camera_lab_pass_claimed": false,
+  "steps": [
+    {
+      "employee": 200,
+      "id": 1
+    },
+    {
+      "overview": 200,
+      "exit": "BLOCKED"
+    },
+    {
+      "camera": 200,
+      "id": 1
+    },
+    {
+      "preview": 200,
+      "mock": true,
+      "live": false
+    },
+    {
+      "analyze": 200,
+      "gallery": "BLOCKED_GALLERY",
+      "paired": "BLOCKED_GALLERY",
+      "mode": "AUTO_TEST_ONLY"
+    },
+    {
+      "gw": 200,
+      "lab_pass": false,
+      "flag": false,
+      "signed": false,
+      "ready": false
+    },
+    {
+      "logout": 200
+    }
+  ]
+}
