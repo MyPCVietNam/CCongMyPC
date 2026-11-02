@@ -73,15 +73,19 @@ def test_env01_env02_pr8_ancestry():
 
 def test_env03_reject_main_and_p00_in_verify_script():
     script = (ROOT / "scripts" / "verify_pr8_checkout.sh").read_text(encoding="utf-8")
+    setup = (ROOT / "scripts" / "cloud_setup_pr8.sh").read_text(encoding="utf-8")
     assert "main|master|cursor/mypc-attendance-p00-83a8" in script
     assert "exit 11" in script
-    assert "|| true" not in script
+    # Setup must not ignore verify failure (legacy || true removed)
+    assert "verify_pr8_checkout.sh || true" not in setup
+    assert "verify_pr7_branch.sh || true" not in setup
 
 
 def test_env04_verify_fail_closed_no_info_exit_zero():
     script = (ROOT / "scripts" / "verify_pr8_checkout.sh").read_text(encoding="utf-8")
     assert "FAIL WRONG_SOURCE" in script
     assert "set -euo pipefail" in script
+    assert "exit 13" in script
 
 
 def test_hardware_gates_listed_blocked_in_docs():

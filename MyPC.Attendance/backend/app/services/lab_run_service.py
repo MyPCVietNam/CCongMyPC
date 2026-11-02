@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.utc_time import utc_now
+from app.core.utc_time import to_utc_aware, utc_now
 from app.models.entities import CameraLabRun, FacePilotCaseEvent, PilotEvidenceRecord
 from app.services.evidence_store import EVIDENCE_PHYSICAL, create_evidence
 from app.vision.faces.types import MatchOutcome
@@ -75,7 +75,8 @@ def _require_run(db: Session, run_id: str, camera_id: int) -> CameraLabRun:
     if row.revoked:
         raise LabRunError("LAB_RUN_REVOKED", "Lab run đã thu hồi.")
     now = utc_now()
-    if row.expires_at is not None and row.expires_at <= now:
+    expires = to_utc_aware(row.expires_at)
+    if expires is not None and expires <= now:
         row.state = STATE_REJECTED
         raise LabRunError("LAB_RUN_EXPIRED", "Lab run đã hết hạn.")
     return row

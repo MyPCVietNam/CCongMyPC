@@ -282,6 +282,9 @@ def test_env10_mock_cannot_unlock_camera_lab(app_client):
     assert h.json().get("camera_lab_pass") is False
     health = client.get("/api/v1/health")
     assert health.status_code == 200
-    body = health.json()
+    diag = client.get("/api/v1/system/diagnostics")
+    assert diag.status_code == 200
+    body = diag.json()
     assert body["gates"]["CAMERA_LAB_PASS"] is False
     assert body["gates"]["FACE_PILOT_PASS"] is False
+    assert body["camera"]["camera_lab_pass"] is False
