@@ -67,6 +67,11 @@ class EnrollmentSession(Base):
     guidance_vi: Mapped[str] = mapped_column(Text, default="")
     progress_json: Mapped[str] = mapped_column(Text, default="{}")
     source: Mapped[str] = mapped_column(String(64), default="DEMO")
+    # Immutable LIVE binding (PR6) — set at start for REAL_CAMERA; frames must match
+    camera_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bound_profile: Mapped[str] = mapped_column(String(32), default="")
+    bound_config_revision: Mapped[str] = mapped_column(String(64), default="")
+    camera_lab_approval_id: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

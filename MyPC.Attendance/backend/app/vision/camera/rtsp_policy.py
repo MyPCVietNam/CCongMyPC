@@ -30,7 +30,12 @@ def validate_live_rtsp_uri(
     *,
     allowed_ports: tuple[int, ...] = ALLOWED_PORTS,
     dns_resolver=None,
+    require_ipv4_literal: bool = True,
 ) -> SafeRtspEndpoint:
+    """
+    Default require_ipv4_literal=True for first reliable LIVE release (no DNS TOCTOU).
+    Hostname path retained for tests via require_ipv4_literal=False + dns_resolver.
+    """
     if not isinstance(url, str) or not url or len(url) > 1024 or url.strip() != url:
         raise ValidationErrorVi("URI RTSP không hợp lệ (độ dài/khoảng trắng).")
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in url):
@@ -59,6 +64,15 @@ def validate_live_rtsp_uri(
     if port not in allowed_ports:
         raise ValidationErrorVi(f"Cổng RTSP {port} ngoài danh sách cho phép.")
     host = validate_camera_host(parsed.hostname, allow_empty=False)
+    if require_ipv4_literal:
+        try:
+            lit = ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValidationErrorVi(
+                "Chỉ chấp nhận IPv4 LAN literal cho RTSP v1 (chống DNS TOCTOU)."
+            ) from exc
+        if lit.version != 4:
+            raise ValidationErrorVi("Chỉ hỗ trợ IPv4 LAN cho RTSP trong v1.")
     # Resolve + validate every A record (DNS rebinding guard). Do not swallow ValidationErrorVi.
     resolved = tuple(resolve_and_validate_host(host, resolver=dns_resolver))
     return SafeRtspEndpoint(
@@ -69,6 +83,13 @@ def validate_live_rtsp_uri(
         diagnostic_label=f"{parsed.scheme}://{host}:{port}/<redacted>",
         resolved_ips=resolved,
     )
+
+
+def pinned_rtsp_authority(endpoint: SafeRtspEndpoint) -> str:
+    """Prefer first validated IPv4 so OpenCV/FFmpeg does not re-resolve hostname."""
+    if not endpoint.resolved_ips:
+        raise ValidationErrorVi("Thiếu IP đã ghim cho endpoint RTSP.")
+    return endpoint.resolved_ips[0]
 
 
 def diagnostic_rtsp_label(*, camera_id: str | int, profile: str = "MAIN") -> str:

@@ -63,7 +63,25 @@ Add-Step "auto_enhance_shadow" "BLOCKED" "Chế độ hiệu lực mặc định
 Add-Step "body_geometry" "BLOCKED" "Nếu góc cao không thấy đủ đầu–chân → BODY_CAPTURE_BLOCKED (đúng, không bịa)."
 Add-Step "live_preview" "BLOCKED" "Preview phải cùng registry với gateway LIVE; provenance=CAMERA_LIVE; không thay MOCK ẩn."
 Add-Step "evening_ir" "BLOCKED" "Kiểm tra DAY/DUSK/NIGHT_IR tại vị trí đánh dấu tầng 1 — cần owner chạy trên LAN công ty."
+Add-Step "destination_pin" "INFO" "RTSP v1 chỉ chấp nhận IPv4 LAN literal; OpenCV mở URI đã ghim IP (không DNS TOCTOU)."
+Add-Step "secret_entry" "INFO" "Nhập RTSP user/password trong UI localhost đã đăng nhập — không truyền -Password trên argv."
+Add-Step "ffprobe_availability" "BLOCKED" "Kiểm tra ffprobe/OpenCV CAP_FFMPEG trên máy Windows này trước khi giải mã."
+Add-Step "installer" "BLOCKED" "Installer Windows chưa được chứng minh trên máy này — giữ BLOCKED."
 Add-Step "camera_lab_pass" "BLOCKED" "Giữ false cho đến khi đủ bằng chứng trên máy này."
+
+# Optional: query local backend health without credentials in report
+$BackendBase = $env:MYPC_BACKEND_BASE
+if (-not $BackendBase) { $BackendBase = "http://127.0.0.1:8765" }
+try {
+  $health = Invoke-WebRequest -Uri ($BackendBase.TrimEnd('/') + "/api/v1/health") -UseBasicParsing -TimeoutSec 3
+  if ($health.StatusCode -eq 200) {
+    Add-Step "backend_health" "PASS" ("Backend local phản hồi {0} — chưa chứng minh RTSP decode." -f $health.StatusCode)
+  } else {
+    Add-Step "backend_health" "FAIL" ("HTTP {0}" -f $health.StatusCode)
+  }
+} catch {
+  Add-Step "backend_health" "BLOCKED" "Backend local chưa chạy hoặc không tới được — không suy CAMERA_LAB PASS."
+}
 
 $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $ReportPath -Encoding UTF8
 Write-Host ""
@@ -72,3 +90,4 @@ Write-Host "camera_lab_pass=$($Report.camera_lab_pass) — không tự đánh PA
 if ($OptionalRtspPath) {
   Write-Host "Gợi ý kiểm tra thủ công (không lưu mật khẩu): ffprobe <URI-đã-che>" -ForegroundColor DarkCyan
 }
+Write-Host "Owner: cấu hình RTSP IPv4 trong app → /gateway/health + /preview → ký CAMERA_LAB khi đủ bằng chứng." -ForegroundColor DarkCyan
