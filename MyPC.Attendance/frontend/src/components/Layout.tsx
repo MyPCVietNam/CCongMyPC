@@ -12,6 +12,7 @@ const links = [
   { to: "/don-nghi", label: vi.nav.leave },
   { to: "/bao-cao", label: vi.nav.reports },
   { to: "/camera", label: vi.nav.camera },
+  { to: "/lab-windows", label: "Windows Lab" },
   { to: "/cai-dat", label: vi.nav.settings },
   { to: "/nhat-ky", label: vi.nav.logs },
 ];

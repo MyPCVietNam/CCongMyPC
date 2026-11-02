@@ -869,6 +869,15 @@ def _lab_run_http(exc: Exception) -> HTTPException:
 
 
 def _lab_run_out(run: Any) -> dict[str, Any]:
+    """Sanitized lab-run view — never include owner_challenge (SEC02)."""
+    import json as _json
+
+    meta: dict[str, Any] = {}
+    try:
+        meta = _json.loads(run.metrics_json or "{}")
+    except Exception:  # noqa: BLE001
+        meta = {}
+    layers = meta.get("evidence_layers") or {}
     return {
         "run_id": run.run_id,
         "nonce": run.nonce,
@@ -882,10 +891,13 @@ def _lab_run_out(run: Any) -> dict[str, Any]:
         "decoded_h": run.decoded_h,
         "fps_measured": run.fps_measured,
         "frame_age_ms": run.frame_age_ms,
-        "owner_challenge": run.owner_challenge,
+        "challenge_issued": bool(run.owner_challenge),
         "owner_reviewed_by": run.owner_reviewed_by or None,
         "expires_at": run.expires_at.isoformat() if run.expires_at else None,
         "revoked": bool(run.revoked),
+        "evidence_layers": layers,
+        "face_validation_status": meta.get("face_validation_status"),
+        "review_kind": meta.get("review_kind") or "SINGLE_OPERATOR_ACK",
         "camera_lab_pass": False,
         "face_pilot_pass": False,
         "note_vi": run.note_vi,
@@ -926,6 +938,32 @@ def start_camera_lab_run(
     return _lab_run_out(run)
 
 
+@router.post(
+    "/{camera_id}/lab-runs/{run_id}/owner-challenge",
+    dependencies=[Depends(require_csrf)],
+)
+def reveal_lab_owner_challenge(
+    camera_id: int,
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """Reveal one-time challenge to authenticated UI session only — do not log/print."""
+    from app.services.lab_run_service import LabRunError, reveal_owner_challenge
+
+    _ = state
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    try:
+        return reveal_owner_challenge(
+            db, run_id=run_id, camera_id=camera_id, operator=user.username
+        )
+    except LabRunError as exc:
+        raise _lab_run_http(exc) from exc
+
+
 @router.post("/{camera_id}/lab-runs/{run_id}/measure", dependencies=[Depends(require_csrf)])
 def measure_camera_lab_run(
     camera_id: int,
@@ -935,7 +973,7 @@ def measure_camera_lab_run(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
-    """Capture fresh CAMERA_LIVE frames NOW — rejects MOCK/stale/health-only claims."""
+    """Capture DISTINCT CAMERA_LIVE frames — rejects MOCK/stale/duplicate cached frames."""
     from app.services.lab_run_service import LabRunError, measure_live_frames
 
     _ = user
@@ -965,11 +1003,10 @@ def record_lab_face_case(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
-    """Server-measured FACE_PILOT case — client labeled_known/unknown counts are insufficient."""
+    """Server-measured FACE_PILOT case — supervised consent required; no client count PASS."""
     from app.services.lab_run_service import LabRunError, record_face_pilot_case
     from app.services.server_pins import derive_live_pins
 
-    _ = user
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
@@ -990,6 +1027,9 @@ def record_lab_face_case(
             pins=pins,
             truth_label=str(body.get("truth_label") or ""),
             condition=str(body.get("condition") or "DAY"),
+            consent_ack_vi=str(body.get("consent_ack_vi") or ""),
+            supervised_by=str(body.get("supervised_by") or user.username),
+            subject_key=str(body.get("subject_key") or ""),
         )
     except LabRunError as exc:
         raise _lab_run_http(exc) from exc
@@ -1005,7 +1045,9 @@ def record_lab_face_case(
         "condition": case.condition,
         "latency_ms": case.latency_ms,
         "native_face_width_px": case.native_face_width_px,
+        "lighting_is_operator_claim": True,
         "note_vi": case.note_vi,
+        "face_pilot_pass": False,
     }
 
 
@@ -1018,7 +1060,7 @@ def owner_review_lab_run(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
-    """One-time owner challenge confirmation after LIVE_MEASURED (+ face cases for FACE_PILOT)."""
+    """Single-operator ack after LIVE_MEASURED; FACE_PILOT requires CORRECT outcomes only."""
     from app.services.lab_run_service import LabRunError, owner_review
 
     _ = state
@@ -1032,6 +1074,7 @@ def owner_review_lab_run(
             camera_id=camera_id,
             operator=user.username,
             challenge=str(body.get("challenge") or ""),
+            ack_vi=str(body.get("ack_vi") or ""),
         )
     except LabRunError as exc:
         raise _lab_run_http(exc) from exc

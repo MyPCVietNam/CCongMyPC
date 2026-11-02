@@ -13,6 +13,7 @@ import { CameraPage } from "./pages/CameraPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LogsPage } from "./pages/LogsPage";
 import { EnrollmentPage } from "./pages/EnrollmentPage";
+import { WindowsLabPage } from "./pages/WindowsLabPage";
 
 type User = {
   id: number;
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/don-nghi" element={<LeavePage />} />
         <Route path="/bao-cao" element={<ReportsPage />} />
         <Route path="/camera" element={<CameraPage />} />
+        <Route path="/lab-windows" element={<WindowsLabPage />} />
         <Route path="/cai-dat" element={<SettingsPage />} />
         <Route path="/nhat-ky" element={<LogsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
