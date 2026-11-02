@@ -252,6 +252,71 @@ class AbEvaluationRun(Base):
     threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
 
 
+class CameraLabRun(Base):
+    """Server-issued physical lab run — CREATED→LIVE_MEASURED→OWNER_REVIEWED→PHYSICAL_VERIFIED."""
+
+    __tablename__ = "camera_lab_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    nonce: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # CAMERA_LAB|FACE_PILOT
+    camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), nullable=False, index=True)
+    # CREATED|LIVE_MEASURED|OWNER_REVIEWED|PHYSICAL_VERIFIED|REJECTED|REVOKED
+    state: Mapped[str] = mapped_column(String(32), default="CREATED")
+    profile: Mapped[str] = mapped_column(String(32), default="MAIN")
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    provenance: Mapped[str] = mapped_column(String(32), default="")
+    source_generation: Mapped[str] = mapped_column(String(64), default="")
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+    decoded_w: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decoded_h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fps_measured: Mapped[float | None] = mapped_column(Float, nullable=True)
+    frame_age_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    frame_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    reconnect_count: Mapped[int] = mapped_column(Integer, default=0)
+    decode_errors: Mapped[int] = mapped_column(Integer, default=0)
+    owner_challenge: Mapped[str] = mapped_column(String(64), default="")
+    owner_reviewed_by: Mapped[str] = mapped_column(String(128), default="")
+    owner_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    operator: Mapped[str] = mapped_column(String(128), default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    measured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    note_vi: Mapped[str] = mapped_column(Text, default="")
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class FacePilotCaseEvent(Base):
+    """Server-generated per-case FACE_PILOT evaluation — no images/embeddings stored."""
+
+    __tablename__ = "face_pilot_case_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    lab_run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    camera_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    frame_id: Mapped[str] = mapped_column(String(64), default="")
+    config_revision: Mapped[str] = mapped_column(String(64), default="")
+    # KNOWN:<employee_id> | UNKNOWN
+    truth_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    pred_label: Mapped[str] = mapped_column(String(64), default="")
+    outcome: Mapped[str] = mapped_column(String(32), default="")  # CORRECT|WRONG|MISS|FALSE_ACCEPT|AMBIGUOUS|NO_FACE
+    similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    condition: Mapped[str] = mapped_column(String(32), default="DAY")  # DAY|DUSK|NIGHT_IR|BACKLIGHT
+    native_face_width_px: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    model_hash_pin: Mapped[str] = mapped_column(String(128), default="")
+    gallery_revision_pin: Mapped[str] = mapped_column(String(128), default="")
+    threshold_id_pin: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    note_vi: Mapped[str] = mapped_column(Text, default="")
+
+
 class PilotEvidenceRecord(Base):
     """Append-only lab / face-pilot evidence — PHYSICAL_VERIFIED required before signing gates."""
 
@@ -262,6 +327,7 @@ class PilotEvidenceRecord(Base):
     kind: Mapped[str] = mapped_column(String(32), nullable=False)  # CAMERA_LAB|FACE_PILOT|AB_REVIEW
     evidence_class: Mapped[str] = mapped_column(String(32), nullable=False)
     camera_id: Mapped[int] = mapped_column(ForeignKey("camera_devices.id"), nullable=False, index=True)
+    lab_run_id: Mapped[str] = mapped_column(String(64), default="", index=True)
     config_revision: Mapped[str] = mapped_column(String(64), default="")
     provenance: Mapped[str] = mapped_column(String(32), default="")
     decoded_w: Mapped[int | None] = mapped_column(Integer, nullable=True)

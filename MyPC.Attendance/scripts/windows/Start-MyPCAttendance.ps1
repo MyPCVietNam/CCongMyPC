@@ -63,4 +63,6 @@ if ($AllowSyntheticFixtures -and $AppEnv -ne "production") {
 Write-Host "Khởi động MyPC Attendance tại http://$HostAddress`:$Port ..." -ForegroundColor Cyan
 Write-Host "Môi trường: $env:MYPC_APP_ENV | DemoMode=$DemoMode | bind mặc định localhost" -ForegroundColor DarkCyan
 Write-Host "LAN chỉ bật khi cấu hình tường lửa + HTTPS + xác thực (không mở go2rtc ra LAN)." -ForegroundColor DarkCyan
-& $VenvPython -m uvicorn app.main:app --app-dir $Backend --host $HostAddress --port $Port
+# PYTHONPATH tránh lỗi một số bản uvicorn với --app-dir
+$env:PYTHONPATH = if ($env:PYTHONPATH) { "$Backend;$env:PYTHONPATH" } else { $Backend }
+& $VenvPython -m uvicorn app.main:app --host $HostAddress --port $Port
