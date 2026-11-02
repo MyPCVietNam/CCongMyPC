@@ -178,8 +178,31 @@ def gateway_health(
             "code": "GATEWAY_NOT_CONFIGURED",
         }
     payload = reg.health(camera_id)
-    # operationally_ready already excludes STALE/OFFLINE/MOCK
-    payload["camera_lab_pass"] = bool(state.settings.camera_lab_pass)
+    # Settings flag ≠ signed physical CAMERA_LAB evidence
+    payload["settings_flag_camera_lab"] = bool(state.settings.camera_lab_pass)
+    payload["camera_lab_pass"] = False  # never claim PASS from config alone
+    payload["signed_camera_lab"] = False
+    if camera_id is not None and state.face_pipeline is not None and state.template_store is not None:
+        try:
+            from app.services.pilot_approval import verify_active_approval
+            from app.services.server_pins import derive_live_pins
+
+            with state.session_factory() as sdb:
+                pins, _ = derive_live_pins(
+                    sdb, pipeline=state.face_pipeline, store=state.template_store
+                )
+                view = verify_active_approval(
+                    sdb,
+                    secret_key=state.settings.secret_key,
+                    kind="CAMERA_LAB",
+                    camera_id=int(camera_id),
+                    model_hash_pin=pins["model_hash_pin"],
+                    gallery_revision_pin=pins["gallery_revision_pin"],
+                    threshold_id_pin=pins["threshold_id_pin"],
+                )
+                payload["signed_camera_lab"] = bool(view and view.valid)
+        except Exception:
+            payload["signed_camera_lab"] = False
     payload["vendor_spec"] = {
         "model": "CS-H8-R100-1J5WKFL",
         "max_resolution_claimed": "2880x1620",
@@ -695,12 +718,14 @@ def run_ab_evaluation(
     camera_id: int,
     body: dict[str, Any],
     db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
-    """Offline paired A/B aggregate — NEVER sets can_auto_enable from CSV alone."""
+    """Client-supplied pairs → UNTRUSTED_IMPORT only. Never promotable / never AUTO_VALIDATED."""
     import uuid
 
-    from app.models.entities import AbEvaluationRun
+    from app.services.evidence_store import record_untrusted_ab_import
+    from app.services.server_pins import derive_live_pins
     from app.vision.faces.paired_ab import EvaluationInputError, evaluate_pairs
 
     row = db.get(CameraDevice, camera_id)
@@ -709,37 +734,47 @@ def run_ab_evaluation(
     pairs = body.get("pairs") or []
     if not isinstance(pairs, list):
         raise HTTPException(status_code=422, detail="pairs phải là danh sách")
+    # Reject fabricated LIVE/REAL claims in request body — trust class ignores them
+    claimed = str(body.get("source_mix") or body.get("claimed_source") or "")
     try:
         result = evaluate_pairs(pairs)
     except EvaluationInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    pins = {"model_hash_pin": "", "gallery_revision_pin": "", "threshold_id_pin": ""}
+    if state.face_pipeline is not None and state.template_store is not None:
+        try:
+            pins, _ = derive_live_pins(db, pipeline=state.face_pipeline, store=state.template_store)
+        except ValueError:
+            pass
     run_id = str(uuid.uuid4())
-    now = SystemClock().now_utc()
-    db.add(
-        AbEvaluationRun(
-            camera_id=camera_id,
-            run_id=run_id,
-            source_mix=",".join(sorted((result.get("by_source") or {}).keys())) or "EMPTY",
-            sample_count=int(result.get("samples") or 0),
-            metrics_json=json.dumps(
-                {k: result[k] for k in ("original", "enhanced", "paired", "latency_ms") if k in result},
-                ensure_ascii=False,
-            ),
-            blockers_json=json.dumps(result.get("blockers") or [], ensure_ascii=False),
-            can_auto_enable=False,  # hard rule
-            approval_status="PENDING",
-            created_at=now,
-            note_vi="Chỉ aggregate đã ẩn danh — không lưu ảnh khuôn mặt.",
-        )
+    mix = ",".join(sorted((result.get("by_source") or {}).keys())) or claimed or "EMPTY"
+    metrics = {k: result[k] for k in ("original", "enhanced", "paired", "latency_ms") if k in result}
+    blockers = list(result.get("blockers") or [])
+    if any(x.upper() in {"LIVE", "REAL", "CAMERA_LIVE"} for x in mix.replace(";", ",").split(",")):
+        blockers.append("CLIENT_CLAIMED_LIVE_IGNORED")
+    ab = record_untrusted_ab_import(
+        db,
+        camera_id=camera_id,
+        run_id=run_id,
+        source_mix=mix,
+        sample_count=int(result.get("samples") or 0),
+        metrics=metrics,
+        blockers=blockers,
+        operator=user.username,
+        pins=pins,
+        clock=SystemClock().now_utc(),
     )
-    db.flush()
     return {
         "run_id": run_id,
         "camera_id": camera_id,
         "result": result,
+        "evidence_class": ab.evidence_class,
         "can_auto_enable_enhancement": False,
+        "approval_status": ab.approval_status,
         "operator": user.username,
-        "note_vi": "Kết quả offline không đủ để bật AUTO_VALIDATED.",
+        "note_vi": (
+            "Import client = UNTRUSTED_IMPORT. Không đủ AUTO_VALIDATED dù gắn nhãn LIVE/REAL."
+        ),
     }
 
 
@@ -796,10 +831,15 @@ def redacted_quality_report(
             }
             for r in runs
         ],
-        "camera_lab_pass": bool(state.settings.camera_lab_pass),
-        "face_pilot_pass": bool(state.settings.face_pilot_pass),
+        "settings_flag_camera_lab": bool(state.settings.camera_lab_pass),
+        "settings_flag_face_pilot": bool(state.settings.face_pilot_pass),
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
         "secrets_present": False,
-        "note_vi": "Báo cáo đã ẩn URI/mật khẩu/ảnh khuôn mặt/embeddings.",
+        "note_vi": (
+            "Báo cáo đã ẩn URI/mật khẩu/ảnh khuôn mặt/embeddings. "
+            "Cờ cấu hình ≠ phê duyệt PHYSICAL_VERIFIED đã ký."
+        ),
     }
     if download:
         body = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -813,6 +853,126 @@ def redacted_quality_report(
     return payload
 
 
+@router.post("/{camera_id}/evidence/record", dependencies=[Depends(require_csrf)])
+def record_pilot_evidence(
+    camera_id: int,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+) -> dict:
+    """
+    Record lab/face-pilot evidence. PHYSICAL_VERIFIED only when LIVE measured fields match
+    registry health — admin checkbox alone is rejected.
+    """
+    from app.services.evidence_store import (
+        EVIDENCE_LIVE_PENDING,
+        EVIDENCE_PHYSICAL,
+        EVIDENCE_UNTRUSTED_IMPORT,
+        create_evidence,
+    )
+    from app.services.server_pins import derive_live_pins
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if body.get("admin_confirm") or body.get("checkbox_pass"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CHECKBOX_REJECTED",
+                "message_vi": "Không chấp nhận checkbox admin làm bằng chứng vật lý.",
+            },
+        )
+    kind = str(body.get("kind") or "")
+    want_class = str(body.get("evidence_class") or EVIDENCE_LIVE_PENDING).upper()
+    if state.face_pipeline is None or state.template_store is None:
+        raise HTTPException(status_code=503, detail="Pipeline chưa sẵn sàng")
+    try:
+        pins, _ = derive_live_pins(db, pipeline=state.face_pipeline, store=state.template_store)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    reg = state.camera_registry
+    bound = reg.get(camera_id) if reg else None
+    h = bound.gateway.health() if bound else None
+    provenance = bound.provenance.value if bound else ""
+    measured_w = int(h.native_width) if h and h.native_width else 0
+    measured_h = int(h.native_height) if h and h.native_height else 0
+    fps = float(h.fps_estimate) if h and h.fps_estimate else None
+    config_revision = bound.config_revision if bound else ""
+
+    if want_class == EVIDENCE_PHYSICAL:
+        if provenance != "CAMERA_LIVE" or measured_w <= 0 or measured_h <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "PHYSICAL_REQUIRES_LIVE_DECODE",
+                    "message_vi": (
+                        "PHYSICAL_VERIFIED cần nguồn CAMERA_LIVE đã giải mã (DECODED_MEASURED). "
+                        "Môi trường cloud/MOCK không đủ."
+                    ),
+                },
+            )
+        claim_w = int(body.get("observed_width") or 0)
+        claim_h = int(body.get("observed_height") or 0)
+        if claim_w != measured_w or claim_h != measured_h:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "OBSERVED_SIZE_MISMATCH",
+                    "message_vi": "Kích thước khai báo không khớp khung LIVE đã đo trên server.",
+                },
+            )
+        if kind == "FACE_PILOT":
+            known = int(body.get("labeled_known") or 0)
+            unknown = int(body.get("labeled_unknown") or 0)
+            if known < 1 or unknown < 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "FACE_PILOT_LABELS_REQUIRED",
+                        "message_vi": "FACE_PILOT cần số mẫu labeled known và unknown (>0).",
+                    },
+                )
+        evidence_class = EVIDENCE_PHYSICAL
+    elif want_class == EVIDENCE_UNTRUSTED_IMPORT:
+        evidence_class = EVIDENCE_UNTRUSTED_IMPORT
+    else:
+        evidence_class = EVIDENCE_LIVE_PENDING
+
+    try:
+        ev = create_evidence(
+            db,
+            kind=kind,
+            evidence_class=evidence_class,
+            camera_id=camera_id,
+            operator=user.username,
+            pins=pins,
+            config_revision=config_revision,
+            provenance=provenance,
+            decoded_w=measured_w or None,
+            decoded_h=measured_h or None,
+            fps_measured=fps,
+            windows_host=str(body.get("windows_host") or "")[:128],
+            labeled_known=int(body.get("labeled_known") or 0),
+            labeled_unknown=int(body.get("labeled_unknown") or 0),
+            note_vi=str(body.get("note_vi") or ""),
+            ab_run_id=str(body.get("ab_run_id") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "evidence_id": ev.evidence_id,
+        "kind": ev.kind,
+        "evidence_class": ev.evidence_class,
+        "camera_id": camera_id,
+        "decoded_measured": {"width": measured_w or None, "height": measured_h or None, "fps": fps},
+        "camera_lab_pass": False,
+        "note_vi": "Đã ghi bằng chứng (không chứa ảnh/mật khẩu). PHYSICAL_VERIFIED vẫn cần máy Windows LAN.",
+    }
+
+
 @router.post("/{camera_id}/quality/approvals", dependencies=[Depends(require_csrf)])
 def issue_pilot_approval(
     camera_id: int,
@@ -821,14 +981,23 @@ def issue_pilot_approval(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
 ) -> dict:
-    """Issue HMAC-signed approval from server-derived pins + verified evidence. CAMERA_MANAGE alone is insufficient."""
+    """Issue HMAC-signed approval only with PHYSICAL_VERIFIED evidence + server pins."""
     from app.models.entities import AbEvaluationRun
+    from app.services.evidence_store import ab_run_promotable, require_physical_evidence
     from app.services.pilot_approval import issue_approval, verify_active_approval
     from app.services.server_pins import derive_live_pins
 
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if body.get("admin_confirm") or body.get("checkbox_pass"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CHECKBOX_REJECTED",
+                "message_vi": "Không ký phê duyệt từ checkbox — cần evidence_id PHYSICAL_VERIFIED.",
+            },
+        )
     kind = str(body.get("kind") or "")
     if state.face_pipeline is None or state.template_store is None:
         raise HTTPException(status_code=503, detail="Pipeline/gallery chưa sẵn sàng để suy pin.")
@@ -839,7 +1008,6 @@ def issue_pilot_approval(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Reject client-supplied pin overrides that disagree with server truth
     for key in ("model_hash_pin", "gallery_revision_pin", "threshold_id_pin"):
         client_val = str(body.get(key) or "").strip()
         if client_val and client_val != pins[key]:
@@ -847,14 +1015,23 @@ def issue_pilot_approval(
                 status_code=422,
                 detail={
                     "code": "CLIENT_PIN_MISMATCH",
-                    "message_vi": (
-                        f"Pin {key} client không khớp giá trị server-derived. "
-                        "Không ký tuyên bố tùy ý."
-                    ),
+                    "message_vi": f"Pin {key} client không khớp giá trị server-derived.",
                 },
             )
 
+    evidence_id = str(body.get("evidence_id") or "").strip()
     ab_run_id = str(body.get("ab_run_id") or "").strip()
+
+    if kind in {"CAMERA_LAB", "FACE_PILOT"}:
+        ev = require_physical_evidence(
+            db, kind=kind, camera_id=camera_id, evidence_id=evidence_id, pins=pins
+        )
+        if not ev.valid:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": ev.code, "message_vi": ev.reason_vi},
+            )
+
     if kind == "AUTO_VALIDATED":
         if not ab_run_id:
             raise HTTPException(
@@ -873,18 +1050,18 @@ def issue_pilot_approval(
                     "message_vi": "ab_run_id không tồn tại hoặc không gắn đúng camera.",
                 },
             )
-        mix = (ab.source_mix or "").upper()
-        if mix in {"", "EMPTY", "MOCK"} or ab.sample_count <= 0:
+        ok, code = ab_run_promotable(ab)
+        if not ok:
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "code": "AB_RUN_INSUFFICIENT",
+                    "code": code,
                     "message_vi": (
-                        "Chạy A/B thiếu mẫu / chỉ MOCK-EMPTY — không đủ chứng minh AUTO_VALIDATED."
+                        "AB chưa PHYSICAL_VERIFIED/APPROVED hoặc can_auto_enable=false "
+                        "hoặc còn blocker nặng — từ chối AUTO_VALIDATED."
                     ),
                 },
             )
-        # Require prior CAMERA_LAB + FACE_PILOT for same camera with matching pins
         for need_kind in ("CAMERA_LAB", "FACE_PILOT"):
             prior = verify_active_approval(
                 db,
@@ -902,10 +1079,7 @@ def issue_pilot_approval(
                     status_code=422,
                     detail={
                         "code": "PILOT_EVIDENCE_MISSING",
-                        "message_vi": (
-                            f"AUTO_VALIDATED cần {need_kind} đã ký (cùng pin/camera) trước. "
-                            "Admin không thể tự cấp artifact PASS."
-                        ),
+                        "message_vi": f"AUTO_VALIDATED cần {need_kind} đã ký (cùng pin/camera).",
                     },
                 )
         if gallery.status != "OK":
@@ -916,6 +1090,7 @@ def issue_pilot_approval(
                     "message_vi": "Gallery ACTIVE trống/blocked — không cấp AUTO_VALIDATED.",
                 },
             )
+        evidence_id = evidence_id or ab_run_id
 
     try:
         rec = issue_approval(
@@ -928,6 +1103,7 @@ def issue_pilot_approval(
             gallery_revision_pin=pins["gallery_revision_pin"],
             threshold_id_pin=pins["threshold_id_pin"],
             ab_run_id=ab_run_id,
+            evidence_id=evidence_id,
             note_vi=str(body.get("note_vi") or ""),
         )
     except ValueError as exc:
@@ -936,13 +1112,15 @@ def issue_pilot_approval(
         "approval_id": rec.approval_id,
         "kind": rec.kind,
         "camera_id": camera_id,
+        "evidence_id": evidence_id or None,
         "model_hash_pin": pins["model_hash_pin"],
         "gallery_revision_pin": pins["gallery_revision_pin"],
         "threshold_id_pin": pins["threshold_id_pin"],
         "ab_run_id": ab_run_id or None,
         "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
         "pins_source": "SERVER_DERIVED",
-        "note_vi": "Đã phát hành phê duyệt đã ký trên server — pin suy từ model/gallery/threshold thật.",
+        "camera_lab_pass": False,
+        "note_vi": "Đã ký phê duyệt server — HMAC không chứng minh quan sát vật lý ngoài evidence_id.",
     }
 
 

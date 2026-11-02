@@ -327,12 +327,32 @@ def auto_frame(
             raise HTTPException(
                 status_code=503, detail={"code": exc.code, "message_vi": exc.message_vi}
             ) from exc
-        # Stale config revision after camera reconfigure → invalidate
+        # Stale config revision after camera reconfigure → durable FAILED (independent txn)
         if row.bound_config_revision and bound.config_revision != row.bound_config_revision:
-            row.status = "FAILED"
-            row.ui_state = "FAILED"
-            row.guidance_vi = "Camera đã đổi cấu hình — phiên bị vô hiệu. Bắt đầu lại."
-            db.flush()
+            from app.core.utc_time import utc_now
+            from app.models.biometric import EnrollmentSession
+            from app.models.entities import AuditLog
+
+            # get_db rolls back on HTTPException — commit invalidation on a separate session
+            factory = state.session_factory
+            with factory() as idb:
+                sess = idb.get(EnrollmentSession, row.id)
+                if sess is not None and sess.status != "FAILED":
+                    sess.status = "FAILED"
+                    sess.ui_state = "FAILED"
+                    sess.guidance_vi = "Camera đã đổi cấu hình — phiên bị vô hiệu. Bắt đầu lại."
+                    sess.updated_at = utc_now()
+                    idb.add(
+                        AuditLog(
+                            actor="system",
+                            action="biometric.auto_enrollment.config_invalidated",
+                            entity_type="enrollment_session",
+                            entity_id=sess.public_id,
+                            reason=f"bound={row.bound_config_revision}|now={bound.config_revision}",
+                            timestamp=utc_now(),
+                        )
+                    )
+                    idb.commit()
             raise HTTPException(
                 status_code=409,
                 detail={

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -41,6 +41,7 @@ def _canonical_dict(
     gallery_revision_pin: str,
     threshold_id_pin: str,
     ab_run_id: str,
+    evidence_id: str,
     expires_at: datetime | None,
     issued_by: str,
     issued_at: datetime | None = None,
@@ -53,15 +54,50 @@ def _canonical_dict(
         "gallery_revision_pin": gallery_revision_pin,
         "threshold_id_pin": threshold_id_pin,
         "ab_run_id": ab_run_id,
+        "evidence_id": evidence_id or "",
         "expires_at": canonical_utc_z(expires_at) if expires_at is not None else None,
         "issued_at": canonical_utc_z(issued_at) if issued_at is not None else None,
         "issued_by": issued_by,
-        "v": 2,  # canonical format version (Zulu)
+        "v": 3,  # PR7: evidence_id + row/payload field integrity
     }
 
 
 def _canonical_text(body: dict[str, Any]) -> str:
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _row_matches_payload(row: PilotApprovalRecord, data: dict[str, Any]) -> bool:
+    """HMAC proves payload integrity; also reject row↔payload drift (kind/id/issuer/pins/AB)."""
+    try:
+        if data.get("approval_id") != row.approval_id:
+            return False
+        if data.get("kind") != row.kind:
+            return False
+        if data.get("camera_id") != row.camera_id:
+            return False
+        if data.get("model_hash_pin") != (row.model_hash_pin or ""):
+            return False
+        if data.get("gallery_revision_pin") != (row.gallery_revision_pin or ""):
+            return False
+        if data.get("threshold_id_pin") != (row.threshold_id_pin or ""):
+            return False
+        if data.get("ab_run_id", "") != (row.ab_run_id or ""):
+            return False
+        if data.get("evidence_id", "") != (getattr(row, "evidence_id", None) or ""):
+            return False
+        if data.get("issued_by") != (row.issued_by or ""):
+            return False
+        # Expiry: signed canonical must match row when both present
+        signed_exp = data.get("expires_at")
+        if row.expires_at is not None:
+            row_exp_z = canonical_utc_z(to_utc_aware(row.expires_at))  # type: ignore[arg-type]
+            if signed_exp != row_exp_z:
+                return False
+        elif signed_exp not in (None, ""):
+            return False
+        return True
+    except AmbiguousTimestampError:
+        return False
 
 
 def issue_approval(
@@ -75,6 +111,7 @@ def issue_approval(
     gallery_revision_pin: str,
     threshold_id_pin: str,
     ab_run_id: str = "",
+    evidence_id: str = "",
     ttl_hours: int = 24 * 30,
     note_vi: str = "",
     clock: datetime | None = None,
@@ -87,6 +124,8 @@ def issue_approval(
         raise ValueError("AUTO_VALIDATED yêu cầu ab_run_id từ chạy A/B server.")
     if camera_id is None and kind in {"CAMERA_LAB", "FACE_PILOT", "AUTO_VALIDATED"}:
         raise ValueError("Phê duyệt phải gắn camera_id cụ thể.")
+    if kind in {"CAMERA_LAB", "FACE_PILOT"} and not (evidence_id or "").strip():
+        raise ValueError("CAMERA_LAB/FACE_PILOT yêu cầu evidence_id PHYSICAL_VERIFIED.")
     import uuid
 
     now = clock or utc_now()
@@ -101,6 +140,7 @@ def issue_approval(
         gallery_revision_pin=gallery_revision_pin,
         threshold_id_pin=threshold_id_pin,
         ab_run_id=ab_run_id or "",
+        evidence_id=evidence_id or "",
         expires_at=expires,
         issued_by=issued_by,
         issued_at=now,
@@ -115,6 +155,7 @@ def issue_approval(
         gallery_revision_pin=gallery_revision_pin,
         threshold_id_pin=threshold_id_pin,
         ab_run_id=ab_run_id or "",
+        evidence_id=evidence_id or "",
         issued_by=issued_by,
         issued_at=now,
         expires_at=expires,
@@ -143,7 +184,7 @@ def verify_active_approval(
 ) -> ApprovalView | None:
     """
     Fail closed: missing pins/camera when required → DENIED (not skip).
-    HMAC verified against stored payload_json (stable across SQLite rehydration).
+    HMAC verified against stored payload_json; row fields must match payload.
     """
     now = to_utc_aware(clock) or utc_now()
     if require_camera_id and camera_id is None:
@@ -171,12 +212,15 @@ def verify_active_approval(
     for row in rows:
         payload = row.payload_json or ""
         if not payload or not verify_approval_signature(secret_key, payload, row.signature or ""):
-            # Legacy v1 recomputed isoformat payloads will fail — fail closed (reissue required)
             continue
         try:
             data = json.loads(payload)
             exp = parse_canonical_utc_z(data.get("expires_at"))
         except (json.JSONDecodeError, AmbiguousTimestampError, TypeError):
+            continue
+        if not _row_matches_payload(row, data):
+            continue
+        if data.get("kind") != kind:
             continue
         if exp is not None and exp <= now:
             continue
@@ -194,7 +238,7 @@ def verify_active_approval(
             camera_id=row.camera_id,
             expires_at=exp,
             valid=True,
-            reason_vi="Phê duyệt server còn hiệu lực (HMAC + UTC Zulu).",
+            reason_vi="Phê duyệt server còn hiệu lực (HMAC + UTC Zulu + khớp hàng DB).",
             code="OK",
         )
     return None

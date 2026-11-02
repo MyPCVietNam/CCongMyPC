@@ -1,0 +1,5 @@
+root=/workspace
+branch=cursor/pr7-corrective-evidence-83a8
+head=81b9e949a5a30fba2159a47c208f3d6acdc1cdf8
+observed_pr7_tip=81b9e949a5a30fba2159a47c208f3d6acdc1cdf8
+INFO: HEAD differs from observed PR7 snapshot — compare commits; preserve newer work.
