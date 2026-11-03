@@ -627,22 +627,42 @@ def test_rtsp(
         try_auth=try_auth,
     )
     # Handshake lane ≠ LIVE decoder.
-    # Definitive failures only: AUTH_FAILED / STREAM_NOT_FOUND / RTSP_DISABLED_OR_UNAVAILABLE.
-    # UNKNOWN is inconclusive (transport/timeout) — MUST NOT overwrite operational DB status.
+    # Probe outcomes always stay in last_health_status + response handshake fields.
+    # Never overwrite DB connection_status while an independently healthy LIVE decoder
+    # is operational for this camera (AUTH/404/UNKNOWN/CONFIG_SAVED alike).
+    # When LIVE is down, definitive AUTH/404/DISABLED may persist for operator visibility.
     handshake = result.overall_status
     prior_status = row.connection_status
     row.last_health_at = SystemClock().now_utc()
     row.last_health_status = f"HANDSHAKE:{handshake}"
+    live_ok = False
+    try:
+        gh = state.camera_registry.health().get("sources") if state.camera_registry else None
+        if gh:
+            for s in gh:
+                if (
+                    str(s.get("camera_id")) == str(camera_id)
+                    and s.get("operationally_ready")
+                    and str(s.get("decoder_status") or "") == "OK"
+                ):
+                    live_ok = True
+                    break
+    except Exception:  # noqa: BLE001
+        live_ok = False
     definitive = {
         "AUTH_FAILED",
         "STREAM_NOT_FOUND",
         "RTSP_DISABLED_OR_UNAVAILABLE",
     }
     clobber = False
-    if handshake in definitive:
+    preserve_reason = ""
+    if live_ok:
+        preserve_reason = "LIVE_DECODER_HEALTHY"
+        # leave connection_status unchanged
+    elif handshake in definitive:
         row.connection_status = handshake
         clobber = True
-    # else CONFIG_SAVED / UNKNOWN / etc.: leave connection_status unchanged
+    # else CONFIG_SAVED / UNKNOWN / etc. without LIVE: leave unchanged
     db.add(
         AuditLog(
             actor=user.username,
@@ -651,7 +671,8 @@ def test_rtsp(
             entity_id=str(camera_id),
             reason=(
                 f"handshake={handshake}; handshake_only=true; "
-                f"clobber={clobber}; secrets_redacted=true"
+                f"clobber={clobber}; live_ok={live_ok}; "
+                f"preserve={preserve_reason or 'n/a'}; secrets_redacted=true"
             ),
             timestamp=utc_now(),
         )
@@ -664,28 +685,14 @@ def test_rtsp(
     payload["connection_status_prior"] = prior_status
     payload["connection_status_persisted"] = row.connection_status
     payload["connection_status_clobbered"] = clobber
+    payload["live_status_preserved"] = bool(live_ok and not clobber)
+    payload["live_decoder_operational"] = live_ok
     payload["measured_at_utc"] = SystemClock().now_utc().isoformat().replace("+00:00", "Z")
     payload["note_vi"] = (
         "Kết quả này là RTSP HANDSHAKE ONLY — không thay thế LIVE_DECODED. "
         "ONVIF/FIRST_FRAME trong probe không chứng minh decoder đang chạy. "
-        "UNKNOWN không ghi đè connection_status vận hành."
+        "UNKNOWN/AUTH/404 không ghi đè connection_status khi LIVE decoder đang healthy."
     )
-    # Surface whether LIVE decode is already up (do not invent frames)
-    try:
-        gh = state.camera_registry.health().get("sources") if state.camera_registry else None
-        live_ok = False
-        if gh:
-            for s in gh:
-                if (
-                    str(s.get("camera_id")) == str(camera_id)
-                    and s.get("operationally_ready")
-                    and str(s.get("decoder_status") or "") == "OK"
-                ):
-                    live_ok = True
-                    break
-        payload["live_decoder_operational"] = live_ok
-    except Exception:  # noqa: BLE001
-        payload["live_decoder_operational"] = None
     return payload
 
 

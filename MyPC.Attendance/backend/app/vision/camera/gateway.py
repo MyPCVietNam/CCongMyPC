@@ -629,6 +629,10 @@ class LiveRTSPGateway(CameraGateway):
                 self._corrupt_streak += 1
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
+                # Sustained corrupt pause can dilute session FPS — rebase window (HF2)
+                if self._corrupt_streak >= 3:
+                    with self._lock:
+                        self._reset_session_fps_window()
                 # Invalidate last good — biometric must not reuse pre-corruption frame
                 with self._lock:
                     self._latest_good = None
