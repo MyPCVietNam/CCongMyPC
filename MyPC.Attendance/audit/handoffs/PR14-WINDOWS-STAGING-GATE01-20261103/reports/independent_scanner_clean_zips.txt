@@ -1,0 +1,2 @@
+PASS: ../../handoff/MyPC.Attendance-FULL-PR13-RELSAFE-43c87f469d09.zip
+PASS: ../../handoff/MyPC.Attendance-CHANGED-PR13-RELSAFE-43c87f469d09.zip

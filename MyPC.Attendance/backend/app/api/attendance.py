@@ -6,6 +6,7 @@ import hashlib
 from datetime import date, datetime
 from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,7 +23,7 @@ from app.core.clock import ensure_utc
 from app.core.permissions import DEMO_MOCK_INGEST
 from app.models.entities import AttendanceEvent, Employee, User
 
-router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
+router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"], route_class=FinalizingAPIRoute)
 
 
 class MockObservationIn(BaseModel):

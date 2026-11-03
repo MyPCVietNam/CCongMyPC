@@ -1,0 +1,10 @@
+repo=https://github.com/MyPCVietNam/CCongMyPC
+pr=14
+branch=cursor/pr13-release-safety-83a8
+baseline_head=956ec4d8d11fc4e6eecc755d2fed8ae7943c4ec7
+feature_commit=43c87f469d09b97bd345d082e6a916a2299bb351
+evidence_generated_at_utc=2026-11-03T07:38:15Z
+evidence_timezone_note=User zone Asia/Bangkok (UTC+7); machine clock UTC
+platform_automated=linux_cloud_agent_python3.12.3_fastapi0.115.14
+windows_physical=BLOCKED
+code_changes_this_gate=none

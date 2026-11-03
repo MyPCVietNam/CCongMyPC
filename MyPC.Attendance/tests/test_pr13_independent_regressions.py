@@ -129,3 +129,33 @@ def test_old_pending_delete_must_not_delete_recreated_camera_id(tmp_path):
     assert secrets.has_secret(live)
     process_outbox_row(secrets,sm,old_op_id)
     assert secrets.has_secret(live), 'Old DELETE erased new camera credential after numeric ID reuse'
+
+
+def test_c13_asgi_and_fastapi_pin(app_client):
+    """C13 on locked FastAPI 0.115.x: TestClient + raw ASGI must yield real 503."""
+    import fastapi
+    from app.core.schema_bootstrap import assert_fastapi_supported
+    gate = assert_fastapi_supported()
+    assert gate['supported'] is True, gate
+    assert fastapi.__version__.startswith('0.115.'), fastapi.__version__
+
+    _client, app = app_client
+    with TestClient(app, raise_server_exceptions=False) as client:
+        auth = client.post('/api/v1/auth/login', json={'username':'admin','password':'TestAdminPass!234'})
+        assert auth.status_code == 200
+        headers = {'X-CSRF-Token': auth.json()['csrf_token']}
+        created = client.post('/api/v1/cameras', headers=headers, json={
+            'name':'ASGI test','host':'192.168.0.98','username':'admin','password':'OldPassE123',
+            'credential_action':'replace','mock_mode':True})
+        assert created.status_code == 200, created.text
+        cid = created.json()['id']
+        with patch.object(app.state.container.secrets, 'promote_staged_camera_secret', side_effect=OSError('synthetic_disk_full')):
+            response = client.patch(f'/api/v1/cameras/{cid}', headers=headers, json={
+                'credential_action':'replace','username':'admin','password':'NewPassE456'})
+        assert response.status_code == 503, response.status_code
+        assert response.json()['detail']['code'] == 'SECRET_FS_OUTBOX_INCOMPLETE'
+        # Outbox must remain durable for retry
+        with app.state.container.session_factory() as db:
+            from app.services.secret_fs_outbox import list_pending_outbox
+            pending = list_pending_outbox(db, redact=True)
+        assert pending, 'expected persisted SQLite outbox row after promote failure'

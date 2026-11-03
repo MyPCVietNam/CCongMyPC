@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
+from app.api.db_finalize_route import FinalizingAPIRoute
 from sqlalchemy import text
 
 from app import APP_NAME, SPEC_VERSION, __version__
@@ -19,7 +20,7 @@ from app.core.database import check_integrity
 from app.core.permissions import SETTINGS_APPLY
 from app.models.entities import User
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], route_class=FinalizingAPIRoute)
 
 
 @router.get("/api/v1/health")
@@ -35,6 +36,7 @@ def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
     else:
         phase = "READY"
         status = "ok"
+    fastapi_runtime = getattr(state, "fastapi_runtime", None) or {}
     return {
         "status": status,
         "app": APP_NAME,
@@ -49,6 +51,9 @@ def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         "startup_phase": phase,
         "alembic_ok": bool(getattr(state, "alembic_ok", True)),
         "alembic_error": getattr(state, "alembic_error", None),
+        "fastapi_version": fastapi_runtime.get("fastapi_version"),
+        "fastapi_supported": fastapi_runtime.get("supported"),
+        "fastapi_supported_range": fastapi_runtime.get("supported_range"),
         "data_dir": str(state.settings.data_dir),
         "note_vi": (
             "Nếu console dừng sau Alembic: kiểm tra startup_phase và HTTP /api/v1/health — "
@@ -192,6 +197,10 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             "startup_failed": recovery.get("journals_failed"),
             # No paths, public_ids, or error strings on unauthenticated diagnostics
         },
+        "runtime_dependencies": getattr(state, "fastapi_runtime", None)
+        or {"supported_range": ">=0.115.0,<0.116"},
+        "alembic_ok": bool(getattr(state, "alembic_ok", True)),
+        "alembic_error": getattr(state, "alembic_error", None),
         "gates": {
             "UNIT": "see test report",
             "MOCK_INTEGRATION": "see test report",

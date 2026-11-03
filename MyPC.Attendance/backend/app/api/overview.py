@@ -6,13 +6,14 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
+from app.api.db_finalize_route import FinalizingAPIRoute
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AppState, get_app_state, get_current_user, get_db
 from app.models.entities import AttendanceEvent, CameraDevice, Employee
 
-router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
+router = APIRouter(prefix="/api/v1/overview", tags=["overview"], route_class=FinalizingAPIRoute)
 
 
 @router.get("")

@@ -7,6 +7,7 @@ import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,7 +31,7 @@ from app.services.auth_session_service import (
 )
 from app.core.utc_time import utc_now
 
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"], route_class=FinalizingAPIRoute)
 
 LOGIN_MAX_FAILURES = 8
 LOGIN_LOCK_SECONDS = 60

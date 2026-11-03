@@ -1,0 +1,22 @@
+fastapi=0.115.14
+fastapi_supported=True
+supported_range=>=0.115.0,<0.116
+login_status=200
+create_camera_status=200
+camera_id=<redacted_int_ok> present=True
+promote_fault_http_status=503
+detail_code=SECRET_FS_OUTBOX_INCOMPLETE
+pending_outbox_count=1
+pending_row_keys=['attempts', 'camera_id', 'generation', 'has_error', 'id', 'op', 'public_id', 'status']
+C13_GATE=PASS
+retry_journals_applied=1
+retry_journals_failed=0
+pending_after_retry=0
+C13_RETRY_GATE=PASS
+---
+{
+  "gate": "C13_HTTP_503_PINNED_FASTAPI",
+  "runtime": "python3.12.3+fastapi0.115.14",
+  "platform": "linux_cloud_agent",
+  "windows_owner_retest": "REQUIRED"
+}

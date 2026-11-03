@@ -1,7 +1,7 @@
 # Authoritative hashes AFTER ZIP freeze. feature_commit=c2c7ba72e97a176789d30bb4b94171e618c38720 baseline=98742661970fceaf3aac94712033df94b9b8a97b
 # FINAL_HEAD below = zip-freeze packaging commit (ZIP digests unchanged)
 6aae72d90d490baf468d98623f990e6ef5235b210325e4e57eff7db242778605  MyPC.Attendance-CHANGED-PR13-C11C14-c2c7ba72e97a.zip
-ce2a078bff568d6450744d870ecf9bac4f16234b248d01d50f6ecb9e0a9df4ba  MyPC.Attendance-FULL-PR13-C11C14-c2c7ba72e97a.zip
+# QUARANTINED (removed from tree): ce2a078bff568d6450744d870ecf9bac4f16234b248d01d50f6ecb9e0a9df4ba  MyPC.Attendance-FULL-PR13-C11C14-c2c7ba72e97a.zip
 f7c3f853245ea8e77d6c67074b8a95ad802dca1708c9160563f1aef7a051b360  FEATURE_COMMIT.txt
 6883dbe9e9027f78b36c23f692fa578e7ae10feddb34c2c0f40d3fd12a03c982  BASELINE_COMMIT.txt
 5729b81765e2fc20454198b1b4917ea23ea46fbd3873ee32121ffe41eb2f04c5  FINAL_HEAD.txt

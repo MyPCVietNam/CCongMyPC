@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,7 @@ from app.core.permissions import ENROLLMENT_MANAGE
 from app.models.entities import User
 from app.services.enrollment_service import _fixture_canvas
 
-router = APIRouter(tags=["auto-enrollment"])
+router = APIRouter(tags=["auto-enrollment"], route_class=FinalizingAPIRoute)
 
 
 class AutoStartIn(BaseModel):

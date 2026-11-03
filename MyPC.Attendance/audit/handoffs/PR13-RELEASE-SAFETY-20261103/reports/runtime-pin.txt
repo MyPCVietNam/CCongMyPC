@@ -1,0 +1,3 @@
+python 3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]
+fastapi 0.115.14
+{'fastapi_version': '0.115.14', 'supported_range': '>=0.115.0,<0.116', 'supported': True, 'note_vi': 'FastAPI trong khoảng hỗ trợ.'}

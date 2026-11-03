@@ -1,7 +1,7 @@
 # Authoritative hashes AFTER ZIP freeze. feature_commit=6503713e683ee0d31a8c7d37a50a636139b47bf4 baseline=b74b59466a921ac54866eadeb5ec331649067e5b
 # final_github_head below is this packaging commit (ZIPs frozen earlier; ZIP digests unchanged)
 cc367d991b3523484e6823ad9cfba49905c499b16a62a90a5f0cf194e875ce89  MyPC.Attendance-CHANGED-PR12-OUTBOX-6503713e683e.zip
-633e8cd6c379decb7324ec13c84add44667e0058660d7b25dfd179eca0c70df3  MyPC.Attendance-FULL-PR12-OUTBOX-6503713e683e.zip
+# QUARANTINED (removed from tree): 633e8cd6c379decb7324ec13c84add44667e0058660d7b25dfd179eca0c70df3  MyPC.Attendance-FULL-PR12-OUTBOX-6503713e683e.zip
 a87f4a5fafa6c7829d5138590aba5cb47bdebb2a50bcf1b7241fa309bd60a6b7  FEATURE_COMMIT.txt
 168c4cf06b7d41906e3b4c462b8d1c7b253177b6cab70160d8a41c320161ac01  BASELINE_COMMIT.txt
 74f2b7f4dc97523c104cf9abad41928912c2f01b52cea4b31d5bfafdba4cfec6  FINAL_HEAD.txt
