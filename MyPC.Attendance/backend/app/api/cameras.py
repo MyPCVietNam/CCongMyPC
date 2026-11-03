@@ -626,26 +626,33 @@ def test_rtsp(
         password=password if try_auth else None,
         try_auth=try_auth,
     )
-    # Handshake lane ≠ LIVE decoder. Only persist definitive handshake failures;
-    # never clobber with CONFIG_SAVED as if LIVE were unverified after a good probe.
+    # Handshake lane ≠ LIVE decoder.
+    # Definitive failures only: AUTH_FAILED / STREAM_NOT_FOUND / RTSP_DISABLED_OR_UNAVAILABLE.
+    # UNKNOWN is inconclusive (transport/timeout) — MUST NOT overwrite operational DB status.
     handshake = result.overall_status
+    prior_status = row.connection_status
     row.last_health_at = SystemClock().now_utc()
     row.last_health_status = f"HANDSHAKE:{handshake}"
-    if handshake in {
+    definitive = {
         "AUTH_FAILED",
         "STREAM_NOT_FOUND",
         "RTSP_DISABLED_OR_UNAVAILABLE",
-        "UNKNOWN",
-    }:
+    }
+    clobber = False
+    if handshake in definitive:
         row.connection_status = handshake
-    # else: leave connection_status as CONFIG_SAVED / STOPPED / etc. from configure path
+        clobber = True
+    # else CONFIG_SAVED / UNKNOWN / etc.: leave connection_status unchanged
     db.add(
         AuditLog(
             actor=user.username,
             action="CAMERA_RTSP_TEST",
             entity_type="camera",
             entity_id=str(camera_id),
-            reason=f"handshake={handshake}; handshake_only=true; secrets_redacted=true",
+            reason=(
+                f"handshake={handshake}; handshake_only=true; "
+                f"clobber={clobber}; secrets_redacted=true"
+            ),
             timestamp=utc_now(),
         )
     )
@@ -653,10 +660,15 @@ def test_rtsp(
     payload = result.as_dict()
     payload["handshake_only"] = True
     payload["rtsp_handshake_status"] = handshake
+    payload["handshake_inconclusive"] = handshake == "UNKNOWN"
+    payload["connection_status_prior"] = prior_status
     payload["connection_status_persisted"] = row.connection_status
+    payload["connection_status_clobbered"] = clobber
+    payload["measured_at_utc"] = SystemClock().now_utc().isoformat().replace("+00:00", "Z")
     payload["note_vi"] = (
         "Kết quả này là RTSP HANDSHAKE ONLY — không thay thế LIVE_DECODED. "
-        "ONVIF/FIRST_FRAME trong probe không chứng minh decoder đang chạy."
+        "ONVIF/FIRST_FRAME trong probe không chứng minh decoder đang chạy. "
+        "UNKNOWN không ghi đè connection_status vận hành."
     )
     # Surface whether LIVE decode is already up (do not invent frames)
     try:
@@ -2063,6 +2075,72 @@ def record_pilot_evidence(
             "Đã ghi bằng chứng không-PHYSICAL (không chứa ảnh/mật khẩu). "
             "PHYSICAL_VERIFIED cần lab-run FSM trên máy Windows LAN."
         ),
+    }
+
+
+@router.get("/{camera_id}/quality/evidence")
+def list_quality_evidence(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission("PILOT_APPROVE"))],
+    kind: str = "CAMERA_LAB",
+) -> dict:
+    """List redacted PHYSICAL_VERIFIED evidence eligible for HMAC signing (no auto-sign)."""
+    from app.services.evidence_store import EVIDENCE_PHYSICAL, list_physical_evidence_for_camera
+    from app.services.pilot_approval import verify_active_approval
+    from app.services.server_pins import derive_live_pins
+
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    kind_u = (kind or "CAMERA_LAB").upper()
+    if kind_u not in {"CAMERA_LAB", "FACE_PILOT"}:
+        raise HTTPException(status_code=422, detail="kind không hợp lệ")
+    pins: dict[str, str] | None = None
+    if state.face_pipeline is not None and state.template_store is not None:
+        try:
+            pins, _gallery = derive_live_pins(
+                db, pipeline=state.face_pipeline, store=state.template_store
+            )
+        except Exception:  # noqa: BLE001
+            pins = None
+    items = list_physical_evidence_for_camera(
+        db, camera_id=camera_id, kind=kind_u, pins=pins, limit=20
+    )
+    signed = None
+    if pins:
+        signed_view = verify_active_approval(
+            db,
+            secret_key=state.settings.secret_key,
+            kind=kind_u,
+            camera_id=camera_id,
+            model_hash_pin=pins.get("model_hash_pin"),
+            gallery_revision_pin=pins.get("gallery_revision_pin"),
+            threshold_id_pin=pins.get("threshold_id_pin"),
+        )
+        if signed_view and signed_view.valid:
+            signed = {
+                "approval_id": signed_view.approval_id,
+                "expires_at": (
+                    signed_view.expires_at.isoformat() if signed_view.expires_at else None
+                ),
+                "code": signed_view.code,
+            }
+    return {
+        "schema": "mypc.quality-evidence.v1",
+        "camera_id": camera_id,
+        "kind": kind_u,
+        "evidence_class_filter": EVIDENCE_PHYSICAL,
+        "items": items,
+        "signed_active": signed,
+        "camera_lab_pass": False,
+        "physical_verified_ne_signed": True,
+        "note_vi": (
+            "PHYSICAL_VERIFIED ≠ CAMERA_LAB_SIGNED. Chọn evidence rồi POST /quality/approvals. "
+            "Không lộ challenge/cookie/ảnh. FACE_PILOT tách biệt."
+        ),
+        "actor": user.username,
     }
 
 

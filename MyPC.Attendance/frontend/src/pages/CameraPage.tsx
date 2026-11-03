@@ -1,5 +1,14 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import {
+  HandshakeLane,
+  LegacyDiagLane,
+  LiveHealthLane,
+  mjpegWatchdogState,
+  nowUtcIso,
+  retainBothDiagLanes,
+  uiStateFromLanes,
+} from "../camera/diagLanes";
 
 type Cam = {
   id: number;
@@ -43,18 +52,6 @@ type Preview = {
   ui_state?: string;
 };
 
-type Diag = {
-  stages: Array<{ name: string; status: string; detail_vi: string; code?: string }>;
-  camera_lab_pass: boolean;
-  note_vi: string;
-  overall_status?: string;
-  indicator_vi?: string;
-  handshake_only?: boolean;
-  rtsp_handshake_status?: string;
-  live_decoder_operational?: boolean | null;
-  connection_status_persisted?: string;
-};
-
 type QualityDiag = {
   vendor_spec?: { max_resolution?: string; status?: string };
   decoded_measured?: {
@@ -80,35 +77,14 @@ const emptyForm = () => ({
   changePassword: false,
 });
 
-function uiStateFromCam(cam?: Cam | null, preview?: Preview | null): string {
-  // Decoder lane first — never let handshake CONFIG_SAVED / LIVE chip race (PR16 S2/S6)
-  if (preview?.degraded || preview?.decoder_status === "DEGRADED") return "DEGRADED";
-  if (preview?.stale || preview?.decoder_status === "STALE") return "STALE";
-  if (
-    cam?.runtime?.decoder_status === "RECONNECTING" ||
-    cam?.runtime?.connection_status === "CONNECTING" ||
-    preview?.decoder_status === "RECONNECTING"
-  )
-    return "RECONNECTING";
-  if (
-    (cam?.runtime?.live_decoded || cam?.live_verified) &&
-    cam?.runtime?.decoder_status !== "STOPPED" &&
-    cam?.runtime?.decoder_status !== "OFFLINE"
-  )
-    return "LIVE";
-  if (cam?.mock_mode) return "MOCK";
-  // Handshake-only DB status — not LIVE
-  if (cam?.runtime?.connection_status === "CONFIG_SAVED" || cam?.connection_status === "CONFIG_SAVED")
-    return "CONFIG_SAVED";
-  return cam?.runtime?.connection_status || cam?.connection_status || "OFFLINE";
-}
-
 export function CameraPage() {
   const [cams, setCams] = useState<Cam[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("new");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [diag, setDiag] = useState<Diag | null>(null);
+  const [handshake, setHandshake] = useState<HandshakeLane | null>(null);
+  const [legacyDiag, setLegacyDiag] = useState<LegacyDiagLane | null>(null);
+  const [liveHealth, setLiveHealth] = useState<LiveHealthLane | null>(null);
   const [quality, setQuality] = useState<QualityDiag | null>(null);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [roi, setRoi] = useState({ x: 0.3, y: 0.05, w: 0.4, h: 0.25 });
@@ -163,7 +139,9 @@ export function CameraPage() {
   async function loadDetail(id: number, gen: number) {
     setError("");
     setPreview(null);
-    setDiag(null);
+    setHandshake(null);
+    setLegacyDiag(null);
+    setLiveHealth(null);
     setQuality(null);
     setAnalyzeMsg("");
     try {
@@ -197,6 +175,100 @@ export function CameraPage() {
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+
+  // Per-camera LIVE decoder health refresh (does not start a second decoder)
+  useEffect(() => {
+    if (selected == null || mode !== "edit") return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const camId = selected;
+    const gen = selectGen.current;
+
+    const refresh = async () => {
+      if (cancelled || hiddenRef.current) return;
+      try {
+        const h = await api<{
+          sources?: Array<Record<string, unknown>>;
+          signed_camera_lab?: boolean;
+          ready?: boolean;
+        }>(`/api/v1/cameras/gateway/health?camera_id=${camId}`);
+        if (cancelled || gen !== selectGen.current || camId !== selected) return;
+        const src =
+          (h.sources || []).find((s) => Number(s.camera_id) === camId) || h.sources?.[0];
+        if (!src) {
+          setLiveHealth({
+            source: "live_decoder_health",
+            measured_at_utc: nowUtcIso(),
+            camera_id: camId,
+            decoder_status: "NOT_CONFIGURED",
+            live_decoded: false,
+            operationally_ready: false,
+          });
+          return;
+        }
+        const extras = (src.extras as Record<string, unknown>) || {};
+        setLiveHealth({
+          source: "live_decoder_health",
+          measured_at_utc: nowUtcIso(),
+          camera_id: camId,
+          decoder_status: String(src.decoder_status || ""),
+          connection_status: String(src.connection_status || extras.connection_status || ""),
+          live_decoded: Boolean(src.live_decoded ?? extras.live_decoded),
+          operationally_ready: Boolean(src.operationally_ready),
+          fps_estimate:
+            (src.fps_estimate as number | undefined) ??
+            (src.source_fps_measured as number | undefined) ??
+            null,
+          source_fps_status: String(src.source_fps_status || extras.source_fps_status || ""),
+          frame_age_ms: (src.frame_age_ms as number | null | undefined) ?? null,
+          native_width: Number(src.native_width || 0) || undefined,
+          native_height: Number(src.native_height || 0) || undefined,
+          reconnect_count: Number(src.reconnect_count || 0) || undefined,
+          signed_camera_lab: Boolean(h.signed_camera_lab),
+        });
+        setCams((prev) =>
+          prev.map((c) =>
+            c.id === camId
+              ? {
+                  ...c,
+                  runtime: {
+                    ...(c.runtime || {}),
+                    bound: true,
+                    decoder_status: String(src.decoder_status || ""),
+                    live_decoded: Boolean(src.live_decoded ?? extras.live_decoded),
+                    connection_status: String(src.connection_status || ""),
+                    native_width: Number(src.native_width || 0) || undefined,
+                    native_height: Number(src.native_height || 0) || undefined,
+                    fps_estimate: (src.fps_estimate as number | undefined) || undefined,
+                  },
+                  live_verified: Boolean(src.live_decoded ?? extras.live_decoded),
+                }
+              : c
+          )
+        );
+      } catch {
+        if (cancelled || gen !== selectGen.current) return;
+        // Do not invent LIVE — clear ready flags on hard failure
+        setLiveHealth((prev) =>
+          prev && prev.camera_id === camId
+            ? {
+                ...prev,
+                measured_at_utc: nowUtcIso(),
+                decoder_status: prev.decoder_status === "OK" ? "STALE" : prev.decoder_status,
+                live_decoded: false,
+                operationally_ready: false,
+              }
+            : prev
+        );
+      }
+    };
+    refresh();
+    timer = window.setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [selected, mode]);
 
   // SNAPSHOT fallback poll only — labeled stills, not smooth LIVE
   useEffect(() => {
@@ -233,7 +305,9 @@ export function CameraPage() {
     setMode("new");
     setForm(emptyForm());
     setPreview(null);
-    setDiag(null);
+    setHandshake(null);
+    setLegacyDiag(null);
+    setLiveHealth(null);
     setQuality(null);
     setAnalyzeMsg("");
     setError("");
@@ -435,12 +509,17 @@ export function CameraPage() {
     }
   }
 
-  async function testRtsp() {
-    if (selected == null) return;
+  async function testRtsp(): Promise<HandshakeLane | null> {
+    if (selected == null) return null;
     setBusy(true);
     setError("");
     try {
-      const d = await api<Diag>(`/api/v1/cameras/${selected}/rtsp/test`, {
+      const d = await api<Omit<HandshakeLane, "source" | "measured_at_utc"> & {
+        measured_at_utc?: string;
+        stages?: HandshakeLane["stages"];
+        note_vi?: string;
+        camera_lab_pass?: boolean;
+      }>(`/api/v1/cameras/${selected}/rtsp/test`, {
         method: "POST",
         body: JSON.stringify({
           rtsp_uri: form.rtsp_url_override,
@@ -448,25 +527,47 @@ export function CameraPage() {
           ...(form.changePassword ? { password: form.password } : {}),
         }),
       });
-      setDiag(d);
-      setAnalyzeMsg(`Kết quả kiểm RTSP: ${d.overall_status || "UNKNOWN"}`);
+      const lane: HandshakeLane = {
+        source: "rtsp_handshake",
+        measured_at_utc: d.measured_at_utc || nowUtcIso(),
+        ...d,
+      };
+      setHandshake(lane);
+      setAnalyzeMsg(
+        `RTSP handshake: ${d.rtsp_handshake_status || d.overall_status || "UNKNOWN"}` +
+          (d.handshake_inconclusive ? " (UNKNOWN — không ghi đè LIVE)" : "")
+      );
+      return lane;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi kiểm RTSP");
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function runDiag() {
-    if (selected == null) return;
+  async function runDiag(): Promise<LegacyDiagLane | null> {
+    if (selected == null) return null;
     try {
-      const d = await api<Diag>(`/api/v1/cameras/${selected}/diagnostics`, {
+      const d = await api<{
+        overall_status?: string;
+        stages?: LegacyDiagLane["stages"];
+        note_vi?: string;
+        camera_lab_pass?: boolean;
+      }>(`/api/v1/cameras/${selected}/diagnostics`, {
         method: "POST",
         body: "{}",
       });
-      setDiag(d);
+      const lane: LegacyDiagLane = {
+        source: "legacy_diagnostics",
+        measured_at_utc: nowUtcIso(),
+        ...d,
+      };
+      setLegacyDiag(lane);
+      return lane;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi");
+      return null;
     }
   }
 
@@ -494,22 +595,29 @@ export function CameraPage() {
   }
 
   const selectedCam = cams.find((c) => c.id === selected);
-  const statusLabel = uiStateFromCam(selectedCam, preview);
+  const statusLabel = uiStateFromLanes(selectedCam, preview, liveHealth);
+  const mjpegWatch = mjpegWatchdogState(liveHealth);
+  const displayStatus =
+    viewMode === "mjpeg" && (mjpegWatch === "STALE" || mjpegWatch === "RECONNECTING" || mjpegWatch === "DEGRADED")
+      ? mjpegWatch
+      : statusLabel;
   const mjpegSrc =
     selected != null
       ? `/api/v1/cameras/${selected}/preview/mjpeg?max_fps=12&_=${mjpegNonce}`
       : "";
 
   const statusHint =
-    statusLabel === "LIVE"
+    displayStatus === "LIVE"
       ? "Đang giải mã LIVE — chưa phải CAMERA_LAB_PASS"
-      : statusLabel === "DEGRADED"
-        ? "Khung hỏng/HEVC — không dùng nhận diện. Bấm Kết nối lại."
-        : statusLabel === "MOCK"
-          ? "Cấu hình MOCK — không đủ bằng chứng vật lý"
-          : statusLabel === "RECONNECTING" || statusLabel === "CONNECTING"
-            ? "Đang kết nối / khôi phục luồng"
-            : "Chưa LIVE — bấm Kết nối lại sau khi kiểm tra RTSP";
+      : displayStatus === "STALE"
+        ? "Preview có thể đóng băng — decoder STALE (không tin LIVE chỉ vì <img> chưa lỗi)"
+        : displayStatus === "DEGRADED"
+          ? "Khung hỏng/HEVC — không dùng nhận diện. Bấm Kết nối lại."
+          : displayStatus === "MOCK"
+            ? "Cấu hình MOCK — không đủ bằng chứng vật lý"
+            : displayStatus === "RECONNECTING" || displayStatus === "CONNECTING"
+              ? "Đang kết nối / khôi phục luồng"
+              : "Chưa LIVE — bấm Kết nối lại sau khi kiểm tra RTSP";
 
   return (
     <div className="space-y-5">
@@ -579,16 +687,26 @@ export function CameraPage() {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span
               className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium ${
-                statusLabel === "LIVE"
+                displayStatus === "LIVE"
                   ? "border-brand/40 text-brand bg-brand/10"
-                  : statusLabel === "DEGRADED"
+                  : displayStatus === "DEGRADED" || displayStatus === "STALE"
                     ? "border-danger/40 text-danger bg-danger/10"
                     : "border-line text-muted bg-canvas"
               }`}
             >
-              {statusLabel}
+              {displayStatus}
             </span>
             <span className="text-xs text-muted">{statusHint}</span>
+            {liveHealth ? (
+              <span className="text-xs text-muted">
+                {liveHealth.native_width || "?"}×{liveHealth.native_height || "?"} · FPS{" "}
+                {liveHealth.source_fps_status === "UNKNOWN_INSUFFICIENT_SAMPLES"
+                  ? "UNKNOWN"
+                  : liveHealth.fps_estimate ?? "?"}{" "}
+                · age {liveHealth.frame_age_ms ?? "?"}ms · reconnect{" "}
+                {liveHealth.reconnect_count ?? 0}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -614,8 +732,15 @@ export function CameraPage() {
                   className="w-full h-full object-contain"
                   onError={() => setViewMode("snapshot")}
                 />
-                <div className="absolute left-2 top-2 text-xs bg-canvas/85 border border-brand/40 text-brand px-2 py-1 rounded">
-                  LIVE MJPEG · {statusLabel}
+                <div
+                  className={`absolute left-2 top-2 text-xs bg-canvas/85 border px-2 py-1 rounded ${
+                    displayStatus === "LIVE"
+                      ? "border-brand/40 text-brand"
+                      : "border-danger/40 text-danger"
+                  }`}
+                >
+                  MJPEG · {displayStatus}
+                  {mjpegWatch !== "OK" && mjpegWatch !== "UNKNOWN" ? ` · watchdog=${mjpegWatch}` : ""}
                 </div>
               </>
             ) : preview ? (
@@ -659,8 +784,12 @@ export function CameraPage() {
               type="button"
               disabled={busy}
               onClick={async () => {
-                await testRtsp();
-                await runDiag();
+                const hs = await testRtsp();
+                const lg = await runDiag();
+                // Explicit retain — handshake must survive diagnostics overwrite (HF1 P0)
+                const kept = retainBothDiagLanes(hs, lg);
+                if (kept.handshake) setHandshake(kept.handshake);
+                if (kept.legacy) setLegacyDiag(kept.legacy);
                 await loadQuality();
               }}
               className="rounded-md border border-line px-4 py-2 text-sm"
@@ -796,30 +925,57 @@ export function CameraPage() {
             <button type="button" onClick={saveRoi} className="rounded-md border border-line px-3 py-1.5 text-sm">
               Lưu vùng nhận diện
             </button>
-            {diag ? (
-              <ul className="text-xs space-y-1">
+            {handshake ? (
+              <ul className="text-xs space-y-1 border border-line rounded-md p-2">
+                <li className="font-medium text-ink">
+                  Lane RTSP handshake · đo {handshake.measured_at_utc}
+                </li>
                 <li className="text-brand">
-                  RTSP handshake: {diag.rtsp_handshake_status || diag.overall_status || "?"}
-                  {diag.handshake_only ? " (HANDSHAKE_ONLY — ≠ LIVE decoder)" : ""}
+                  {handshake.rtsp_handshake_status || handshake.overall_status || "?"}
+                  {handshake.handshake_only ? " (HANDSHAKE_ONLY)" : ""}
+                  {handshake.handshake_inconclusive ? " · UNKNOWN không ghi đè DB" : ""}
                 </li>
                 <li>
-                  LIVE decoder đang chạy:{" "}
-                  {diag.live_decoder_operational == null
+                  LIVE decoder operational (tại lúc probe):{" "}
+                  {handshake.live_decoder_operational == null
                     ? "không xác định"
-                    : String(diag.live_decoder_operational)}
+                    : String(handshake.live_decoder_operational)}
                 </li>
-                {diag.connection_status_persisted ? (
-                  <li>DB connection_status giữ: {diag.connection_status_persisted}</li>
+                {handshake.connection_status_persisted ? (
+                  <li>DB connection_status: {handshake.connection_status_persisted}</li>
                 ) : null}
-                {diag.stages?.map((s) => (
-                  <li key={s.name}>
+                {handshake.stages?.map((s) => (
+                  <li key={`hs-${s.name}`}>
                     {s.name}: {s.status} — {s.detail_vi}
-                    {s.name.toUpperCase().includes("ONVIF") ? " (UNVERIFIED nếu chưa đo)" : ""}
-                    {s.name.toUpperCase().includes("FIRST") ? " (probe ≠ decoded LIVE)" : ""}
                   </li>
                 ))}
-                {diag.note_vi ? <li className="text-muted">{diag.note_vi}</li> : null}
-                <li className="text-muted">CAMERA_LAB_PASS={String(diag.camera_lab_pass)} (chỉ ký HMAC)</li>
+              </ul>
+            ) : null}
+            {legacyDiag ? (
+              <ul className="text-xs space-y-1 border border-line rounded-md p-2 mt-2">
+                <li className="font-medium text-ink">
+                  Lane diagnostics legacy · đo {legacyDiag.measured_at_utc}
+                </li>
+                {legacyDiag.overall_status ? <li>Tổng: {legacyDiag.overall_status}</li> : null}
+                {legacyDiag.stages?.map((s) => (
+                  <li key={`lg-${s.name}`}>
+                    {s.name}: {s.status} — {s.detail_vi}
+                  </li>
+                ))}
+                <li className="text-muted">
+                  CAMERA_LAB_PASS={String(legacyDiag.camera_lab_pass)} (chỉ ký HMAC)
+                </li>
+              </ul>
+            ) : null}
+            {liveHealth ? (
+              <ul className="text-xs space-y-1 border border-line rounded-md p-2 mt-2">
+                <li className="font-medium text-ink">
+                  Lane LIVE decoder · đo {liveHealth.measured_at_utc}
+                </li>
+                <li>
+                  {liveHealth.decoder_status} · fps_status={liveHealth.source_fps_status || "?"} ·
+                  signed_camera_lab={String(!!liveHealth.signed_camera_lab)}
+                </li>
               </ul>
             ) : null}
             {quality ? (

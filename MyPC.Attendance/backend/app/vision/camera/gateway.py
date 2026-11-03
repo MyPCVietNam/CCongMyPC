@@ -447,6 +447,10 @@ class LiveRTSPGateway(CameraGateway):
             f"rtsp_transport;{transport}|stimeout;5000000"
         )
 
+    def _reset_session_fps_window(self) -> None:
+        """Drop cross-session recv timestamps so FPS is not diluted by reconnect gaps."""
+        self._recv_times.clear()
+
     def _open(self) -> bool:
         import cv2
 
@@ -454,6 +458,7 @@ class LiveRTSPGateway(CameraGateway):
         # Clear prior good frames — never leave a stale good buffer across reopen
         with self._lock:
             self._latest_good = None
+            self._reset_session_fps_window()
         t0 = time.monotonic()
         with _FFMPEG_OPEN_LOCK:
             prev = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
@@ -484,6 +489,8 @@ class LiveRTSPGateway(CameraGateway):
             self._release()
             self._status = DecoderStatus.OFFLINE
             self._last_error_class = "OPEN_FAILED"
+            with self._lock:
+                self._reset_session_fps_window()
             if self._fail_started_mono is None:
                 self._fail_started_mono = time.monotonic()
             return False
@@ -496,12 +503,16 @@ class LiveRTSPGateway(CameraGateway):
         self._last_error_class = ""
         return True
 
-    def _measured_fps(self) -> float:
+    def _measured_fps(self) -> float | None:
+        """Session-scoped FPS. None = UNKNOWN / insufficient samples (not 0.0 fabrication)."""
         if len(self._recv_times) < 2:
-            return 0.0
+            return None
         dt = self._recv_times[-1] - self._recv_times[0]
         if dt <= 0:
-            return 0.0
+            return None
+        # Guard: span longer than session window implies stale samples across a gap
+        if dt > 8.0 and len(self._recv_times) < 8:
+            return None
         return float((len(self._recv_times) - 1) / dt)
 
     def _sleep_backoff(self, backoff: float) -> float:
@@ -578,6 +589,7 @@ class LiveRTSPGateway(CameraGateway):
                     self._fail_started_mono = recv_mono
                 with self._lock:
                     self._latest_good = None
+                    self._reset_session_fps_window()
                 self._release()
                 if self._reconnects >= self._max_reconnect_attempts:
                     self._status = DecoderStatus.STOPPED
@@ -752,13 +764,20 @@ class LiveRTSPGateway(CameraGateway):
             read_ms = self._read_latency_ms
             transport = self._transport
             fp = self.stream_fingerprint
+            frame_age_ms = None
+            if last is not None:
+                frame_age_ms = round(
+                    (datetime.now(timezone.utc) - last).total_seconds() * 1000.0, 1
+                )
         ready = status == DecoderStatus.OK and bool(w and h) and frames_ok > 0
+        fps_display = round(fps, 3) if fps is not None else 0.0
+        fps_status = "MEASURED" if fps is not None else "UNKNOWN_INSUFFICIENT_SAMPLES"
         return GatewayHealth(
             provenance=StreamProvenance.CAMERA_LIVE,
             decoder_status=status,
             native_width=w,
             native_height=h,
-            fps_estimate=round(fps, 3),
+            fps_estimate=fps_display,
             dropped_frames=overwritten,
             decode_errors=decode_errors,
             stale_frames=stale_served,
@@ -766,10 +785,12 @@ class LiveRTSPGateway(CameraGateway):
             last_frame_at=last,
             detail_vi=(
                 f"camera_id={self.camera_id}; RTSP trạng thái={status.value}; "
-                f"DECODED_MEASURED={w}x{h}; FPS đo={fps:.2f}; frames_ok={frames_ok}; "
+                f"DECODED_MEASURED={w}x{h}; FPS={fps_status}"
+                f"{'' if fps is None else f'={fps:.2f}'}; frames_ok={frames_ok}; "
                 f"suspected_corrupt={corrupt}; transport={transport}; "
                 f"last_error={err or 'none'}; native_ffmpeg_errors=UNAVAILABLE. "
-                "CONFIG_SAVED ≠ LIVE verified. CAMERA_LAB_PASS=false."
+                "CONFIG_SAVED ≠ LIVE verified. CAMERA_LAB_PASS=false. "
+                "Dark/IR may trip image-stat corrupt heuristic — not native HEVC proof."
             ),
             camera_lab_pass=False,
             operationally_ready=ready,
@@ -786,6 +807,9 @@ class LiveRTSPGateway(CameraGateway):
                 "hevc_ref_events": hevc_ref,
                 "hevc_ref_events_meaning": "image_stat_heuristic_only",
                 "native_decoder_error_category": "UNAVAILABLE",
+                "source_fps_measured": fps,
+                "source_fps_status": fps_status,
+                "frame_age_ms": frame_age_ms,
                 "clock_trust": ClockTrust.SERVER_RECEIVE.value,
                 "diagnostic_uri": "REDACTED",
                 "operationally_ready": ready,

@@ -179,6 +179,59 @@ def create_evidence(
     return row
 
 
+def list_physical_evidence_for_camera(
+    db: Session,
+    *,
+    camera_id: int,
+    kind: str,
+    pins: dict[str, str] | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Redacted PHYSICAL_VERIFIED rows for a camera — no challenge/pixels/secrets."""
+    q = (
+        select(PilotEvidenceRecord)
+        .where(
+            PilotEvidenceRecord.camera_id == camera_id,
+            PilotEvidenceRecord.kind == kind,
+            PilotEvidenceRecord.evidence_class == EVIDENCE_PHYSICAL,
+            PilotEvidenceRecord.revoked.is_(False),
+        )
+        .order_by(PilotEvidenceRecord.id.desc())
+        .limit(max(1, min(int(limit), 50)))
+    )
+    out: list[dict[str, Any]] = []
+    for row in db.scalars(q).all():
+        pin_ok = True
+        pin_code = "PINS_NOT_CHECKED"
+        if pins is not None:
+            pin_ok = (
+                row.model_hash_pin == pins.get("model_hash_pin")
+                and row.gallery_revision_pin == pins.get("gallery_revision_pin")
+                and row.threshold_id_pin == pins.get("threshold_id_pin")
+            )
+            pin_code = "PINS_MATCH" if pin_ok else "EVIDENCE_PIN_MISMATCH"
+        out.append(
+            {
+                "evidence_id": row.evidence_id,
+                "kind": row.kind,
+                "evidence_class": row.evidence_class,
+                "camera_id": row.camera_id,
+                "lab_run_id": row.lab_run_id or "",
+                "config_revision": (row.config_revision or "")[:16],
+                "provenance": row.provenance,
+                "decoded_w": row.decoded_w,
+                "decoded_h": row.decoded_h,
+                "fps_measured": row.fps_measured,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "operator": row.operator or "",
+                "pin_status": pin_code,
+                "eligible_for_sign": bool(pin_ok and (row.lab_run_id or "").strip()),
+                # Never expose challenge / payload pixels
+            }
+        )
+    return out
+
+
 def require_physical_evidence(
     db: Session,
     *,
