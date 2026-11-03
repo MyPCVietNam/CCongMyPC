@@ -59,9 +59,10 @@ def git_tracked_under_mypc() -> list[Path]:
         low = posix.lower()
         if any(frag.lower() in low for frag in DENY_NAME_FRAGMENTS):
             raise SystemExit(f"REFUSING tracked sensitive path: {rel}")
-        # Skip previously contaminated handoff FULL/CHANGED binary zips
-        if low.endswith(".zip") and "/audit/handoffs/" in low:
-            # Allow only non-source verifier scripts; skip binary handoff archives
+        # Never nest prior release/handoff archives inside new archives
+        if "/release/" in low or low.endswith("/release"):
+            continue
+        if low.endswith(".zip"):
             continue
         if p.suffix in {".pyc", ".onnx"}:
             continue
