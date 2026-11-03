@@ -29,8 +29,9 @@ CONTENT_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("AWS_ACCESS_KEY", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     (
         "GENERIC_PASSWORD_ASSIGN",
+        # Single-line only — avoid false positives on getpass("...password...: ")
         re.compile(
-            r"(?i)(password|passwd|pwd|secret_key|api_key|token)\s*[:=]\s*['\"][^'\"]{12,}['\"]"
+            r"(?i)(password|passwd|pwd|secret_key|api_key|token)\s*[:=]\s*['\"][^'\"\n]{12,}['\"]"
         ),
     ),
     ("SQLITE_HEADER", re.compile(rb"^SQLite format 3\x00")),

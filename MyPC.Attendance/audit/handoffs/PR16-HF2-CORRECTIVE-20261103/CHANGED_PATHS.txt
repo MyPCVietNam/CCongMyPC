@@ -19,8 +19,6 @@ MyPC.Attendance/audit/handoffs/PR16-HF2-CORRECTIVE-20261103/TEST_REPORT.txt
 MyPC.Attendance/audit/handoffs/PR16-HF2-CORRECTIVE-20261103/VERSIONS.txt
 MyPC.Attendance/backend/app/api/cameras.py
 MyPC.Attendance/backend/app/services/evidence_store.py
-MyPC.Attendance/backend/app/static/assets/index-BKGLRzjp.css
-MyPC.Attendance/backend/app/static/assets/index-C22QF5rG.js
 MyPC.Attendance/backend/app/static/assets/index-CGXZXDtN.css
 MyPC.Attendance/backend/app/static/assets/index-tG7nA7yW.js
 MyPC.Attendance/backend/app/static/index.html
