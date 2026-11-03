@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -177,6 +177,7 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
         headers=headers,
         json={"name": "B", "host": "192.168.1.42", "mock_mode": False, "enabled": True},
     ).json()
+    # cam_a stays enabled for CAMERA_LAB gate
 
     pins, _ = _pins(app)
     stub = _LiveStub(str(cam_a["id"]))
@@ -188,7 +189,7 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
 
     factory = app.state.container.session_factory
     with factory() as db:
-        from datetime import datetime, timezone
+        from datetime import datetime, timedelta, timezone
 
         from app.models.entities import CameraDevice, CameraLabRun
         from app.services.evidence_store import EVIDENCE_PHYSICAL, create_evidence
@@ -196,6 +197,8 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
         cam_row = db.get(CameraDevice, cam_a["id"])
         assert cam_row is not None
         cam_row.config_revision = bound.config_revision
+        cam_row.enabled = True
+        cam_row.mock_mode = False
         db.add(
             CameraLabRun(
                 run_id="test-lab-run-pr6-bind",
@@ -212,6 +215,7 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
                 decoded_w=160,
                 decoded_h=120,
                 started_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=7),
             )
         )
         ev = create_evidence(

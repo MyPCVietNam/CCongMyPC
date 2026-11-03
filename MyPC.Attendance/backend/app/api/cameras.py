@@ -492,7 +492,6 @@ def configure_live_gateway(
     register_runtime_compensate(db, _undo_live_bind)
     row.mock_mode = False
     from app.models.entities import CameraLiveBinding
-    from app.services.pilot_approval import revoke_approvals
 
     binding = db.scalar(select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_db_id))
     now = SystemClock().now_utc()
@@ -502,18 +501,12 @@ def configure_live_gateway(
     else:
         # Profile/config change invalidates prior signed approvals + lab runs
         if binding.config_revision and binding.config_revision != bound.config_revision:
-            revoke_approvals(
-                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
-            )
-            from app.services.lab_run_service import revoke_lab_runs_for_camera
-            from app.services.evidence_store import revoke_physical_evidence_for_camera
+            from app.services.camera_trust_lifecycle import revoke_camera_physical_trust
 
-            revoke_lab_runs_for_camera(
-                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
-            )
-            # Keep audit evidence rows; mark non-signable so stale PHYSICAL cannot re-authorize HMAC
-            revoke_physical_evidence_for_camera(
-                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
+            revoke_camera_physical_trust(
+                db,
+                camera_id=camera_db_id,
+                reason="CAMERA_CONFIG_REVISION_CHANGED",
             )
     binding.scheme = endpoint.scheme
     binding.host = pinned_host  # persist pinned IP, not unresolved hostname
@@ -731,13 +724,44 @@ def update_camera(
             status_code=409,
             detail="Camera đã lưu trữ — hãy khôi phục trước khi sửa.",
         )
+
+    # Validate proposed values before mutation; classify material vs harmless
     try:
-        if body.host is not None:
-            row.host = validate_camera_host(body.host, allow_empty=True)
-        if body.rtsp_url_override is not None:
-            row.rtsp_url_override = validate_rtsp_url(body.rtsp_url_override, allow_empty=True)
+        proposed_host = (
+            validate_camera_host(body.host, allow_empty=True) if body.host is not None else None
+        )
+        proposed_rtsp = (
+            validate_rtsp_url(body.rtsp_url_override, allow_empty=True)
+            if body.rtsp_url_override is not None
+            else None
+        )
     except ValidationErrorVi as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    action = (body.credential_action or "keep").strip().lower()
+    if action not in {"keep", "replace", "remove"}:
+        action = "keep"
+
+    from app.services.camera_trust_lifecycle import (
+        apply_material_trust_invalidation,
+        classify_camera_update,
+    )
+
+    plan = classify_camera_update(
+        row=row,
+        proposed_host=proposed_host,
+        proposed_rtsp=proposed_rtsp,
+        proposed_model=body.model,
+        proposed_firmware=body.firmware,
+        proposed_mock=body.mock_mode,
+        proposed_enabled=body.enabled,
+        credential_action=action,
+    )
+
+    if proposed_host is not None:
+        row.host = proposed_host
+    if proposed_rtsp is not None:
+        row.rtsp_url_override = proposed_rtsp
     if body.name is not None:
         row.name = body.name
     if body.model is not None:
@@ -750,11 +774,10 @@ def update_camera(
         row.enabled = body.enabled
         if not body.enabled and state.camera_registry is not None:
             state.camera_registry.unbind(camera_id)
-            row.connection_status = "STOPPED"
+            # Temporary stop — do not revoke PHYSICAL; operational gate fails via CAMERA_DISABLED
+            if not plan.is_material:
+                row.connection_status = "STOPPED"
 
-    action = (body.credential_action or "keep").strip().lower()
-    if action not in {"keep", "replace", "remove"}:
-        action = "keep"
     try:
         cred = apply_camera_credentials(
             state.secrets,
@@ -770,19 +793,30 @@ def update_camera(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     row.secret_ref = cred.secret_ref
     row.username_hint = cred.username_hint
-    row.connection_status = row.connection_status or "CONFIG_SAVED"
+
+    trust_meta = apply_material_trust_invalidation(
+        db, row=row, state=state, plan=plan, actor=user.username
+    )
+    if not plan.is_material:
+        row.connection_status = row.connection_status or "CONFIG_SAVED"
+
     db.add(
         AuditLog(
             actor=user.username,
             action="CAMERA_UPDATE",
             entity_type="camera",
             entity_id=str(row.id),
-            reason=f"credential_action={cred.action}; secrets_redacted=true",
+            reason=(
+                f"credential_action={cred.action}; material={plan.is_material}; "
+                f"reasons={','.join(plan.reasons) or 'none'}; secrets_redacted=true"
+            ),
             timestamp=utc_now(),
         )
     )
     db.flush()
-    return _cam_out(row, state, detail=True)
+    out = _cam_out(row, state, detail=True)
+    out["trust_lifecycle"] = trust_meta
+    return out
 
 
 @router.post("/{camera_id}/archive", dependencies=[Depends(require_csrf)])

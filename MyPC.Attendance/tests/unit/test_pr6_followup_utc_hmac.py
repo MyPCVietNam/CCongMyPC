@@ -53,6 +53,7 @@ def _seed_physical_backing(
             name=f"Cam{camera_id}",
             host="192.0.2.50",
             mock_mode=False,
+            enabled=True,
             config_revision=rev,
             created_at=datetime.now(timezone.utc),
         )
@@ -76,6 +77,7 @@ def _seed_physical_backing(
                 gallery_revision_pin=pins["gallery_revision_pin"],
                 threshold_id_pin=pins["threshold_id_pin"],
                 started_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=7),
             )
         )
     if (

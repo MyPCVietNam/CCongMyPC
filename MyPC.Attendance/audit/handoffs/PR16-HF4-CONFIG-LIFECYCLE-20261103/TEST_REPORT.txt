@@ -1,0 +1,30 @@
+=== baseline FAIL (HF3) ===
+E   assert not True
+E    +  where True = eligibility(<sqlalchemy.orm.session.Session object at 0x7ff658c7d670>, 1)
+___________ test_empty_run_and_evidence_provenance_must_fail_closed ____________
+MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py:132: in test_empty_run_and_evidence_provenance_must_fail_closed
+    assert not eligibility(db, cid), "Missing CAMERA_LIVE provenance was accepted"
+E   AssertionError: Missing CAMERA_LIVE provenance was accepted
+E   assert not True
+E    +  where True = eligibility(<sqlalchemy.orm.session.Session object at 0x7ff683911670>, 1)
+____________ test_null_lab_run_expiry_must_require_explicit_policy _____________
+MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py:140: in test_null_lab_run_expiry_must_require_explicit_policy
+    assert not eligibility(db, cid), "NULL lab run expiration was accepted without explicit policy"
+E   AssertionError: NULL lab run expiration was accepted without explicit policy
+E   assert not True
+E    +  where True = eligibility(<sqlalchemy.orm.session.Session object at 0x7ff658e4aa20>, 1)
+=========================== short test summary info ============================
+FAILED MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py::test_patch_changed_rtsp_host_revokes_or_invalidates_old_hmac
+FAILED MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py::test_patch_mock_or_disable_cannot_leave_operational_gate_open
+FAILED MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py::test_empty_run_and_evidence_provenance_must_fail_closed
+FAILED MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py::test_null_lab_run_expiry_must_require_explicit_policy
+============================== 4 failed in 0.15s ===============================
+
+=== after fix: HF4 gate invalidation ===
+4 passed (test_hf4_gate_invalidation.py)
+=== full pytest ===
+........................................................................ [ 55%]
+........................................................................ [ 74%]
+........................................................................ [ 92%]
+............................                                             [100%]
+388 passed in 75.61s (0:01:15)

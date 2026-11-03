@@ -31,6 +31,7 @@ def test_revoked_previous_revision_run_cannot_authorize_hmac():
             name="Synthetic audit camera",
             host="192.0.2.10",
             mock_mode=False,
+            enabled=True,
             config_revision="new-config",
             created_at=utc_now(),
         )
@@ -110,6 +111,7 @@ def test_nonexistent_lab_run_id_not_eligible():
             name="MissingRunCam",
             host="192.0.2.11",
             mock_mode=False,
+            enabled=True,
             config_revision="cfg-now",
             created_at=utc_now(),
         )

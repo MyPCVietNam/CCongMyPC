@@ -200,24 +200,33 @@ def create_evidence(
     return row
 
 
-def _current_camera_config_revision(db: Session, camera_id: int) -> tuple[str, str]:
-    """Return (revision, error_code). Prefer CameraDevice; binding must agree if present."""
+def _current_camera_config_revision(db: Session, camera_id: int) -> tuple[str, str, CameraDevice | None]:
+    """Return (revision, error_code, camera). Prefer CameraDevice; binding must agree if present."""
     cam = db.get(CameraDevice, camera_id)
     if cam is None:
-        return "", "CAMERA_NOT_FOUND"
+        return "", "CAMERA_NOT_FOUND", None
     if bool(getattr(cam, "archived", False)):
-        return "", "CAMERA_ARCHIVED"
+        return "", "CAMERA_ARCHIVED", cam
+    if bool(getattr(cam, "mock_mode", False)):
+        return "", "CAMERA_MOCK", cam
+    if not bool(getattr(cam, "enabled", True)):
+        return "", "CAMERA_DISABLED", cam
     rev = (cam.config_revision or "").strip()
     if not rev:
-        return "", "CONFIG_REVISION_MISSING"
+        return "", "CONFIG_REVISION_MISSING", cam
     binding = db.scalar(
         select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_id)
     )
     if binding is not None:
         brev = (binding.config_revision or "").strip()
         if brev and brev != rev:
-            return "", "CONFIG_REVISION_BINDING_MISMATCH"
-    return rev, ""
+            return "", "CONFIG_REVISION_BINDING_MISMATCH", cam
+        from app.services.camera_trust_lifecycle import binding_source_mismatch
+
+        mismatch = binding_source_mismatch(cam, binding)
+        if mismatch:
+            return "", mismatch, cam
+    return rev, "", cam
 
 
 def evaluate_physical_sign_eligibility(
@@ -232,6 +241,12 @@ def evaluate_physical_sign_eligibility(
     """Single authoritative policy for UI listing and POST /quality/approvals.
 
     Fail closed. Never truncates config_revision for comparison.
+
+    Lab-run ``expires_at`` policy (PR16-HF4 / P1-C):
+    - NULL expires_at ⇒ fail closed (LAB_RUN_EXPIRY_MISSING) — FSM must have set it.
+    - Challenge TTL (expires_at <= now) applies to in-progress runs only.
+      Once state is PHYSICAL_VERIFIED, challenge TTL no longer invalidates eligibility;
+      trust then follows evidence revoke, config/source identity, pins, and HMAC approval TTL.
     Performance: O(1) keyed lookups by evidence_id / lab run_id — safe for gate checks,
     not intended for per-frame biometric hot path.
     """
@@ -274,8 +289,16 @@ def evaluate_physical_sign_eligibility(
             f"Hạng {row.evidence_class} không đủ — cần PHYSICAL_VERIFIED.",
             evidence_id=eid,
         )
+    # Fail closed: empty/invalid provenance is never trusted (legacy → BLOCKED, not default-trust)
+    if (row.provenance or "").strip() != "CAMERA_LIVE":
+        return SignEligibility(
+            False,
+            "EVIDENCE_PROVENANCE_INVALID",
+            "Evidence provenance thiếu/không phải CAMERA_LIVE.",
+            evidence_id=eid,
+        )
 
-    current_rev, rev_err = _current_camera_config_revision(db, camera_id)
+    current_rev, rev_err, _cam = _current_camera_config_revision(db, camera_id)
     if rev_err:
         return SignEligibility(False, rev_err, "Camera/config không đủ điều kiện ký.", evidence_id=eid)
     evid_rev = (row.config_revision or "").strip()
@@ -351,16 +374,34 @@ def evaluate_physical_sign_eligibility(
             lab_run_id=lab_id,
             config_revision=run_rev,
         )
-    if run.expires_at is not None:
-        exp = to_utc_aware(run.expires_at)
-        if exp is not None and exp <= now:
-            return SignEligibility(
-                False,
-                "LAB_RUN_EXPIRED",
-                "Lab run đã hết hạn.",
-                evidence_id=eid,
-                lab_run_id=lab_id,
-            )
+    # Provenance required on lab run for CAMERA_LAB and FACE_PILOT
+    if (run.provenance or "").strip() != "CAMERA_LIVE":
+        return SignEligibility(
+            False,
+            "LAB_RUN_PROVENANCE_INVALID",
+            "Lab run provenance thiếu/không phải CAMERA_LIVE.",
+            evidence_id=eid,
+            lab_run_id=lab_id,
+        )
+    if (row.provenance or "").strip() != (run.provenance or "").strip():
+        return SignEligibility(
+            False,
+            "PROVENANCE_MISMATCH",
+            "Evidence provenance không khớp lab run.",
+            evidence_id=eid,
+            lab_run_id=lab_id,
+        )
+    # Expiry: NULL always fail-closed. Challenge TTL only for non-PHYSICAL (unreachable here).
+    # PHYSICAL_VERIFIED: challenge TTL does not shorten HMAC approval validity (P1-C).
+    if run.expires_at is None:
+        return SignEligibility(
+            False,
+            "LAB_RUN_EXPIRY_MISSING",
+            "Lab run thiếu expires_at — không tin mặc định.",
+            evidence_id=eid,
+            lab_run_id=lab_id,
+        )
+    _ = now  # clock retained for future physical-trust windows / restart tests
     # When lab run carries pins, they must match server pins too
     if run.model_hash_pin or run.gallery_revision_pin or run.threshold_id_pin:
         if (
@@ -375,14 +416,6 @@ def evaluate_physical_sign_eligibility(
                 evidence_id=eid,
                 lab_run_id=lab_id,
             )
-    if (run.provenance or "") and run.provenance != "CAMERA_LIVE" and kind == KIND_CAMERA_LAB:
-        return SignEligibility(
-            False,
-            "LAB_RUN_PROVENANCE_INVALID",
-            "Lab run provenance không phải CAMERA_LIVE.",
-            evidence_id=eid,
-            lab_run_id=lab_id,
-        )
 
     return SignEligibility(
         True,

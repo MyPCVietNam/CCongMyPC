@@ -1,0 +1,14 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/services/camera_trust_lifecycle.py
+MyPC.Attendance/backend/app/services/evidence_store.py
+MyPC.Attendance/backend/app/services/pilot_approval.py
+MyPC.Attendance/frontend/src/pages/WindowsLabPage.tsx
+MyPC.Attendance/tests/integration/test_pr16_hf3_hmac_trust_chain.py
+MyPC.Attendance/tests/integration/test_pr16_hf4_config_lifecycle.py
+MyPC.Attendance/tests/integration/test_pr6_followup_gates.py
+MyPC.Attendance/tests/integration/test_pr7_evidence_gates.py
+MyPC.Attendance/tests/unit/test_hf4_gate_invalidation.py
+MyPC.Attendance/tests/unit/test_pr16_hf2_evidence_pins_eligibility.py
+MyPC.Attendance/tests/unit/test_pr6_followup_utc_hmac.py
+MyPC.Attendance/tests/unit/test_reject_stale_physical_evidence.py
+MyPC.Attendance/tools/package_pr16_hf4_complete_audit.py
