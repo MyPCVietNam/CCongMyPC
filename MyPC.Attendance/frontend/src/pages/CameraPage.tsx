@@ -103,7 +103,8 @@ export function CameraPage() {
   const liveHealthGen = useRef(0);
   const hiddenRef = useRef(false);
   const inFlight = useRef(false);
-  const [clientMjpegActivityMs, setClientMjpegActivityMs] = useState<number | null>(null);
+  /** Reserved for a future verified multipart frame heartbeat — never fed from img onLoad. */
+  const clientMjpegActivityMs: number | null = null;
 
   async function reload(preferId?: number | null) {
     const qs = new URLSearchParams();
@@ -145,7 +146,6 @@ export function CameraPage() {
     setHandshake(null);
     setLegacyDiag(null);
     setLiveHealth(null);
-    setClientMjpegActivityMs(null);
     setQuality(null);
     setAnalyzeMsg("");
     try {
@@ -609,9 +609,11 @@ export function CameraPage() {
     liveGen: liveHealthGen.current,
   });
   const serverWatch = serverDecoderWatchdogState(liveHealth);
+  // img onLoad ≠ multipart frame heartbeat — keep browser lane UNVERIFIED (PR16-HF3)
   const browserTransport = browserMjpegTransportState({
     serverWatchdog: serverWatch,
     lastClientActivityMs: clientMjpegActivityMs,
+    multipartHeartbeatVerified: false,
   });
   const displayStatus =
     viewMode === "mjpeg" &&
@@ -751,7 +753,11 @@ export function CameraPage() {
                   alt="LIVE MJPEG"
                   src={mjpegSrc}
                   className="w-full h-full object-contain"
-                  onLoad={() => setClientMjpegActivityMs(Date.now())}
+                  onLoad={() => {
+                    // Displayable once ≠ per-frame MJPEG receipt. Do not advance
+                    // browser transport freshness from onLoad (stays UNVERIFIED).
+                    void clientMjpegActivityMs;
+                  }}
                   onError={() => setViewMode("snapshot")}
                 />
                 <div

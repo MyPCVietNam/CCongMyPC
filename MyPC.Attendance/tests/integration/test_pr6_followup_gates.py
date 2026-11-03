@@ -188,8 +188,32 @@ def test_real_camera_bound_rejects_cross_camera_and_client_image(app_client):
 
     factory = app.state.container.session_factory
     with factory() as db:
+        from datetime import datetime, timezone
+
+        from app.models.entities import CameraDevice, CameraLabRun
         from app.services.evidence_store import EVIDENCE_PHYSICAL, create_evidence
 
+        cam_row = db.get(CameraDevice, cam_a["id"])
+        assert cam_row is not None
+        cam_row.config_revision = bound.config_revision
+        db.add(
+            CameraLabRun(
+                run_id="test-lab-run-pr6-bind",
+                nonce="nonce-pr6-bind",
+                kind="CAMERA_LAB",
+                camera_id=cam_a["id"],
+                state="PHYSICAL_VERIFIED",
+                revoked=False,
+                config_revision=bound.config_revision,
+                provenance="CAMERA_LIVE",
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                decoded_w=160,
+                decoded_h=120,
+                started_at=datetime.now(timezone.utc),
+            )
+        )
         ev = create_evidence(
             db,
             kind="CAMERA_LAB",

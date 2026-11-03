@@ -8,6 +8,7 @@ import numpy as np
 from sqlalchemy import select
 
 from app.models.biometric import EnrollmentSession
+from app.models.entities import CameraDevice, CameraLabRun
 from app.services.evidence_store import EVIDENCE_PHYSICAL, create_evidence
 from app.services.pilot_approval import issue_approval
 from app.services.server_pins import derive_live_pins
@@ -219,6 +220,29 @@ def test_config_revision_invalidation_persists(app_client):
     with factory() as db:
         pins, _ = derive_live_pins(
             db, pipeline=app.state.container.face_pipeline, store=app.state.container.template_store
+        )
+        cam_row = db.get(CameraDevice, cam["id"])
+        assert cam_row is not None
+        cam_row.config_revision = bound.config_revision
+        db.add(
+            CameraLabRun(
+                run_id="test-lab-run-pr7-inv",
+                nonce="nonce-pr7-inv",
+                kind="CAMERA_LAB",
+                camera_id=cam["id"],
+                state="PHYSICAL_VERIFIED",
+                revoked=False,
+                config_revision=bound.config_revision,
+                provenance="CAMERA_LIVE",
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                decoded_w=160,
+                decoded_h=120,
+                started_at=datetime.now(timezone.utc),
+                owner_reviewed_by="admin",
+                owner_reviewed_at=datetime.now(timezone.utc),
+            )
         )
         ev = create_evidence(
             db,

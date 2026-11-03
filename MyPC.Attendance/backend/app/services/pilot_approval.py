@@ -185,6 +185,12 @@ def verify_active_approval(
     """
     Fail closed: missing pins/camera when required → DENIED (not skip).
     HMAC verified against stored payload_json; row fields must match payload.
+
+    For CAMERA_LAB / FACE_PILOT: after HMAC+expiry+pin checks, re-validate backing
+    PHYSICAL evidence via evaluate_physical_sign_eligibility (live relational gate).
+    Invalid/revoked/stale evidence or lab run ⇒ approval does not authorize the gate.
+    AUTO_VALIDATED is unchanged (AB-backed). Cost: O(1) keyed SQLite lookups only for
+    cryptographically valid candidate rows — not a per-frame biometric hot path.
     """
     now = to_utc_aware(clock) or utc_now()
     if require_camera_id and camera_id is None:
@@ -209,6 +215,7 @@ def verify_active_approval(
     if camera_id is not None:
         q = q.where(PilotApprovalRecord.camera_id == camera_id)
     rows = list(db.scalars(q.order_by(PilotApprovalRecord.id.desc())).all())
+    need_evidence_gate = kind in {"CAMERA_LAB", "FACE_PILOT"}
     for row in rows:
         payload = row.payload_json or ""
         if not payload or not verify_approval_signature(secret_key, payload, row.signature or ""):
@@ -232,13 +239,34 @@ def verify_active_approval(
             continue
         if camera_id is not None and data.get("camera_id") != camera_id:
             continue
+        if need_evidence_gate:
+            eid = (data.get("evidence_id") or getattr(row, "evidence_id", None) or "").strip()
+            if not eid or camera_id is None:
+                continue
+            from app.services.evidence_store import evaluate_physical_sign_eligibility
+
+            elig = evaluate_physical_sign_eligibility(
+                db,
+                kind=kind,
+                camera_id=int(camera_id),
+                evidence_id=eid,
+                pins={
+                    "model_hash_pin": model_hash_pin or "",
+                    "gallery_revision_pin": gallery_revision_pin or "",
+                    "threshold_id_pin": threshold_id_pin or "",
+                },
+                clock=now,
+            )
+            if not elig.eligible:
+                # Live relational invalidation — do not authorize; keep signature row intact
+                continue
         return ApprovalView(
             approval_id=row.approval_id,
             kind=row.kind,
             camera_id=row.camera_id,
             expires_at=exp,
             valid=True,
-            reason_vi="Phê duyệt server còn hiệu lực (HMAC + UTC Zulu + khớp hàng DB).",
+            reason_vi="Phê duyệt server còn hiệu lực (HMAC + UTC Zulu + khớp hàng DB + evidence).",
             code="OK",
         )
     return None

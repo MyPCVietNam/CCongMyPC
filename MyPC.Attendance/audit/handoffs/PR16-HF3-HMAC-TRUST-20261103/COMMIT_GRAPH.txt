@@ -1,0 +1,10 @@
+HF2 (PR #18) custody graph (abbreviated):
+  279de1c  HF2 scanner single-line password rule (early PACKAGE_META freeze id in some downloads)
+  7d51e13  HF2 COMPLETE-AUDIT ZIP freeze (PR-described freeze)
+  ac513d3  HF2 packaging freeze sidecar pin → 7d51e13
+  1fa4a1c  HF2 REMOTE_PR_TIP after push  <<< HF3 BASELINE / PR #18 HEAD
+
+HF3:
+  FEATURE_COMMIT   code corrective (HMAC trust + UI fence + MJPEG honesty)
+  PACKAGING_FREEZE COMPLETE A/B/C/D ZIP bytes
+  REMOTE_PR_TIP    after push (may advance past freeze via sidecar-only commits)

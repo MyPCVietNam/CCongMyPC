@@ -506,8 +506,13 @@ def configure_live_gateway(
                 db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
             )
             from app.services.lab_run_service import revoke_lab_runs_for_camera
+            from app.services.evidence_store import revoke_physical_evidence_for_camera
 
             revoke_lab_runs_for_camera(
+                db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
+            )
+            # Keep audit evidence rows; mark non-signable so stale PHYSICAL cannot re-authorize HMAC
+            revoke_physical_evidence_for_camera(
                 db, camera_id=camera_db_id, reason="CAMERA_CONFIG_REVISION_CHANGED"
             )
     binding.scheme = endpoint.scheme
