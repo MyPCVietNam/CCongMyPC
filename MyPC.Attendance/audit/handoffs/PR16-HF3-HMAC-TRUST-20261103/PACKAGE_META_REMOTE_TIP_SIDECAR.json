@@ -1,0 +1,8 @@
+{
+  "schema": "mypc.package-meta.remote-tip-sidecar.v1",
+  "remote_pr_tip": "997d6c4f779274c3417ffadbd01d13fb4777de38",
+  "packaging_freeze_commit_sidecar": "854deeb9902a31448dd708e5e8a28530db01f270",
+  "feature_commit": "619f03372bab83dd935580b7590355de0c7e332d",
+  "baseline": "1fa4a1c47196089a61da9ad91d524e7e2e56b80f",
+  "note": "Sidecar only \u2014 does not rewrite COMPLETE ZIP bytes or inner PACKAGE_META.json"
+}
