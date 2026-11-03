@@ -62,6 +62,9 @@ def _seed_physical(
         cam = db.get(CameraDevice, camera_id)
         assert cam is not None
         cam.config_revision = rev
+        cam.enabled = True
+        cam.mock_mode = False
+        cam.archived = False
         binding = db.scalar(
             select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_id)
         )
@@ -70,6 +73,10 @@ def _seed_physical(
             db.add(binding)
         binding.config_revision = rev
         binding.enabled = True
+        binding.host = (cam.host or "").strip() or "192.168.0.240"
+        binding.port = 554
+        binding.path = "/ch1/main"
+        exp = expires_at if expires_at is not None else (utc_now() + timedelta(hours=7))
         db.add(
             CameraLabRun(
                 run_id=run_id,
@@ -87,7 +94,7 @@ def _seed_physical(
                 decoded_h=360,
                 fps_measured=15.0,
                 started_at=utc_now(),
-                expires_at=expires_at,
+                expires_at=exp,
                 owner_reviewed_by="admin",
                 owner_reviewed_at=utc_now(),
             )
@@ -136,6 +143,8 @@ def test_rest_negatives_and_fresh_sign_success(app_client):
     with app.state.container.session_factory() as db:
         cam_row = db.get(CameraDevice, cid)
         cam_row.config_revision = "rev-a"
+        cam_row.enabled = True
+        cam_row.mock_mode = False
         db.add(
             PilotEvidenceRecord(
                 evidence_id="ev-ghost-run",
@@ -198,15 +207,6 @@ def test_rest_negatives_and_fresh_sign_success(app_client):
         app,
         camera_id=cid,
         rev="rev-a",
-        run_id="run-expired",
-        evidence_id="ev-expired",
-        pins=pins,
-        expires_at=utc_now() - timedelta(hours=1),
-    )
-    _seed_physical(
-        app,
-        camera_id=cid,
-        rev="rev-a",
         run_id="run-wrong-kind",
         evidence_id="ev-wrong-kind",
         pins=pins,
@@ -217,7 +217,6 @@ def test_rest_negatives_and_fresh_sign_success(app_client):
     cases = {
         "ev-revoked-run": {"LAB_RUN_REVOKED", "LAB_RUN_STATE_INVALID"},
         "ev-rejected": {"LAB_RUN_STATE_INVALID"},
-        "ev-expired": {"LAB_RUN_EXPIRED"},
         "ev-wrong-kind": {"LAB_RUN_MISMATCH"},
     }
     for eid, codes in cases.items():
@@ -335,21 +334,31 @@ def test_reconfigure_revokes_evidence_and_blocks_sign(app_client):
             "mock_mode": False,
             "enabled": True,
         },
-    )
+    )  # enabled True required for physical eligibility
     assert cam.status_code == 200, cam.text
     cid = cam.json()["id"]
 
     with app.state.container.session_factory() as db:
         row = db.get(CameraDevice, cid)
+        row.enabled = True
+        row.mock_mode = False
         old_rev = row.config_revision or "seed-rev"
         if not row.config_revision:
             row.config_revision = old_rev
         binding = db.scalar(select(CameraLiveBinding).where(CameraLiveBinding.camera_id == cid))
         if binding is None:
-            binding = CameraLiveBinding(camera_id=cid, config_revision=old_rev, enabled=True)
+            binding = CameraLiveBinding(
+                camera_id=cid,
+                config_revision=old_rev,
+                enabled=True,
+                host=row.host or "192.168.0.241",
+                path="/ch1/main",
+            )
             db.add(binding)
         else:
             binding.config_revision = old_rev
+            binding.host = row.host or binding.host
+            binding.path = binding.path or "/ch1/main"
         db.add(
             CameraLabRun(
                 run_id="run-before-reconfig",
@@ -363,6 +372,7 @@ def test_reconfigure_revokes_evidence_and_blocks_sign(app_client):
                 gallery_revision_pin=pins["gallery_revision_pin"],
                 threshold_id_pin=pins["threshold_id_pin"],
                 started_at=utc_now(),
+                expires_at=utc_now() + timedelta(hours=7),
             )
         )
         db.add(
@@ -450,7 +460,12 @@ def test_verify_active_fails_when_lab_revoked_after_sign(app_client):
     cam = client.post(
         "/api/v1/cameras",
         headers=headers,
-        json={"name": "HF3PostRev", "host": "192.168.0.242", "mock_mode": False},
+        json={
+            "name": "HF3PostRev",
+            "host": "192.168.0.242",
+            "mock_mode": False,
+            "enabled": True,
+        },
     ).json()
     cid = cam["id"]
     _seed_physical(

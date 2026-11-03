@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from sqlalchemy import select
@@ -224,6 +224,8 @@ def test_config_revision_invalidation_persists(app_client):
         cam_row = db.get(CameraDevice, cam["id"])
         assert cam_row is not None
         cam_row.config_revision = bound.config_revision
+        cam_row.enabled = True
+        cam_row.mock_mode = False
         db.add(
             CameraLabRun(
                 run_id="test-lab-run-pr7-inv",
@@ -240,6 +242,7 @@ def test_config_revision_invalidation_persists(app_client):
                 decoded_w=160,
                 decoded_h=120,
                 started_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=7),
                 owner_reviewed_by="admin",
                 owner_reviewed_at=datetime.now(timezone.utc),
             )

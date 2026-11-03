@@ -189,8 +189,9 @@ def verify_active_approval(
     For CAMERA_LAB / FACE_PILOT: after HMAC+expiry+pin checks, re-validate backing
     PHYSICAL evidence via evaluate_physical_sign_eligibility (live relational gate).
     Invalid/revoked/stale evidence or lab run ⇒ approval does not authorize the gate.
-    AUTO_VALIDATED is unchanged (AB-backed). Cost: O(1) keyed SQLite lookups only for
-    cryptographically valid candidate rows — not a per-frame biometric hot path.
+    AUTO_VALIDATED (PR16-HF4): after HMAC checks, require both CAMERA_LAB and FACE_PILOT
+    still verify_active under the same pins/camera (dependency lifecycle). Cost: O(1)
+    keyed SQLite lookups per candidate — not a per-frame biometric hot path.
     """
     now = to_utc_aware(clock) or utc_now()
     if require_camera_id and camera_id is None:
@@ -216,6 +217,7 @@ def verify_active_approval(
         q = q.where(PilotApprovalRecord.camera_id == camera_id)
     rows = list(db.scalars(q.order_by(PilotApprovalRecord.id.desc())).all())
     need_evidence_gate = kind in {"CAMERA_LAB", "FACE_PILOT"}
+    need_pilot_deps = kind == "AUTO_VALIDATED"
     for row in rows:
         payload = row.payload_json or ""
         if not payload or not verify_approval_signature(secret_key, payload, row.signature or ""):
@@ -259,6 +261,28 @@ def verify_active_approval(
             )
             if not elig.eligible:
                 # Live relational invalidation — do not authorize; keep signature row intact
+                continue
+        if need_pilot_deps:
+            if camera_id is None:
+                continue
+            deps_ok = True
+            for dep_kind in ("CAMERA_LAB", "FACE_PILOT"):
+                dep = verify_active_approval(
+                    db,
+                    secret_key=secret_key,
+                    kind=dep_kind,
+                    camera_id=camera_id,
+                    model_hash_pin=model_hash_pin,
+                    gallery_revision_pin=gallery_revision_pin,
+                    threshold_id_pin=threshold_id_pin,
+                    require_pins=True,
+                    require_camera_id=True,
+                    clock=now,
+                )
+                if dep is None or not dep.valid:
+                    deps_ok = False
+                    break
+            if not deps_ok:
                 continue
         return ApprovalView(
             approval_id=row.approval_id,

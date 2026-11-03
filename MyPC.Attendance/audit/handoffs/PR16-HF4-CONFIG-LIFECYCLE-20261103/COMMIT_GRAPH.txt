@@ -1,0 +1,6 @@
+1fa4a1c  HF2 tip / PR #18
+... HF3 ...
+9c5e706  HF3 tip / PR #19 HEAD  <<< HF4 BASELINE
+FEATURE   HF4 config lifecycle corrective
+FREEZE    COMPLETE ZIP bytes
+TIP       after push

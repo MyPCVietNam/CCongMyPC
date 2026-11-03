@@ -18,6 +18,7 @@ def test_pins_none_not_eligible(app_client):
             name="PinCam",
             host="192.168.0.230",
             mock_mode=False,
+            enabled=True,
             connection_status="CONFIG_SAVED",
             config_revision="rev-pins",
             created_at=utc_now(),
@@ -38,6 +39,7 @@ def test_pins_none_not_eligible(app_client):
                 gallery_revision_pin="g",
                 threshold_id_pin="t",
                 started_at=utc_now(),
+                expires_at=utc_now(),
             )
         )
         db.add(
@@ -58,6 +60,7 @@ def test_pins_none_not_eligible(app_client):
                 operator="admin",
                 created_at=utc_now(),
                 payload_json="{}",
+                revoked=False,
             )
         )
         db.commit()

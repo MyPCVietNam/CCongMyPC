@@ -664,6 +664,10 @@ export function WindowsLabPage() {
               <li>approval_id: {approvalId || signedMeta?.approval_id || "—"}</li>
               <li>signed_camera_lab (verified): {String(signedLab)}</li>
               <li>expires: {signedMeta?.expires_at || "—"}</li>
+              <li className="text-muted">
+                signed ≠ operational READY: disabled/MOCK/disconnected cameras fail the live
+                gate even if a signature row still exists in audit history.
+              </li>
             </ul>
             <button
               type="button"
