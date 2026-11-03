@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,7 +26,7 @@ from app.services.enrollment_service import _fixture_canvas
 from app.vision.faces.image_io import ImageDecodeError, decode_image_base64
 from app.vision.faces.types import MatchOutcome
 
-router = APIRouter(tags=["enrollment"])
+router = APIRouter(tags=["enrollment"], route_class=FinalizingAPIRoute)
 
 
 class EnrollmentStartIn(BaseModel):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build phase audit ZIPs + SHA256 manifests."""
+"""Build phase audit ZIPs + SHA256 manifests (allowlisted + fail-closed scanner)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,15 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = ROOT / "release"
+TOOLS = Path(__file__).resolve().parent
+
 IGNORE_DIRS = {
     ".venv",
     "node_modules",
@@ -24,7 +27,14 @@ IGNORE_DIRS = {
     ".git",
     "weights",  # onnx weights stay out of audit source zips
 }
-IGNORE_SUFFIXES = {".pyc", ".sqlite3", ".log", ".onnx"}
+IGNORE_SUFFIXES = {".pyc", ".sqlite3", ".log", ".onnx", ".zip"}
+DENY_BASENAMES = {
+    "FIRST_RUN_ADMIN.txt",
+    "master.key",
+    "session.secret",
+    "face_templates.key",
+    ".env",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -45,7 +55,36 @@ def git_commit() -> str:
 
 
 def collect_files() -> list[Path]:
-    files: list[Path] = []
+    """Prefer git-tracked files; fall back to filtered walk."""
+    try:
+        out = subprocess.check_output(
+            ["git", "ls-files", "-z", "MyPC.Attendance"],
+            cwd=ROOT.parent,
+        )
+        files: list[Path] = []
+        for raw in out.split(b"\0"):
+            if not raw:
+                continue
+            rel = raw.decode("utf-8", errors="surrogateescape")
+            p = ROOT.parent / rel
+            if not p.is_file():
+                continue
+            try:
+                rel_parts = p.relative_to(ROOT).parts
+            except ValueError:
+                continue
+            if any(part in IGNORE_DIRS for part in rel_parts):
+                continue
+            if p.suffix in IGNORE_SUFFIXES:
+                continue
+            if p.name in DENY_BASENAMES:
+                continue
+            files.append(p)
+        return sorted(files)
+    except Exception:
+        pass
+
+    files = []
     for p in ROOT.rglob("*"):
         if not p.is_file():
             continue
@@ -54,7 +93,7 @@ def collect_files() -> list[Path]:
             continue
         if p.suffix in IGNORE_SUFFIXES:
             continue
-        if p.name == "FIRST_RUN_ADMIN.txt":
+        if p.name in DENY_BASENAMES:
             continue
         files.append(p)
     return sorted(files)
@@ -95,6 +134,19 @@ def write_zip(path: Path, files: list[Path], prefix: str = "") -> list[dict]:
     return manifest
 
 
+def _scan_or_die(path: Path) -> None:
+    sys.path.insert(0, str(TOOLS))
+    from sensitive_path_scanner import scan_zip_file
+
+    denied = scan_zip_file(path)
+    if denied:
+        print(f"BLOCK: sensitive paths in {path.name}: {len(denied)}")
+        for d in denied[:40]:
+            print(" ", d)
+        path.unlink(missing_ok=True)
+        raise SystemExit(2)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--phase", default="P00-HF-P01")
@@ -103,9 +155,7 @@ def main() -> None:
     day = datetime.now(timezone.utc).strftime("%Y%m%d")
     files = collect_files()
 
-    # Combined changed-source for this delivery (HF+P01 on same branch)
     changed = RELEASE / f"MYPC-ATTENDANCE-{args.phase}-CHANGED-SOURCE-AUDIT-{day}.zip"
-    # Also emit distinct P00-HF and P01 named archives with same payload for checklist compliance
     hf = RELEASE / f"MYPC-ATTENDANCE-P00-HF-CHANGED-SOURCE-AUDIT-{day}.zip"
     p01 = RELEASE / f"MYPC-ATTENDANCE-P01-CHANGED-SOURCE-AUDIT-{day}.zip"
     full = RELEASE / f"MYPC-ATTENDANCE-P01-FULL-SOURCE-{day}.zip"
@@ -116,6 +166,9 @@ def main() -> None:
     with zipfile.ZipFile(full, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for f in files:
             zf.write(f, f"MyPC.Attendance/{f.relative_to(ROOT).as_posix()}")
+
+    for zp in (changed, hf, p01, full):
+        _scan_or_die(zp)
 
     sums = {p.name: sha256_file(p) for p in (changed, hf, p01, full)}
     sums_path = RELEASE / f"SHA256SUMS-P00-HF-P01-{day}.txt"

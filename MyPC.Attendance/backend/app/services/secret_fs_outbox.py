@@ -306,6 +306,11 @@ def queue_promote(
         if path.exists():
             payload_sha = _file_sha256(path)
         register_active_staged(secrets, staged_ref)
+    # Register rollback discard BEFORE any flush/failure point so staged+lease
+    # are always unwound via abort_outbox_after_rollback (CLEANUP-P1).
+    session_secret_outbox(db).append(
+        {"op": "discard_on_rollback", "ref": staged_ref, "camera_id": int(camera_id)}
+    )
     row = SecretFsOutbox(
         public_id=uuid.uuid4().hex,
         camera_id=int(camera_id),
@@ -324,10 +329,6 @@ def queue_promote(
     db.flush()
     ids: list[int] = db.info.setdefault(OUTBOX_IDS_KEY, [])
     ids.append(int(row.id))
-    # Staged discard only on rollback (in-memory; safe — staged is unique unused blob)
-    session_secret_outbox(db).append(
-        {"op": "discard_on_rollback", "ref": staged_ref, "camera_id": int(camera_id)}
-    )
     return row
 
 

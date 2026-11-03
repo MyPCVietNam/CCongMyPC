@@ -67,19 +67,19 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         raise
 
     engine = create_db_engine(settings.resolved_database_url())
-    # Prefer Alembic; create_all fills missing tables for empty/dev. Production migration
-    # failures are recorded on the app container (fail-closed for ops), not silently ignored.
-    alembic_error: str | None = None
-    alembic_ok = False
-    try:
-        alembic_ok = _run_alembic_if_available(settings, raise_on_error=True)
-    except Exception as exc:  # noqa: BLE001 — surface via health; avoid import crash on dirty local DB
-        alembic_error = str(exc)
-        alembic_ok = False
-        if settings.is_production() and settings.app_env == "production":
-            # Still allow process start for recovery tooling; mark unhealthy
-            pass
-    Base.metadata.create_all(engine)
+    # Fresh empty DB → create_all + stamp HEAD. Versioned DB → alembic upgrade.
+    # Never auto-stamp unknown legacy DBs; never treat create_all as migration repair.
+    from app.core.schema_bootstrap import assert_fastapi_supported, bootstrap_schema
+
+    fastapi_gate = assert_fastapi_supported()
+    alembic_ok, alembic_error = bootstrap_schema(engine, settings)
+    if (
+        not alembic_ok
+        and settings.is_production()
+        and settings.app_env == "production"
+    ):
+        # Allow process start for recovery tooling; mark unhealthy via container flags.
+        pass
     session_factory = make_session_factory(engine)
 
     config_service = ConfigService(clock)
@@ -121,6 +121,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     )
     container.alembic_ok = alembic_ok
     container.alembic_error = alembic_error
+    container.fastapi_runtime = fastapi_gate  # type: ignore[attr-defined]
     # Crash recovery from commit-proven SQLite outbox only (never pre-commit JSON).
     # Exclusive age-gated staged scrub only at startup (C11 — never during admin retry).
     from app.services.secret_fs_outbox import recover_pending_outbox
@@ -158,7 +159,10 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
                 # Never overwrite an existing secret file; operator must resolve manually.
                 pass
 
+    from app.api.db_finalize_route import FinalizingAPIRoute
+
     app = FastAPI(title=APP_NAME, version=__version__, docs_url="/api/docs", redoc_url=None)
+    app.router.route_class = FinalizingAPIRoute
     app.state.container = container
 
     @app.on_event("shutdown")
@@ -228,26 +232,6 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         return {"detail": "UI chưa build", "path": full_path}
 
     return app
-
-
-def _run_alembic_if_available(settings: AppSettings, *, raise_on_error: bool = False) -> bool:
-    """Apply Alembic migrations when alembic.ini is present; never delete data."""
-    root = Path(__file__).resolve().parents[2]
-    ini = root / "alembic.ini"
-    if not ini.exists():
-        return False
-    try:
-        from alembic import command
-        from alembic.config import Config
-
-        cfg = Config(str(ini))
-        cfg.set_main_option("sqlalchemy.url", settings.resolved_database_url())
-        command.upgrade(cfg, "head")
-        return True
-    except Exception as exc:
-        if raise_on_error:
-            raise RuntimeError(f"Alembic migration failed: {exc}") from exc
-        return False
 
 
 app = create_app()

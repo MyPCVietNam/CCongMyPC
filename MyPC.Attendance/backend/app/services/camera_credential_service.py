@@ -154,13 +154,24 @@ def _stage_replace(
         )
     acquire_camera_credential_lock(db, camera_id)
     staged = secrets.stage_camera_secret(camera_id, username, password)
-    queue_promote(
-        db,
-        staged_ref=staged,
-        live_ref=live_ref,
-        camera_id=camera_id,
-        secrets=secrets,
-    )
+    try:
+        queue_promote(
+            db,
+            staged_ref=staged,
+            live_ref=live_ref,
+            camera_id=camera_id,
+            secrets=secrets,
+        )
+    except Exception:
+        # Guaranteed unwind of staged blob + lease if promote fails mid-flight.
+        from app.services.secret_fs_outbox import (
+            abort_outbox_after_rollback,
+            queue_discard_staged,
+        )
+
+        queue_discard_staged(db, staged)
+        abort_outbox_after_rollback(secrets, db)
+        raise
     return CredentialApplyResult(
         secret_ref=live_ref,
         username_hint=username,

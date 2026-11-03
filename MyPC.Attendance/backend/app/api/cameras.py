@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from app.api.db_finalize_route import FinalizingAPIRoute
 import math
 import time
 
@@ -38,7 +39,7 @@ from app.services.camera_credential_service import (
 )
 from app.core.utc_time import utc_now
 
-router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
+router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"], route_class=FinalizingAPIRoute)
 
 
 class CameraIn(BaseModel):

@@ -7,6 +7,7 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ from app.api.deps import get_current_user, get_db, require_csrf
 from app.core.clock import SystemClock
 from app.models.entities import LeaveRequest, User
 
-router = APIRouter(prefix="/api/v1/leave", tags=["leave"])
+router = APIRouter(prefix="/api/v1/leave", tags=["leave"], route_class=FinalizingAPIRoute)
 
 TIMEKEEPER_APPROVE = "TIMEKEEPER_APPROVE"
 

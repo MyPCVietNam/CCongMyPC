@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,7 +15,7 @@ from app.core.clock import SystemClock
 from app.core.permissions import EMPLOYEE_MANAGE
 from app.models.entities import Employee, User
 
-router = APIRouter(prefix="/api/v1/employees", tags=["employees"])
+router = APIRouter(prefix="/api/v1/employees", tags=["employees"], route_class=FinalizingAPIRoute)
 
 
 class EmployeeIn(BaseModel):

@@ -1,0 +1,32 @@
+QUARANTINED — do not redistribute.
+Original path: audit/handoffs/PR12-OUTBOX-COMMIT-PROOF-20261103/MyPC.Attendance-FULL-PR12-OUTBOX-6503713e683e.zip
+Sensitive entry count (names only): 22
+Sample paths (no file contents):
+  - MyPC.Attendance/data/mypc_attendance.sqlite3
+  - MyPC.Attendance/data/mypc_attendance.sqlite3-shm
+  - MyPC.Attendance/data/secrets/face_templates.key
+  - MyPC.Attendance/data/secrets/session.secret
+  - MyPC.Attendance/data/secrets/master.key
+  - MyPC.Attendance/data/cloud-dev2/FIRST_RUN_ADMIN.txt
+  - MyPC.Attendance/data/cloud-dev2/mypc_attendance.sqlite3
+  - MyPC.Attendance/data/cloud-dev2/app.sqlite3
+  - MyPC.Attendance/data/cloud-dev2/secrets/face_templates.key
+  - MyPC.Attendance/data/cloud-dev2/secrets/session.secret
+  - MyPC.Attendance/data/cloud-dev2/secrets/master.key
+  - MyPC.Attendance/data/mypc_attendance.sqlite3-wal
+  - MyPC.Attendance/data/cloud-dev3/FIRST_RUN_ADMIN.txt
+  - MyPC.Attendance/data/cloud-dev3/mypc_attendance.sqlite3
+  - MyPC.Attendance/data/cloud-dev3/secrets/face_templates.key
+  - MyPC.Attendance/data/cloud-dev3/secrets/session.secret
+  - MyPC.Attendance/data/cloud-dev3/secrets/master.key
+  - MyPC.Attendance/data/cloud-dev4/FIRST_RUN_ADMIN.txt
+  - MyPC.Attendance/data/cloud-dev4/mypc_attendance.sqlite3
+  - MyPC.Attendance/data/cloud-dev4/secrets/face_templates.key
+  - MyPC.Attendance/data/cloud-dev4/secrets/session.secret
+  - MyPC.Attendance/data/cloud-dev4/secrets/master.key
+
+Owner actions required:
+1) Treat keys/passwords/session secrets as exposed until verified otherwise; rotate/revoke.
+2) Handle encrypted biometric assets safely (do not blindly regenerate keys).
+3) Rewrite public Git history via owner-approved filter-repo/BFG workflow — deleting tip commit is insufficient.
+4) Republish only allowlisted scanned archives.

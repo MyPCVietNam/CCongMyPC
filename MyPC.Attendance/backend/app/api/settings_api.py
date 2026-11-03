@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.db_finalize_route import FinalizingAPIRoute
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,7 +23,7 @@ from app.core.settings import OperationalConfig
 from app.models.entities import ConfigRevision, User
 from app.services.config_service import ConfigConflictError
 
-router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+router = APIRouter(prefix="/api/v1/settings", tags=["settings"], route_class=FinalizingAPIRoute)
 
 
 class ApplyBody(BaseModel):
