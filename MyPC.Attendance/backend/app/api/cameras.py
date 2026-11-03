@@ -626,21 +626,55 @@ def test_rtsp(
         password=password if try_auth else None,
         try_auth=try_auth,
     )
-    row.connection_status = result.overall_status
+    # Handshake lane ≠ LIVE decoder. Only persist definitive handshake failures;
+    # never clobber with CONFIG_SAVED as if LIVE were unverified after a good probe.
+    handshake = result.overall_status
     row.last_health_at = SystemClock().now_utc()
-    row.last_health_status = result.overall_status
+    row.last_health_status = f"HANDSHAKE:{handshake}"
+    if handshake in {
+        "AUTH_FAILED",
+        "STREAM_NOT_FOUND",
+        "RTSP_DISABLED_OR_UNAVAILABLE",
+        "UNKNOWN",
+    }:
+        row.connection_status = handshake
+    # else: leave connection_status as CONFIG_SAVED / STOPPED / etc. from configure path
     db.add(
         AuditLog(
             actor=user.username,
             action="CAMERA_RTSP_TEST",
             entity_type="camera",
             entity_id=str(camera_id),
-            reason=f"overall={result.overall_status}; secrets_redacted=true",
+            reason=f"handshake={handshake}; handshake_only=true; secrets_redacted=true",
             timestamp=utc_now(),
         )
     )
     db.flush()
-    return result.as_dict()
+    payload = result.as_dict()
+    payload["handshake_only"] = True
+    payload["rtsp_handshake_status"] = handshake
+    payload["connection_status_persisted"] = row.connection_status
+    payload["note_vi"] = (
+        "Kết quả này là RTSP HANDSHAKE ONLY — không thay thế LIVE_DECODED. "
+        "ONVIF/FIRST_FRAME trong probe không chứng minh decoder đang chạy."
+    )
+    # Surface whether LIVE decode is already up (do not invent frames)
+    try:
+        gh = state.camera_registry.health().get("sources") if state.camera_registry else None
+        live_ok = False
+        if gh:
+            for s in gh:
+                if (
+                    str(s.get("camera_id")) == str(camera_id)
+                    and s.get("operationally_ready")
+                    and str(s.get("decoder_status") or "") == "OK"
+                ):
+                    live_ok = True
+                    break
+        payload["live_decoder_operational"] = live_ok
+    except Exception:  # noqa: BLE001
+        payload["live_decoder_operational"] = None
+    return payload
 
 
 

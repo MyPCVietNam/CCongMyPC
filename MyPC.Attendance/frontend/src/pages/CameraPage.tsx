@@ -49,6 +49,10 @@ type Diag = {
   note_vi: string;
   overall_status?: string;
   indicator_vi?: string;
+  handshake_only?: boolean;
+  rtsp_handshake_status?: string;
+  live_decoder_operational?: boolean | null;
+  connection_status_persisted?: string;
 };
 
 type QualityDiag = {
@@ -77,12 +81,23 @@ const emptyForm = () => ({
 });
 
 function uiStateFromCam(cam?: Cam | null, preview?: Preview | null): string {
+  // Decoder lane first — never let handshake CONFIG_SAVED / LIVE chip race (PR16 S2/S6)
   if (preview?.degraded || preview?.decoder_status === "DEGRADED") return "DEGRADED";
   if (preview?.stale || preview?.decoder_status === "STALE") return "STALE";
-  if (cam?.runtime?.live_decoded || cam?.live_verified) return "LIVE";
-  if (cam?.runtime?.decoder_status === "RECONNECTING" || cam?.runtime?.connection_status === "CONNECTING")
+  if (
+    cam?.runtime?.decoder_status === "RECONNECTING" ||
+    cam?.runtime?.connection_status === "CONNECTING" ||
+    preview?.decoder_status === "RECONNECTING"
+  )
     return "RECONNECTING";
+  if (
+    (cam?.runtime?.live_decoded || cam?.live_verified) &&
+    cam?.runtime?.decoder_status !== "STOPPED" &&
+    cam?.runtime?.decoder_status !== "OFFLINE"
+  )
+    return "LIVE";
   if (cam?.mock_mode) return "MOCK";
+  // Handshake-only DB status — not LIVE
   if (cam?.runtime?.connection_status === "CONFIG_SAVED" || cam?.connection_status === "CONFIG_SAVED")
     return "CONFIG_SAVED";
   return cam?.runtime?.connection_status || cam?.connection_status || "OFFLINE";
@@ -783,12 +798,27 @@ export function CameraPage() {
             </button>
             {diag ? (
               <ul className="text-xs space-y-1">
-                {diag.overall_status ? <li>Tổng: {diag.overall_status}</li> : null}
+                <li className="text-brand">
+                  RTSP handshake: {diag.rtsp_handshake_status || diag.overall_status || "?"}
+                  {diag.handshake_only ? " (HANDSHAKE_ONLY — ≠ LIVE decoder)" : ""}
+                </li>
+                <li>
+                  LIVE decoder đang chạy:{" "}
+                  {diag.live_decoder_operational == null
+                    ? "không xác định"
+                    : String(diag.live_decoder_operational)}
+                </li>
+                {diag.connection_status_persisted ? (
+                  <li>DB connection_status giữ: {diag.connection_status_persisted}</li>
+                ) : null}
                 {diag.stages?.map((s) => (
                   <li key={s.name}>
                     {s.name}: {s.status} — {s.detail_vi}
+                    {s.name.toUpperCase().includes("ONVIF") ? " (UNVERIFIED nếu chưa đo)" : ""}
+                    {s.name.toUpperCase().includes("FIRST") ? " (probe ≠ decoded LIVE)" : ""}
                   </li>
                 ))}
+                {diag.note_vi ? <li className="text-muted">{diag.note_vi}</li> : null}
                 <li className="text-muted">CAMERA_LAB_PASS={String(diag.camera_lab_pass)} (chỉ ký HMAC)</li>
               </ul>
             ) : null}

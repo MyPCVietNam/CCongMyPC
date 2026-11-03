@@ -76,6 +76,8 @@ export function WindowsLabPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [evidenceId, setEvidenceId] = useState("");
+  const [approvalId, setApprovalId] = useState("");
+  const [signedLab, setSignedLab] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -225,6 +227,8 @@ export function WindowsLabPage() {
         { method: "POST", body: "{}" }
       );
       setEvidenceId(r.evidence_id);
+      setApprovalId("");
+      setSignedLab(false);
       setRun((prev) =>
         prev
           ? {
@@ -239,7 +243,54 @@ export function WindowsLabPage() {
       setMsg(
         `Evidence ${r.evidence_id} class=${r.evidence_class}. ` +
           `PHYSICAL_VERIFIED ≠ camera_lab_pass (vẫn ${String(r.camera_lab_pass)}). ` +
-          `Cần phê duyệt HMAC riêng; cổng vật lý vẫn BLOCKED cho đến khi có bằng chứng owner.`
+          `Tiếp theo: ký HMAC với quyền PILOT_APPROVE (không checkbox).`
+      );
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signHmacApproval() {
+    if (cameraId == null || !evidenceId) {
+      setErr("Cần evidence PHYSICAL_VERIFIED trước khi ký HMAC.");
+      return;
+    }
+    if (kind !== "CAMERA_LAB") {
+      setErr("FACE_PILOT ký HMAC cần face-case evidence riêng — chưa mở trong wizard này.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api<{
+        approval_id: string;
+        evidence_id: string;
+        camera_lab_pass: boolean;
+        pins_source?: string;
+      }>(`/api/v1/cameras/${cameraId}/quality/approvals`, {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "CAMERA_LAB",
+          evidence_id: evidenceId,
+          note_vi: "Owner ký sau PHYSICAL_VERIFIED trên Windows Lab (PR16).",
+        }),
+      });
+      setApprovalId(r.approval_id);
+      // Re-read gateway health — never trust UI alone for PASS
+      try {
+        const gh = await api<{ signed_camera_lab?: boolean; camera_lab_pass?: boolean }>(
+          `/api/v1/cameras/gateway/health?camera_id=${cameraId}`
+        );
+        setSignedLab(Boolean(gh.signed_camera_lab));
+      } catch {
+        setSignedLab(false);
+      }
+      setMsg(
+        `Đã tạo approval ${r.approval_id} (pins=${r.pins_source || "SERVER"}). ` +
+          `API vẫn trả camera_lab_pass=${String(r.camera_lab_pass)} — dùng signed_camera_lab từ gateway. ` +
+          `FACE_PILOT / INSTALLER vẫn BLOCKED.`
       );
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
@@ -424,12 +475,32 @@ export function WindowsLabPage() {
       ) : null}
 
       {run && activeStepId === "done" ? (
-        <section className="rounded-xl border border-line bg-panel p-4 space-y-2 text-sm">
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-3 text-sm">
           <h2 className="font-medium">Hoàn tất workflow lab run</h2>
           <p className="text-muted">
-            state={run.state}. Evidence {evidenceId || "(chưa promote)"}. camera_lab_pass vẫn false cho đến
-            khi ký HMAC — cổng CAMERA_LAB / FACE_PILOT / INSTALLER = BLOCKED.
+            state={run.state}. Evidence {evidenceId || "(chưa promote)"}. PHYSICAL_VERIFIED ≠ HMAC signed.
           </p>
+          <div className="rounded-md border border-line bg-canvas p-3 space-y-2">
+            <h3 className="font-medium text-ink">Bước 6 — Ký phê duyệt HMAC (PILOT_APPROVE)</h3>
+            <p className="text-xs text-muted">
+              Không dùng checkbox/admin_confirm. Server derive model/gallery/threshold pins. Nếu 403:
+              thiếu quyền SYSTEM_ADMIN/PILOT_APPROVE hoặc evidence/pin không khớp.
+            </p>
+            <ul className="text-xs text-muted space-y-1">
+              <li>evidence_id: {evidenceId || "—"}</li>
+              <li>approval_id: {approvalId || "—"}</li>
+              <li>signed_camera_lab (gateway): {String(signedLab)}</li>
+              <li>camera_lab_pass field trên response: luôn false theo thiết kế API (đọc signed_camera_lab)</li>
+            </ul>
+            <button
+              type="button"
+              onClick={signHmacApproval}
+              disabled={busy || !evidenceId || kind !== "CAMERA_LAB"}
+              className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+            >
+              Ký CAMERA_LAB (HMAC)
+            </button>
+          </div>
           <button
             type="button"
             className="rounded-md border border-line px-3 py-2 text-sm"
@@ -437,6 +508,8 @@ export function WindowsLabPage() {
               setRun(null);
               setChallenge("");
               setEvidenceId("");
+              setApprovalId("");
+              setSignedLab(false);
               setMsg("");
             }}
           >
