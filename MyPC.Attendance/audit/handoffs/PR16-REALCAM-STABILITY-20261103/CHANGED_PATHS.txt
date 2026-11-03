@@ -1,0 +1,14 @@
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/ACCEPTANCE_MATRIX.md
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/BASELINE_RCA.md
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/CHANGELOG.md
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/OWNER_HEVC_AB_CHECKLIST_VI.md
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/OWNER_WINDOWS_STEPS_VI.md
+MyPC.Attendance/audit/handoffs/PR16-REALCAM-STABILITY-20261103/Verify-MyPC-PR16-Zips.ps1
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/api/health.py
+MyPC.Attendance/backend/app/vision/camera/gateway.py
+MyPC.Attendance/frontend/src/App.tsx
+MyPC.Attendance/frontend/src/pages/CameraPage.tsx
+MyPC.Attendance/frontend/src/pages/WindowsLabPage.tsx
+MyPC.Attendance/tests/unit/test_pr16_camera_status_honesty.py
+MyPC.Attendance/tools/audit_camera_secrets_readonly.py

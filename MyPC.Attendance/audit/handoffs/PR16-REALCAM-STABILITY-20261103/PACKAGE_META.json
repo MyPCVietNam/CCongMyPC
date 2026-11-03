@@ -1,0 +1,11 @@
+{
+  "tag": "PR16-REALCAM-ed65b6180f44",
+  "generated_at_utc": "2026-11-03T10:20:05.932580+00:00",
+  "full_entries": 352,
+  "changed_entries": 8,
+  "sha256": {
+    "MyPC.Attendance-CHANGED-PR16-REALCAM-ed65b6180f44.zip": "74231a7e658b89f82e6f389dcd979f0e2ccf713db02dd0f5c501bea85c30932b",
+    "MyPC.Attendance-FULL-PR16-REALCAM-ed65b6180f44.zip": "06ff138e6ca9cfb8ab7283e8db98ca3010d7eeca5a67c5cb058d4b2d69e58c17"
+  },
+  "note": "SHA256SUMS written after ZIP freeze; not embedded inside archives."
+}
