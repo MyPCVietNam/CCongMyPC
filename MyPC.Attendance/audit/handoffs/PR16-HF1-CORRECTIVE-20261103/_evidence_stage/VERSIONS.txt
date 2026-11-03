@@ -1,4 +1,0 @@
-python: 3.12.3
-fastapi: 0.115.14
-opencv: 4.13.0
-pytest: 323 passed (unit+integration+pr13)
