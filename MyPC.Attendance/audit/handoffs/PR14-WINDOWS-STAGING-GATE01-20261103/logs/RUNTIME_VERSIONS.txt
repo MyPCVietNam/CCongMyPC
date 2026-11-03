@@ -1,0 +1,15 @@
+python=3.12.3
+fastapi=0.115.14
+starlette=0.46.2
+sqlalchemy=2.0.55
+alembic=1.14.1
+pydantic=2.14.2
+alembic_head_const=20261103_0012
+fastapi_version=0.115.14
+supported_range=>=0.115.0,<0.116
+supported=True
+note_vi=FastAPI trong khoảng hỗ trợ.
+git_head=956ec4d8d11fc4e6eecc755d2fed8ae7943c4ec7
+requirements_fastapi_pin=fastapi>=0.115.0,<0.116
+platform=linux_cloud_agent_not_windows
+note=C13 and install gates automated here; Windows/EZVIZ physical remain BLOCKED for owner

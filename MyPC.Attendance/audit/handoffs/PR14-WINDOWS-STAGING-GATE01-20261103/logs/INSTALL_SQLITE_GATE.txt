@@ -1,0 +1,40 @@
+[PASS] NEW_INSTALL alembic_version=20261103_0012 alembic_ok=True integrity=ok fastapi_supported=True fastapi_version=0.115.14
+[PASS] SECOND_BOOT alembic_version=20261103_0012 alembic_ok=True users=1
+[PASS] UPGRADE_SYNTHETIC_PRE0010 alembic_version=20261103_0012 camera_name_preserved=True integrity=ok secret_readable=True note=synthetic ORM+stamp0008; genuine old DataDir = OWNER WINDOWS
+[PASS] UNKNOWN_LEGACY_FAIL_CLOSED alembic_ok=False has_alembic_version=False error_contains_alembic_version=True
+---JSON---
+[
+  {
+    "gate": "NEW_INSTALL",
+    "status": "PASS",
+    "alembic_version": "20261103_0012",
+    "alembic_ok": true,
+    "integrity": "ok",
+    "fastapi_supported": true,
+    "fastapi_version": "0.115.14"
+  },
+  {
+    "gate": "SECOND_BOOT",
+    "status": "PASS",
+    "alembic_version": "20261103_0012",
+    "alembic_ok": true,
+    "users": 1
+  },
+  {
+    "gate": "UPGRADE_SYNTHETIC_PRE0010",
+    "status": "PASS",
+    "alembic_version": "20261103_0012",
+    "camera_name_preserved": true,
+    "integrity": "ok",
+    "secret_readable": true,
+    "note": "synthetic ORM+stamp0008; genuine old DataDir = OWNER WINDOWS"
+  },
+  {
+    "gate": "UNKNOWN_LEGACY_FAIL_CLOSED",
+    "status": "PASS",
+    "alembic_ok": false,
+    "has_alembic_version": false,
+    "error_contains_alembic_version": true
+  }
+]
+SUMMARY PASS 4/4
