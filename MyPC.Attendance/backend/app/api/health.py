@@ -23,6 +23,32 @@ from app.models.entities import User
 router = APIRouter(tags=["health"], route_class=FinalizingAPIRoute)
 
 
+def _opencv_runtime_probe() -> dict[str, Any]:
+    """Safe OpenCV/FFmpeg identity for diagnostics — no credentials."""
+    try:
+        import cv2
+
+        ver = getattr(cv2, "__version__", "unknown")
+        build = ""
+        try:
+            build = str(cv2.getBuildInformation() or "")
+        except Exception:  # noqa: BLE001
+            build = ""
+        has_ffmpeg = "FFMPEG" in build.upper() if build else None
+        # One-wheel policy reminder — do not import both opencv-python variants
+        return {
+            "opencv_version": ver,
+            "ffmpeg_in_build": has_ffmpeg,
+            "note_vi": (
+                "Chỉ dùng một wheel OpenCV (opencv-contrib-python-headless). "
+                "Cảnh báo FFmpeg stderr HEVC POC/cu_qp_delta không được đếm native tại đây "
+                "(native_decoder_error_category=UNAVAILABLE)."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"opencv_version": None, "error": type(exc).__name__}
+
+
 @router.get("/api/v1/health")
 def health(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
     # Distinguish MIGRATING/FAIL from READY — console quiet after Alembic ≠ hang.
@@ -199,6 +225,7 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         },
         "runtime_dependencies": getattr(state, "fastapi_runtime", None)
         or {"supported_range": ">=0.115.0,<0.116"},
+        "opencv_runtime": _opencv_runtime_probe(),
         "alembic_ok": bool(getattr(state, "alembic_ok", True)),
         "alembic_error": getattr(state, "alembic_error", None),
         "gates": {

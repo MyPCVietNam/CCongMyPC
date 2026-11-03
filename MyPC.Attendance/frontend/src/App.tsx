@@ -50,9 +50,29 @@ export default function App() {
       setBadge(null);
       return;
     }
-    api<{ label_vi: string; stream_provenance: string }>("/api/v1/system/runtime-badge")
-      .then(setBadge)
-      .catch(() => setBadge(null));
+    let cancelled = false;
+    const refresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      api<{ label_vi: string; stream_provenance: string }>("/api/v1/system/runtime-badge")
+        .then((b) => {
+          if (!cancelled) setBadge(b);
+        })
+        .catch(() => {
+          if (!cancelled) setBadge(null);
+        });
+    };
+    refresh();
+    // Light poll so LIVE configure is reflected without infinite hammering (PR16 S1)
+    const id = window.setInterval(refresh, 15000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [user]);
 
   if (loading) {

@@ -365,12 +365,16 @@ class LiveRTSPGateway(CameraGateway):
         self._overwritten_latest = 0
         self._decode_errors = 0
         self._corrupt_frames = 0
-        self._hevc_ref_events = 0
-        self._reconnects = 0
+        self._hevc_ref_events = 0  # image-stat heuristic only — NOT native FFmpeg POC counts
+        self._reconnects = 0  # consecutive failure budget
+        self._lifetime_reconnect_attempts = 0
+        self._reconnect_successes = 0
+        self._recovery_duration_ms_last = 0.0
         self._status = DecoderStatus.NOT_CONFIGURED
         self._last_error_class = "UNKNOWN"
         self._native = (0, 0)
         self._cap_prop_hint = (0, 0)
+        self._buffersize_set_ok: bool | None = None
         self._recv_times: deque[float] = deque(maxlen=60)
         self._frames_ok = 0
         self._frames_published = 0
@@ -380,6 +384,8 @@ class LiveRTSPGateway(CameraGateway):
         self._last_good_mono: float | None = None
         self._open_latency_ms = 0.0
         self._read_latency_ms = 0.0
+        self._stale_served = 0
+        self._corrupt_streak = 0
 
     def start(self) -> None:
         with self._start_lock:
@@ -459,11 +465,13 @@ class LiveRTSPGateway(CameraGateway):
                     os.environ.pop("OPENCV_FFMPEG_CAPTURE_OPTIONS", None)
                 else:
                     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = prev
+        # CAP_PROP_BUFFERSIZE after open is best-effort — FFmpeg RTSP often ignores it.
+        self._buffersize_set_ok = None
         try:
             if self._cap is not None:
-                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                self._buffersize_set_ok = bool(self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2))
         except Exception:
-            pass
+            self._buffersize_set_ok = False
         ok = bool(self._cap is not None and self._cap.isOpened())
         self._open_latency_ms = (time.monotonic() - t0) * 1000.0
         if not ok:
@@ -511,6 +519,12 @@ class LiveRTSPGateway(CameraGateway):
             self._latest = fr
             self._frames_published += 1
             if good:
+                # Count recovery if we were in a failure window
+                if self._fail_started_mono is not None:
+                    self._recovery_duration_ms_last = (
+                        time.monotonic() - self._fail_started_mono
+                    ) * 1000.0
+                    self._reconnect_successes += 1
                 self._latest_good = fr
                 self._recv_times.append(fr.receive_monotonic)
                 self._frames_ok += 1
@@ -518,7 +532,8 @@ class LiveRTSPGateway(CameraGateway):
                 self._fail_started_mono = None
                 self._status = DecoderStatus.OK
                 self._last_error_class = ""
-                self._reconnects = 0
+                self._reconnects = 0  # consecutive budget only
+                self._corrupt_streak = 0
             else:
                 self._latest_good = None
                 self._status = DecoderStatus.DEGRADED
@@ -530,6 +545,7 @@ class LiveRTSPGateway(CameraGateway):
         while not self._stop.is_set():
             if self._cap is None and not self._open():
                 self._reconnects += 1
+                self._lifetime_reconnect_attempts += 1
                 if self._reconnects >= self._max_reconnect_attempts:
                     self._status = DecoderStatus.STOPPED
                     self._last_error_class = "RECONNECT_EXHAUSTED"
@@ -552,9 +568,12 @@ class LiveRTSPGateway(CameraGateway):
             if not ok or frame is None:
                 self._decode_errors += 1
                 # Generic read/decode failure — do NOT inflate hevc_ref_events (P1-04)
+                # Native FFmpeg POC/cu_qp_delta stderr is NOT captured here → UNAVAILABLE.
                 self._reconnects += 1  # decode-fail reopen counts toward budget (R09)
+                self._lifetime_reconnect_attempts += 1
                 self._status = DecoderStatus.RECONNECTING
                 self._last_error_class = "DECODE_FAILED"
+                self._corrupt_streak = 0
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
                 with self._lock:
@@ -578,18 +597,24 @@ class LiveRTSPGateway(CameraGateway):
                 # Discard mid-GOP warmup frames — do not publish as healthy LIVE
                 if corrupt:
                     self._corrupt_frames += 1
-                    self._hevc_ref_events += 1
+                    self._hevc_ref_events += 1  # heuristic counter only
                     self._good_streak = 0
+                    self._corrupt_streak += 1
                 else:
                     self._good_streak += 1
+                    self._corrupt_streak = 0
                 if self._warmup_remaining > 0 or self._good_streak < self._good_streak_needed:
                     self._status = DecoderStatus.CONNECTING
+                    # Avoid hot-spin during warmup/corrupt (S5)
+                    if corrupt:
+                        time.sleep(min(0.25, 0.05 * max(1, self._corrupt_streak)))
                     continue
 
             if corrupt:
                 self._corrupt_frames += 1
-                self._hevc_ref_events += 1
+                self._hevc_ref_events += 1  # image-stat only — not FFmpeg stderr POC proof
                 self._good_streak = 0
+                self._corrupt_streak += 1
                 if self._fail_started_mono is None:
                     self._fail_started_mono = recv_mono
                 # Invalidate last good — biometric must not reuse pre-corruption frame
@@ -599,7 +624,7 @@ class LiveRTSPGateway(CameraGateway):
                 self._warmup_remaining = max(2, self._keyframe_warmup // 2)
                 h, w = frame.shape[:2]
                 self._native = (w, h)
-                self._last_error_class = "HEVC_REF_OR_CORRUPT"
+                self._last_error_class = "SUSPECTED_CORRUPT_FRAME"
                 # Publish DEGRADED only for UI honesty — biometric paths must reject integrity_ok=False
                 try:
                     fr_bad = CameraFrame.from_bgr(
@@ -619,6 +644,8 @@ class LiveRTSPGateway(CameraGateway):
                     self._publish(fr_bad, good=False)
                 except Exception:
                     self._status = DecoderStatus.DEGRADED
+                # Bound CPU during sustained corrupt slabs (S5)
+                time.sleep(min(0.5, 0.05 * max(1, self._corrupt_streak)))
                 continue
 
             self._good_streak += 1
@@ -646,7 +673,23 @@ class LiveRTSPGateway(CameraGateway):
             if fr is None:
                 return None
             age = (datetime.now(timezone.utc) - fr.receive_time_utc).total_seconds()
+            # Prefer gateway truth over a leftover OK frame while reconnecting (S6)
+            if self._status in {
+                DecoderStatus.RECONNECTING,
+                DecoderStatus.CONNECTING,
+                DecoderStatus.OFFLINE,
+                DecoderStatus.STOPPED,
+                DecoderStatus.DECODE_FAILED,
+            }:
+                self._stale_served += 1
+                return fr.with_status(
+                    DecoderStatus.STALE
+                    if self._status
+                    in {DecoderStatus.RECONNECTING, DecoderStatus.CONNECTING}
+                    else self._status
+                )
             if age > self._stale_after:
+                self._stale_served += 1
                 return fr.with_status(DecoderStatus.STALE)
             return fr
 
@@ -689,6 +732,11 @@ class LiveRTSPGateway(CameraGateway):
             corrupt = self._corrupt_frames
             hevc_ref = self._hevc_ref_events
             reconnects = self._reconnects
+            lifetime_reconn = self._lifetime_reconnect_attempts
+            reconn_ok = self._reconnect_successes
+            recovery_ms = self._recovery_duration_ms_last
+            stale_served = self._stale_served
+            buf_ok = self._buffersize_set_ok
             w, h = self._native
             fps = self._measured_fps()
             hint = self._cap_prop_hint
@@ -713,13 +761,14 @@ class LiveRTSPGateway(CameraGateway):
             fps_estimate=round(fps, 3),
             dropped_frames=overwritten,
             decode_errors=decode_errors,
+            stale_frames=stale_served,
             reconnect_count=reconnects,
             last_frame_at=last,
             detail_vi=(
                 f"camera_id={self.camera_id}; RTSP trạng thái={status.value}; "
                 f"DECODED_MEASURED={w}x{h}; FPS đo={fps:.2f}; frames_ok={frames_ok}; "
-                f"corrupt={corrupt}; hevc_ref_events={hevc_ref}; transport={transport}; "
-                f"last_error={err or 'none'}. "
+                f"suspected_corrupt={corrupt}; transport={transport}; "
+                f"last_error={err or 'none'}; native_ffmpeg_errors=UNAVAILABLE. "
                 "CONFIG_SAVED ≠ LIVE verified. CAMERA_LAB_PASS=false."
             ),
             camera_lab_pass=False,
@@ -727,22 +776,36 @@ class LiveRTSPGateway(CameraGateway):
             extras={
                 "size_source": "DECODED_MEASURED" if w and h else "UNVERIFIED",
                 "cap_prop_hint_wh": list(hint),
+                "cap_prop_buffersize_set_ok": buf_ok,
                 "overwritten_latest": overwritten,
                 "decode_errors": decode_errors,
+                "decode_read_failures": decode_errors,
                 "corrupt_frames": corrupt,
+                "suspected_corrupt_frames": corrupt,
+                # Legacy name kept; MUST NOT be read as native FFmpeg POC/cu_qp_delta proof
                 "hevc_ref_events": hevc_ref,
+                "hevc_ref_events_meaning": "image_stat_heuristic_only",
+                "native_decoder_error_category": "UNAVAILABLE",
                 "clock_trust": ClockTrust.SERVER_RECEIVE.value,
                 "diagnostic_uri": "REDACTED",
                 "operationally_ready": ready,
                 "last_error_class": err or "",
                 "frames_ok": frames_ok,
+                "distinct_frames": frames_ok,
                 "live_decoded": bool(frames_ok > 0 and ready),
                 "transport": transport,
                 "stream_fingerprint": fp,
                 "fail_duration_s": round(fail_dur, 3),
+                "time_since_last_good_frame_s": (
+                    None if age_good is None else round(age_good, 3)
+                ),
                 "age_newest_good_s": None if age_good is None else round(age_good, 3),
                 "open_latency_ms": round(open_ms, 2),
                 "read_latency_ms": round(read_ms, 2),
+                "reconnect_attempts_lifetime": lifetime_reconn,
+                "reconnect_successes": reconn_ok,
+                "recovery_duration_ms_last": round(recovery_ms, 2),
+                "stale_frames_served": stale_served,
                 "connection_status": (
                     "LIVE_DECODED"
                     if ready
