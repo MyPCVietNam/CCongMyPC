@@ -78,7 +78,34 @@ export function WindowsLabPage() {
   const [evidenceId, setEvidenceId] = useState("");
   const [approvalId, setApprovalId] = useState("");
   const [signedLab, setSignedLab] = useState(false);
+  const [signedMeta, setSignedMeta] = useState<{ approval_id?: string; expires_at?: string | null } | null>(
+    null
+  );
+  const [priorEvidence, setPriorEvidence] = useState<
+    Array<{
+      evidence_id: string;
+      eligible_for_sign?: boolean;
+      pin_status?: string;
+      created_at?: string | null;
+      decoded_w?: number | null;
+      decoded_h?: number | null;
+      fps_measured?: number | null;
+      lab_run_id?: string;
+    }>
+  >([]);
   const [busy, setBusy] = useState(false);
+
+  function resetWizardForCameraChange() {
+    setRun(null);
+    setChallenge("");
+    setEvidenceId("");
+    setApprovalId("");
+    setSignedLab(false);
+    setSignedMeta(null);
+    setPriorEvidence([]);
+    setMsg("");
+    setErr("");
+  }
 
   useEffect(() => {
     api<Cam[]>("/api/v1/cameras")
@@ -90,6 +117,33 @@ export function WindowsLabPage() {
       })
       .catch((e) => setErr(e.message));
   }, []);
+
+  // Camera switch invalidates wizard — prevent cross-camera signing
+  useEffect(() => {
+    resetWizardForCameraChange();
+  }, [cameraId]);
+
+  async function loadPriorEvidence(cid: number) {
+    try {
+      const r = await api<{
+        items: typeof priorEvidence;
+        signed_active: { approval_id?: string; expires_at?: string | null } | null;
+        physical_verified_ne_signed?: boolean;
+      }>(`/api/v1/cameras/${cid}/quality/evidence?kind=${kind}`);
+      setPriorEvidence(r.items || []);
+      if (r.signed_active?.approval_id) {
+        setSignedLab(true);
+        setSignedMeta(r.signed_active);
+        setApprovalId(r.signed_active.approval_id);
+      } else {
+        setSignedLab(false);
+        setSignedMeta(null);
+      }
+    } catch (ex) {
+      setPriorEvidence([]);
+      setErr(ex instanceof Error ? ex.message : String(ex));
+    }
+  }
 
   function allowed(action: string): boolean {
     if (!run?.allowed_actions) return true;
@@ -274,26 +328,25 @@ export function WindowsLabPage() {
         body: JSON.stringify({
           kind: "CAMERA_LAB",
           evidence_id: evidenceId,
-          note_vi: "Owner ký sau PHYSICAL_VERIFIED trên Windows Lab (PR16).",
+          note_vi: "Owner ký sau PHYSICAL_VERIFIED trên Windows Lab (PR16-HF1).",
         }),
       });
       setApprovalId(r.approval_id);
-      // Re-read gateway health — never trust UI alone for PASS
-      try {
-        const gh = await api<{ signed_camera_lab?: boolean; camera_lab_pass?: boolean }>(
-          `/api/v1/cameras/gateway/health?camera_id=${cameraId}`
-        );
-        setSignedLab(Boolean(gh.signed_camera_lab));
-      } catch {
-        setSignedLab(false);
-      }
+      // POST 200 alone ≠ CAMERA_LAB_SIGNED — reload verified status from backend
+      await loadPriorEvidence(cameraId);
+      const gh = await api<{ signed_camera_lab?: boolean; camera_lab_pass?: boolean }>(
+        `/api/v1/cameras/gateway/health?camera_id=${cameraId}`
+      );
+      setSignedLab(Boolean(gh.signed_camera_lab));
       setMsg(
-        `Đã tạo approval ${r.approval_id} (pins=${r.pins_source || "SERVER"}). ` +
-          `API vẫn trả camera_lab_pass=${String(r.camera_lab_pass)} — dùng signed_camera_lab từ gateway. ` +
-          `FACE_PILOT / INSTALLER vẫn BLOCKED.`
+        `Approval POST ok id=${r.approval_id}. ` +
+          `verified signed_camera_lab=${String(Boolean(gh.signed_camera_lab))} ` +
+          `(PHYSICAL_VERIFIED ≠ SIGNED; camera_lab_pass field=${String(r.camera_lab_pass)}). ` +
+          `LIVE_STABILITY / FACE_PILOT / INSTALLER vẫn BLOCKED.`
       );
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+      setSignedLab(false);
     } finally {
       setBusy(false);
     }
@@ -357,7 +410,10 @@ export function WindowsLabPage() {
             <select
               className="mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2"
               value={cameraId ?? ""}
-              onChange={(e) => setCameraId(Number(e.target.value))}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setCameraId(next);
+              }}
             >
               {cams.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -474,23 +530,59 @@ export function WindowsLabPage() {
         </section>
       ) : null}
 
-      {run && activeStepId === "done" ? (
+      {(run && activeStepId === "done") || (!run && cameraId != null) ? (
         <section className="rounded-xl border border-line bg-panel p-4 space-y-3 text-sm">
-          <h2 className="font-medium">Hoàn tất workflow lab run</h2>
+          <h2 className="font-medium">
+            {run ? "Hoàn tất workflow lab run" : "Ký HMAC từ evidence PHYSICAL đã có"}
+          </h2>
           <p className="text-muted">
-            state={run.state}. Evidence {evidenceId || "(chưa promote)"}. PHYSICAL_VERIFIED ≠ HMAC signed.
+            {run
+              ? `state=${run.state}. Evidence ${evidenceId || "(chưa promote)"}.`
+              : "Refresh trang vẫn chọn được evidence PHYSICAL_VERIFIED trước đó (redacted)."}{" "}
+            PHYSICAL_VERIFIED ≠ HMAC signed ≠ LIVE_STABILITY_PASS.
           </p>
           <div className="rounded-md border border-line bg-canvas p-3 space-y-2">
-            <h3 className="font-medium text-ink">Bước 6 — Ký phê duyệt HMAC (PILOT_APPROVE)</h3>
+            <div className="flex flex-wrap gap-2 items-center">
+              <h3 className="font-medium text-ink">Bước 6 — Ký phê duyệt HMAC (PILOT_APPROVE)</h3>
+              <button
+                type="button"
+                className="rounded-md border border-line px-2 py-1 text-xs"
+                disabled={busy || cameraId == null}
+                onClick={() => cameraId != null && loadPriorEvidence(cameraId)}
+              >
+                Tải evidence PHYSICAL
+              </button>
+            </div>
             <p className="text-xs text-muted">
-              Không dùng checkbox/admin_confirm. Server derive model/gallery/threshold pins. Nếu 403:
-              thiếu quyền SYSTEM_ADMIN/PILOT_APPROVE hoặc evidence/pin không khớp.
+              Không checkbox/admin_confirm. Đổi camera sẽ reset wizard (chống ký nhầm). FACE_PILOT tách
+              biệt.
             </p>
+            {priorEvidence.length ? (
+              <label className="block text-xs space-y-1">
+                Evidence PHYSICAL đủ điều kiện
+                <select
+                  className="w-full rounded-md border border-line bg-panel px-2 py-1.5"
+                  value={evidenceId}
+                  onChange={(e) => setEvidenceId(e.target.value)}
+                >
+                  <option value="">— chọn —</option>
+                  {priorEvidence.map((ev) => (
+                    <option key={ev.evidence_id} value={ev.evidence_id}>
+                      {ev.evidence_id.slice(0, 12)}… {ev.decoded_w}x{ev.decoded_h} fps=
+                      {ev.fps_measured ?? "?"} pin={ev.pin_status}
+                      {ev.eligible_for_sign ? "" : " (không đủ pin/lab)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-xs text-muted">Chưa tải danh sách evidence — bấm “Tải evidence PHYSICAL”.</p>
+            )}
             <ul className="text-xs text-muted space-y-1">
               <li>evidence_id: {evidenceId || "—"}</li>
-              <li>approval_id: {approvalId || "—"}</li>
-              <li>signed_camera_lab (gateway): {String(signedLab)}</li>
-              <li>camera_lab_pass field trên response: luôn false theo thiết kế API (đọc signed_camera_lab)</li>
+              <li>approval_id: {approvalId || signedMeta?.approval_id || "—"}</li>
+              <li>signed_camera_lab (verified): {String(signedLab)}</li>
+              <li>expires: {signedMeta?.expires_at || "—"}</li>
             </ul>
             <button
               type="button"
@@ -501,20 +593,15 @@ export function WindowsLabPage() {
               Ký CAMERA_LAB (HMAC)
             </button>
           </div>
-          <button
-            type="button"
-            className="rounded-md border border-line px-3 py-2 text-sm"
-            onClick={() => {
-              setRun(null);
-              setChallenge("");
-              setEvidenceId("");
-              setApprovalId("");
-              setSignedLab(false);
-              setMsg("");
-            }}
-          >
-            Tạo lab run mới
-          </button>
+          {run ? (
+            <button
+              type="button"
+              className="rounded-md border border-line px-3 py-2 text-sm"
+              onClick={() => resetWizardForCameraChange()}
+            >
+              Tạo lab run mới
+            </button>
+          ) : null}
         </section>
       ) : null}
 

@@ -306,6 +306,7 @@ class CameraSourceRegistry:
                 continue
             h: GatewayHealth = b.gateway.health()
             op_ready = bool(getattr(h, "operationally_ready", False)) and h.decoder_status.value == "OK"
+            extras = dict(h.extras or {})
             out.append(
                 {
                     "camera_id": cid,
@@ -317,13 +318,23 @@ class CameraSourceRegistry:
                     "native_width": h.native_width,
                     "native_height": h.native_height,
                     "fps_measured": h.fps_estimate,
+                    "fps_estimate": h.fps_estimate,
                     "overwritten_latest": h.dropped_frames,
                     "reconnect_count": h.reconnect_count,
-                    "corrupt_frames": (h.extras or {}).get("corrupt_frames", 0),
-                    "hevc_ref_events": (h.extras or {}).get("hevc_ref_events", 0),
+                    "corrupt_frames": extras.get("corrupt_frames", 0),
+                    "hevc_ref_events": extras.get("hevc_ref_events", 0),
+                    "live_decoded": bool(extras.get("live_decoded")),
+                    "connection_status": extras.get("connection_status"),
+                    "source_fps_status": extras.get("source_fps_status"),
+                    "source_fps_measured": extras.get("source_fps_measured"),
+                    "frame_age_ms": extras.get("frame_age_ms"),
+                    "native_decoder_error_category": extras.get(
+                        "native_decoder_error_category", "UNAVAILABLE"
+                    ),
                     "operationally_ready": op_ready,
                     "camera_lab_pass": False,
                     "detail_vi": h.detail_vi,
+                    "extras": extras,
                 }
             )
         any_ready = any(s.get("operationally_ready") for s in out)

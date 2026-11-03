@@ -49,12 +49,12 @@ def test_health_marks_native_ffmpeg_unavailable():
     assert "suspected_corrupt_frames" in h.extras
 
 
-def test_test_rtsp_does_not_clobber_status_on_handshake_ok():
-    """Unit-level contract: AUTH failures persist; CONFIG_SAVED handshake does not force overwrite logic.
-
-    Full HTTP path covered in integration; here we assert helper classification intent via probe module.
-    """
+def test_classify_rtsp_status_auth_and_404():
     from app.vision.camera.rtsp_probe import _classify_rtsp_status
 
-    # Smoke: module still distinguishes auth vs saved
-    assert callable(_classify_rtsp_status)
+    code, _ = _classify_rtsp_status("RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest")
+    assert code == "AUTH_FAILED"
+    code, _ = _classify_rtsp_status("RTSP/1.0 404 Not Found\r\n")
+    assert code == "STREAM_NOT_FOUND"
+    code, _ = _classify_rtsp_status("")
+    assert code == "UNKNOWN"

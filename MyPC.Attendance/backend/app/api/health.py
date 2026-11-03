@@ -23,6 +23,34 @@ from app.models.entities import User
 router = APIRouter(tags=["health"], route_class=FinalizingAPIRoute)
 
 
+def parse_opencv_ffmpeg_backend(build_info: str) -> dict[str, Any]:
+    """Parse OpenCV build info for FFmpeg Video I/O — not mere substring 'FFMPEG'."""
+    import re
+
+    if not (build_info or "").strip():
+        return {"ffmpeg_backend": "unknown", "ffmpeg_yes": None, "matched_line": None}
+    # Prefer Video I/O section lines like: "    FFMPEG:                      YES"
+    yes_no = None
+    matched = None
+    for line in build_info.splitlines():
+        m = re.match(r"^\s*FFMPEG\s*:\s*(YES|NO)\b", line, flags=re.IGNORECASE)
+        if m:
+            matched = line.strip()
+            yes_no = m.group(1).upper()
+            break
+    if yes_no == "YES":
+        return {"ffmpeg_backend": "YES", "ffmpeg_yes": True, "matched_line": matched}
+    if yes_no == "NO":
+        return {"ffmpeg_backend": "NO", "ffmpeg_yes": False, "matched_line": matched}
+    # Fallback: ambiguous mention without YES/NO → unknown (do not treat as available)
+    return {
+        "ffmpeg_backend": "unknown",
+        "ffmpeg_yes": None,
+        "matched_line": None,
+        "note": "no_ffmpeg_yes_no_line",
+    }
+
+
 def _opencv_runtime_probe() -> dict[str, Any]:
     """Safe OpenCV/FFmpeg identity for diagnostics — no credentials."""
     try:
@@ -34,19 +62,23 @@ def _opencv_runtime_probe() -> dict[str, Any]:
             build = str(cv2.getBuildInformation() or "")
         except Exception:  # noqa: BLE001
             build = ""
-        has_ffmpeg = "FFMPEG" in build.upper() if build else None
-        # One-wheel policy reminder — do not import both opencv-python variants
+        parsed = parse_opencv_ffmpeg_backend(build)
         return {
             "opencv_version": ver,
-            "ffmpeg_in_build": has_ffmpeg,
+            "ffmpeg_backend": parsed.get("ffmpeg_backend"),
+            "ffmpeg_yes": parsed.get("ffmpeg_yes"),
+            # Deprecated boolean — prefer ffmpeg_backend YES/NO/unknown
+            "ffmpeg_in_build": parsed.get("ffmpeg_yes"),
+            "ffmpeg_matched_line": parsed.get("matched_line"),
             "note_vi": (
                 "Chỉ dùng một wheel OpenCV (opencv-contrib-python-headless). "
-                "Cảnh báo FFmpeg stderr HEVC POC/cu_qp_delta không được đếm native tại đây "
+                "ffmpeg_backend=YES|NO|unknown (parse Video I/O). "
+                "Cảnh báo FFmpeg stderr HEVC POC/cu_qp_delta không được đếm native "
                 "(native_decoder_error_category=UNAVAILABLE)."
             ),
         }
     except Exception as exc:  # noqa: BLE001
-        return {"opencv_version": None, "error": type(exc).__name__}
+        return {"opencv_version": None, "error": type(exc).__name__, "ffmpeg_backend": "unknown"}
 
 
 @router.get("/api/v1/health")
