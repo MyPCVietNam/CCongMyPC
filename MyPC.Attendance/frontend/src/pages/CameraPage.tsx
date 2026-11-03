@@ -4,9 +4,10 @@ import {
   HandshakeLane,
   LegacyDiagLane,
   LiveHealthLane,
-  mjpegWatchdogState,
+  browserMjpegTransportState,
   nowUtcIso,
   retainBothDiagLanes,
+  serverDecoderWatchdogState,
   uiStateFromLanes,
 } from "../camera/diagLanes";
 
@@ -99,8 +100,10 @@ export function CameraPage() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const selectGen = useRef(0);
+  const liveHealthGen = useRef(0);
   const hiddenRef = useRef(false);
   const inFlight = useRef(false);
+  const [clientMjpegActivityMs, setClientMjpegActivityMs] = useState<number | null>(null);
 
   async function reload(preferId?: number | null) {
     const qs = new URLSearchParams();
@@ -142,6 +145,7 @@ export function CameraPage() {
     setHandshake(null);
     setLegacyDiag(null);
     setLiveHealth(null);
+    setClientMjpegActivityMs(null);
     setQuality(null);
     setAnalyzeMsg("");
     try {
@@ -196,6 +200,7 @@ export function CameraPage() {
         const src =
           (h.sources || []).find((s) => Number(s.camera_id) === camId) || h.sources?.[0];
         if (!src) {
+          liveHealthGen.current = gen;
           setLiveHealth({
             source: "live_decoder_health",
             measured_at_utc: nowUtcIso(),
@@ -207,10 +212,12 @@ export function CameraPage() {
           return;
         }
         const extras = (src.extras as Record<string, unknown>) || {};
+        liveHealthGen.current = gen;
         setLiveHealth({
           source: "live_decoder_health",
           measured_at_utc: nowUtcIso(),
           camera_id: camId,
+          config_revision: String(src.config_revision || extras.config_revision || ""),
           decoder_status: String(src.decoder_status || ""),
           connection_status: String(src.connection_status || extras.connection_status || ""),
           live_decoded: Boolean(src.live_decoded ?? extras.live_decoded),
@@ -595,11 +602,21 @@ export function CameraPage() {
   }
 
   const selectedCam = cams.find((c) => c.id === selected);
-  const statusLabel = uiStateFromLanes(selectedCam, preview, liveHealth);
-  const mjpegWatch = mjpegWatchdogState(liveHealth);
+  const statusLabel = uiStateFromLanes(selectedCam, preview, liveHealth, {
+    viewMode,
+    selectedCameraId: selected,
+    requestGen: selectGen.current,
+    liveGen: liveHealthGen.current,
+  });
+  const serverWatch = serverDecoderWatchdogState(liveHealth);
+  const browserTransport = browserMjpegTransportState({
+    serverWatchdog: serverWatch,
+    lastClientActivityMs: clientMjpegActivityMs,
+  });
   const displayStatus =
-    viewMode === "mjpeg" && (mjpegWatch === "STALE" || mjpegWatch === "RECONNECTING" || mjpegWatch === "DEGRADED")
-      ? mjpegWatch
+    viewMode === "mjpeg" &&
+    (serverWatch === "STALE" || serverWatch === "RECONNECTING" || serverWatch === "DEGRADED")
+      ? serverWatch
       : statusLabel;
   const mjpegSrc =
     selected != null
@@ -608,9 +625,13 @@ export function CameraPage() {
 
   const statusHint =
     displayStatus === "LIVE"
-      ? "Đang giải mã LIVE — chưa phải CAMERA_LAB_PASS"
+      ? browserTransport === "UNVERIFIED"
+        ? "Server decoder LIVE — browser MJPEG transport UNVERIFIED (chưa có tín hiệu client)"
+        : browserTransport === "STALE"
+          ? "Server OK nhưng browser MJPEG có vẻ đóng băng (client activity stale)"
+          : "Đang giải mã LIVE — chưa phải CAMERA_LAB_PASS"
       : displayStatus === "STALE"
-        ? "Preview có thể đóng băng — decoder STALE (không tin LIVE chỉ vì <img> chưa lỗi)"
+        ? "SERVER_DECODER_WATCHDOG=STALE (không phải bằng chứng browser freeze độc lập)"
         : displayStatus === "DEGRADED"
           ? "Khung hỏng/HEVC — không dùng nhận diện. Bấm Kết nối lại."
           : displayStatus === "MOCK"
@@ -730,6 +751,7 @@ export function CameraPage() {
                   alt="LIVE MJPEG"
                   src={mjpegSrc}
                   className="w-full h-full object-contain"
+                  onLoad={() => setClientMjpegActivityMs(Date.now())}
                   onError={() => setViewMode("snapshot")}
                 />
                 <div
@@ -740,7 +762,10 @@ export function CameraPage() {
                   }`}
                 >
                   MJPEG · {displayStatus}
-                  {mjpegWatch !== "OK" && mjpegWatch !== "UNKNOWN" ? ` · watchdog=${mjpegWatch}` : ""}
+                  {serverWatch !== "OK" && serverWatch !== "UNKNOWN"
+                    ? ` · SERVER_DECODER=${serverWatch}`
+                    : ""}
+                  {` · browser=${browserTransport}`}
                 </div>
               </>
             ) : preview ? (

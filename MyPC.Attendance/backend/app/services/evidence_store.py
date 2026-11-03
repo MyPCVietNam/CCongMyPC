@@ -201,15 +201,23 @@ def list_physical_evidence_for_camera(
     )
     out: list[dict[str, Any]] = []
     for row in db.scalars(q).all():
-        pin_ok = True
-        pin_code = "PINS_NOT_CHECKED"
-        if pins is not None:
+        # pins=None ⇒ NOT eligible (cannot claim pin match without server-derived pins)
+        if pins is None:
+            pin_ok = False
+            pin_code = "PINS_UNAVAILABLE"
+            eligible_reason = "SERVER_PINS_UNAVAILABLE"
+        else:
             pin_ok = (
                 row.model_hash_pin == pins.get("model_hash_pin")
                 and row.gallery_revision_pin == pins.get("gallery_revision_pin")
                 and row.threshold_id_pin == pins.get("threshold_id_pin")
             )
             pin_code = "PINS_MATCH" if pin_ok else "EVIDENCE_PIN_MISMATCH"
+            eligible_reason = "OK" if pin_ok else pin_code
+        has_lab = bool((row.lab_run_id or "").strip())
+        if pin_ok and not has_lab:
+            eligible_reason = "MISSING_LAB_RUN_ID"
+        eligible = bool(pin_ok and has_lab)
         out.append(
             {
                 "evidence_id": row.evidence_id,
@@ -225,7 +233,8 @@ def list_physical_evidence_for_camera(
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "operator": row.operator or "",
                 "pin_status": pin_code,
-                "eligible_for_sign": bool(pin_ok and (row.lab_run_id or "").strip()),
+                "eligible_for_sign": eligible,
+                "eligible_reason": eligible_reason,
                 # Never expose challenge / payload pixels
             }
         )

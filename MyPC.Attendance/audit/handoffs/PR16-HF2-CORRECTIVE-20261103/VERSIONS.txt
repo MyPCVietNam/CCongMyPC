@@ -1,0 +1,6 @@
+python: 3.12.3
+fastapi: 0.115.14
+opencv: 4.13.0
+pytest: 334 passed
+node: v22.23.4
+npm: 10.9.9

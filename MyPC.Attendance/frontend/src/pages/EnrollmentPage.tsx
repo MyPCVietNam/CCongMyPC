@@ -444,11 +444,11 @@ export function EnrollmentPage() {
               {showQuality ? "Ẩn" : "Xem"} chi tiết chất lượng
             </button>
           </div>
-          {showQuality && lastQuality && (
+          {showQuality && lastQuality != null ? (
             <pre className="text-xs overflow-auto max-h-48 rounded-md bg-canvas border border-line p-2 text-muted">
               {JSON.stringify(lastQuality, null, 2)}
             </pre>
-          )}
+          ) : null}
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 
@@ -85,6 +85,7 @@ export function WindowsLabPage() {
     Array<{
       evidence_id: string;
       eligible_for_sign?: boolean;
+      eligible_reason?: string;
       pin_status?: string;
       created_at?: string | null;
       decoded_w?: number | null;
@@ -94,15 +95,21 @@ export function WindowsLabPage() {
     }>
   >([]);
   const [busy, setBusy] = useState(false);
+  const evidenceGen = useRef(0);
 
-  function resetWizardForCameraChange() {
-    setRun(null);
-    setChallenge("");
+  function resetEvidenceAndSigned() {
+    evidenceGen.current += 1;
     setEvidenceId("");
     setApprovalId("");
     setSignedLab(false);
     setSignedMeta(null);
     setPriorEvidence([]);
+  }
+
+  function resetWizardForCameraChange() {
+    setRun(null);
+    setChallenge("");
+    resetEvidenceAndSigned();
     setMsg("");
     setErr("");
   }
@@ -123,13 +130,24 @@ export function WindowsLabPage() {
     resetWizardForCameraChange();
   }, [cameraId]);
 
+  // Kind switch resets evidence/signed (FACE_PILOT ≠ CAMERA_LAB)
+  useEffect(() => {
+    resetEvidenceAndSigned();
+    setErr("");
+  }, [kind]);
+
   async function loadPriorEvidence(cid: number) {
+    const gen = ++evidenceGen.current;
+    const expectedKind = kind;
     try {
       const r = await api<{
         items: typeof priorEvidence;
         signed_active: { approval_id?: string; expires_at?: string | null } | null;
         physical_verified_ne_signed?: boolean;
-      }>(`/api/v1/cameras/${cid}/quality/evidence?kind=${kind}`);
+      }>(`/api/v1/cameras/${cid}/quality/evidence?kind=${expectedKind}`);
+      if (gen !== evidenceGen.current || cid !== cameraId || expectedKind !== kind) {
+        return; // stale response discarded
+      }
       setPriorEvidence(r.items || []);
       if (r.signed_active?.approval_id) {
         setSignedLab(true);
@@ -140,10 +158,14 @@ export function WindowsLabPage() {
         setSignedMeta(null);
       }
     } catch (ex) {
+      if (gen !== evidenceGen.current) return;
       setPriorEvidence([]);
       setErr(ex instanceof Error ? ex.message : String(ex));
     }
   }
+
+  const selectedEvidence = priorEvidence.find((e) => e.evidence_id === evidenceId);
+  const evidenceEligible = Boolean(selectedEvidence?.eligible_for_sign);
 
   function allowed(action: string): boolean {
     if (!run?.allowed_actions) return true;
@@ -313,6 +335,12 @@ export function WindowsLabPage() {
     }
     if (kind !== "CAMERA_LAB") {
       setErr("FACE_PILOT ký HMAC cần face-case evidence riêng — chưa mở trong wizard này.");
+      return;
+    }
+    if (!evidenceEligible) {
+      setErr(
+        `Evidence không eligible_for_sign (${selectedEvidence?.eligible_reason || "UNKNOWN"}). Backend vẫn enforce.`
+      );
       return;
     }
     setBusy(true);
@@ -580,6 +608,12 @@ export function WindowsLabPage() {
             )}
             <ul className="text-xs text-muted space-y-1">
               <li>evidence_id: {evidenceId || "—"}</li>
+              <li>
+                eligible: {evidenceId ? String(evidenceEligible) : "—"}
+                {selectedEvidence?.eligible_reason
+                  ? ` (${selectedEvidence.eligible_reason})`
+                  : ""}
+              </li>
               <li>approval_id: {approvalId || signedMeta?.approval_id || "—"}</li>
               <li>signed_camera_lab (verified): {String(signedLab)}</li>
               <li>expires: {signedMeta?.expires_at || "—"}</li>
@@ -587,7 +621,12 @@ export function WindowsLabPage() {
             <button
               type="button"
               onClick={signHmacApproval}
-              disabled={busy || !evidenceId || kind !== "CAMERA_LAB"}
+              disabled={busy || !evidenceId || kind !== "CAMERA_LAB" || !evidenceEligible}
+              title={
+                !evidenceEligible && evidenceId
+                  ? selectedEvidence?.eligible_reason || "Evidence chưa đủ điều kiện ký"
+                  : undefined
+              }
               className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
               Ký CAMERA_LAB (HMAC)

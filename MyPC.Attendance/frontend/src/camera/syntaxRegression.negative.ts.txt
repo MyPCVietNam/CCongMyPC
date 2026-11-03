@@ -1,0 +1,13 @@
+/**
+ * NEGATIVE FIXTURE (not compiled) — documents the HF1 TS1003/TS1138 failure mode.
+ * If this signature were restored in diagLanes.ts, `npx tsc --noEmit` MUST fail.
+ *
+ * export function mjpegWatchdogState(
+ *   live: LiveHealthLane | null | undefined,
+ *   *,
+ *   staleAfterMs = 4000
+ * ): ...
+ *
+ * Python-style keyword-only `*,` is invalid TypeScript (TS1003/TS1138).
+ * HF2 uses options object: mjpegWatchdogState(live, { staleAfterMs: 4000 }).
+ */
