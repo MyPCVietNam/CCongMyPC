@@ -1,0 +1,6 @@
+pytest: 304 passed
+frontend build: OK (vite 6.4.5)
+npm audit: 0 vulnerabilities
+physical gates: CAMERA_LAB FACE_PILOT EXIT_VERIFICATION INSTALLER = BLOCKED
+P0-01 session outbox: PASS (unit interleaving)
+P0-02 staged credentials: PASS (replace/remove/rollback tests)

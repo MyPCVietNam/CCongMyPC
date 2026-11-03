@@ -1,0 +1,13 @@
+Independent deterministic in-memory reproduction using the actual get_db() function body extracted from `backend/app/api/deps.py` (AST; annotations removed for isolated execution). Fake sessions and a fake secrets object were used; no real files or databases were touched.
+
+A started, uncommitted
+B started
+COMMIT Request-2
+SECRET_DELETED camera-A.bin
+B completed; A still uncommitted
+ROLLBACK Request-1
+
+This demonstrates request-global pending-camera-secret deletion is not transaction-specific.
+
+Independent test attempt: `python -m compileall -q backend tests` PASS.
+Full pytest cannot import under this analysis host's Python 3.13 because `backend/app/vision/faces/image_io.py` imports stdlib `imghdr` (removed in Python 3.13). Owner's Windows Python 3.12 is a different supported target. The source archive's `reports/pytest.txt` states `295 passed in 52.88s`; that is Cursor's recorded result, not independently rerun here.
