@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
-from app.services.secret_fs_outbox import queue_delete, queue_promote
+from app.services.secret_fs_outbox import acquire_camera_credential_lock, queue_delete, queue_promote
 from app.services.secrets_store import SecretsStore
 
 CredentialAction = Literal["keep", "replace", "remove"]
@@ -72,7 +72,7 @@ def apply_camera_credentials(
 
     if action == "remove":
         if current_secret_ref and db is not None:
-            queue_delete(db, current_secret_ref)
+            queue_delete(db, current_secret_ref, camera_id=camera_id)
         elif current_secret_ref and db is None:
             # Legacy/unit path without session — immediate (tests only)
             secrets.delete_camera_secret(current_secret_ref)
@@ -152,8 +152,9 @@ def _stage_replace(
         return CredentialApplyResult(
             secret_ref=ref, username_hint=username, changed=True, action=action_label
         )
+    acquire_camera_credential_lock(db, camera_id)
     staged = secrets.stage_camera_secret(camera_id, username, password)
-    queue_promote(db, staged_ref=staged, live_ref=live_ref)
+    queue_promote(db, staged_ref=staged, live_ref=live_ref, camera_id=camera_id)
     return CredentialApplyResult(
         secret_ref=live_ref,
         username_hint=username,

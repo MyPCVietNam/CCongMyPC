@@ -476,6 +476,16 @@ def configure_live_gateway(
     # Start the (possibly shared) gateway after bind
     bound.gateway.start()
     state.camera_gateway = bound.gateway  # legacy pointer
+    # If SQL rolls back, do not leave LIVE runtime bound to uncommitted config (audit #4)
+    from app.services.secret_fs_outbox import register_runtime_compensate
+
+    def _undo_live_bind() -> None:
+        if state.camera_registry is not None:
+            state.camera_registry.unbind(camera_db_id)
+        if state.camera_gateway is bound.gateway:
+            state.camera_gateway = None
+
+    register_runtime_compensate(db, _undo_live_bind)
     row.mock_mode = False
     from app.models.entities import CameraLiveBinding
     from app.services.pilot_approval import revoke_approvals
@@ -884,7 +894,7 @@ def delete_camera(
     if secret_ref:
         from app.services.secret_fs_outbox import queue_delete
 
-        queue_delete(db, secret_ref)
+        queue_delete(db, secret_ref, camera_id=camera_id)
     return {"ok": True, "deleted_id": camera_id, "credential_delete_deferred": bool(secret_ref)}
 
 

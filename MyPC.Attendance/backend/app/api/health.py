@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app import APP_NAME, SPEC_VERSION, __version__
-from app.api.deps import AppState, get_app_state, get_current_user
+from app.api.deps import AppState, get_app_state, get_current_user, require_csrf
 from app.core.database import check_integrity
 
 router = APIRouter(tags=["health"])
@@ -167,6 +167,12 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             ),
         },
         "sqlite_integrity": integrity,
+        "secret_fs_outbox": {
+            "startup_recovery": getattr(state, "secret_fs_recovery", None),
+            "pending": __import__(
+                "app.services.secret_fs_outbox", fromlist=["list_pending_journals"]
+            ).list_pending_journals(state.secrets),
+        },
         "gates": {
             "UNIT": "see test report",
             "MOCK_INTEGRATION": "see test report",
@@ -183,4 +189,29 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             "end_exclusive": state.config_service.active.windows.afternoon_recognition_end_exclusive,
             "reference": state.config_service.active.windows.afternoon_selection.reference_time,
         },
+    }
+
+
+@router.post("/api/v1/system/secret-fs-outbox/retry", dependencies=[Depends(require_csrf)])
+def retry_secret_fs_outbox(
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """Safely replay durable credential FS journals left after post-commit failures."""
+    _ = user
+    from app.services.secret_fs_outbox import list_pending_journals, recover_pending_journals
+
+    summary = recover_pending_journals(state.secrets)
+    state.secret_fs_recovery = summary  # type: ignore[attr-defined]
+    pending = list_pending_journals(state.secrets)
+    return {
+        "ok": summary.get("journals_failed", 0) == 0 and not pending,
+        "recovery": summary,
+        "pending": pending,
+        "message_vi": (
+            "Đã thử phát lại nhật ký credential. "
+            "Nếu vẫn còn pending — kiểm tra quyền ACL thư mục secrets."
+            if pending
+            else "Không còn nhật ký credential chờ xử lý."
+        ),
     }

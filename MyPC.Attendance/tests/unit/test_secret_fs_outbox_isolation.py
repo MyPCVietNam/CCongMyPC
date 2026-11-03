@@ -75,7 +75,7 @@ def test_promote_only_after_commit_preserves_live_on_rollback(tmp_path: Path):
     # Live unchanged while staged exists
     assert secrets.get_camera_secret(live)["password"] == "OldPass!!33"
 
-    queue_promote(sess, staged_ref=staged, live_ref=live)  # type: ignore[arg-type]
+    queue_promote(sess, staged_ref=staged, live_ref=live, camera_id=303)  # type: ignore[arg-type]
     abort_outbox_after_rollback(secrets, sess)  # type: ignore[arg-type]
     assert secrets.get_camera_secret(live)["password"] == "OldPass!!33"
     assert not secrets.has_secret(staged)
@@ -87,7 +87,7 @@ def test_promote_after_commit_replaces_live(tmp_path: Path):
     secrets.put_camera_secret(304, "admin", "OldPass!!44")
     sess = _FakeSession()
     staged = secrets.stage_camera_secret(304, "admin", "NewPass!!44")
-    queue_promote(sess, staged_ref=staged, live_ref=live)  # type: ignore[arg-type]
+    queue_promote(sess, staged_ref=staged, live_ref=live, camera_id=304)  # type: ignore[arg-type]
     apply_outbox_after_commit(secrets, sess)  # type: ignore[arg-type]
     assert secrets.get_camera_secret(live)["password"] == "NewPass!!44"
     assert not secrets.has_secret(staged)
