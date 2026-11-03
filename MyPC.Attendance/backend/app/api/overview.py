@@ -46,17 +46,53 @@ def overview(
         )
     ) or 0
     cams = db.scalars(select(CameraDevice)).all()
-    if not cams:
+    active = [c for c in cams if not getattr(c, "archived", False)]
+    live_ready = 0
+    mock_cfg = 0
+    enabled_real = 0
+    if state.camera_registry is not None:
+        try:
+            health_map = state.camera_registry.health()
+            for src in (health_map.get("sources") or []):
+                if (
+                    str(src.get("provenance") or "") == "CAMERA_LIVE"
+                    and src.get("operationally_ready")
+                    and str(src.get("decoder_status") or "") == "OK"
+                ):
+                    live_ready += 1
+        except Exception:  # noqa: BLE001
+            pass
+    for c in active:
+        if c.mock_mode:
+            mock_cfg += 1
+        elif c.enabled:
+            enabled_real += 1
+
+    # Honest fleet aggregation — never call the fleet LIVE because of provenance alone (P1-03)
+    if not active:
         cam_status_vi = "Chưa cấu hình"
-    elif any(c.mock_mode for c in cams):
-        cam_status_vi = "Đang kết nối (mô phỏng)"
+    elif live_ready > 0 and mock_cfg > 0:
+        cam_status_vi = f"LIVE sẵn sàng: {live_ready} · MOCK cấu hình: {mock_cfg}"
+    elif live_ready > 0:
+        cam_status_vi = f"LIVE sẵn sàng: {live_ready} camera (chưa CAMERA_LAB_PASS)"
+    elif mock_cfg and not enabled_real:
+        cam_status_vi = "Chỉ cấu hình MOCK — chưa có LIVE đã giải mã"
+    elif enabled_real:
+        cam_status_vi = "Đã cấu hình — chờ LIVE decode / Kiểm tra"
     else:
-        cam_status_vi = "Chưa cấu hình" if not any(c.enabled for c in cams) else "Chờ kiểm tra"
+        cam_status_vi = "Chưa cấu hình"
 
     return {
         "work_date": wd.isoformat(),
         "camera_status_vi": cam_status_vi,
         "camera_note_vi": "Không thể kết luận vắng mặt khi camera mất kết nối",
+        "camera_fleet": {
+            "total": len(active),
+            "mock_configured": mock_cfg,
+            "enabled_non_mock": enabled_real,
+            "live_operationally_ready": live_ready,
+            "camera_lab_pass": False,
+        },
         "total_staff": total_staff,
         "morning_present": morning_count,
         "morning_late": late_count,

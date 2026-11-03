@@ -57,16 +57,21 @@ class _LiveStub:
         )
 
     def health(self):
+        ready = self._running and self.provenance == StreamProvenance.CAMERA_LIVE
         return GatewayHealth(
             provenance=self.provenance,
-            decoder_status=DecoderStatus.OK,
+            decoder_status=DecoderStatus.OK if self._running else DecoderStatus.STOPPED,
             native_width=self.w,
             native_height=self.h,
             fps_estimate=8.0,
             detail_vi="stub",
             camera_lab_pass=False,
-            operationally_ready=False,
+            operationally_ready=ready,
         )
+
+    def get_latest_good_frame(self):
+        fr = self.get_latest_frame()
+        return fr if fr is not None and fr.integrity_ok else None
 
 
 def _bind_live(app, cam_id: int, stub: _LiveStub | None = None):

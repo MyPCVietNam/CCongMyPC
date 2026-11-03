@@ -223,6 +223,7 @@ def create_camera(
             action=action if action in {"keep", "replace", "remove"} else "keep",
             username=body.username,
             password=body.password,
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -404,6 +405,7 @@ def configure_live_gateway(
             action=credential_action if credential_action in {"keep", "replace", "remove"} else "keep",  # type: ignore[arg-type]
             username=username,
             password="" if password is None else str(password),
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -411,7 +413,9 @@ def configure_live_gateway(
     row.username_hint = cred.username_hint
     # Persist editable RTSP path (no userinfo) on configure
     row.rtsp_url_override = safe_uri
-    stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+    # Same-request: prefer staged blob until post-commit promote
+    read_ref = cred.staged_ref or row.secret_ref
+    stored = state.secrets.get_camera_secret(read_ref) if read_ref else None
     if stored and stored.get("username"):
         from urllib.parse import quote
 
@@ -472,6 +476,16 @@ def configure_live_gateway(
     # Start the (possibly shared) gateway after bind
     bound.gateway.start()
     state.camera_gateway = bound.gateway  # legacy pointer
+    # If SQL rolls back, do not leave LIVE runtime bound to uncommitted config (audit #4)
+    from app.services.secret_fs_outbox import register_runtime_compensate
+
+    def _undo_live_bind() -> None:
+        if state.camera_registry is not None:
+            state.camera_registry.unbind(camera_db_id)
+        if state.camera_gateway is bound.gateway:
+            state.camera_gateway = None
+
+    register_runtime_compensate(db, _undo_live_bind)
     row.mock_mode = False
     from app.models.entities import CameraLiveBinding
     from app.services.pilot_approval import revoke_approvals
@@ -688,6 +702,7 @@ def update_camera(
             action=action,  # type: ignore[arg-type]
             username=body.username,
             password=body.password,
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -815,10 +830,23 @@ def delete_camera(
         RecognitionRegion,
     )
 
-    for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
-        for dep in list(db.scalars(select(model).where(model.camera_id == camera_id)).all()):  # type: ignore[attr-defined]
-            db.delete(dep)
-    db.flush()
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        for model in (RecognitionRegion, CameraQualitySettings, CameraStreamProfile, CameraLiveBinding):
+            for dep in list(db.scalars(select(model).where(model.camera_id == camera_id)).all()):  # type: ignore[attr-defined]
+                db.delete(dep)
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CAMERA_CONFIG_CLEANUP_FK",
+                "message_vi": "Không dọn được cấu hình phụ thuộc — dùng Lưu trữ.",
+                "blockers": _camera_delete_blockers(db, camera_id),
+            },
+        ) from exc
     # Re-check blockers after config cleanup (should still be zero for hard-delete path)
     blockers_after = _camera_delete_blockers(db, camera_id)
     if blockers_after["total"] > 0:
@@ -833,8 +861,7 @@ def delete_camera(
     try:
         db.delete(row)
         db.flush()
-    except Exception as exc:  # noqa: BLE001
-        # Map unexpected FK races to actionable 409 (never generic 500)
+    except IntegrityError as exc:
         db.rollback()
         blockers_now = _camera_delete_blockers(db, camera_id)
         raise HTTPException(
@@ -848,11 +875,10 @@ def delete_camera(
                 "blockers": blockers_now,
             },
         ) from exc
-    if secret_ref:
-        try:
-            state.secrets.delete_camera_secret(secret_ref)
-        except Exception:
-            pass
+    except Exception:
+        # Real operational / DB failures — do not mask as 409
+        db.rollback()
+        raise
     db.add(
         AuditLog(
             actor=user.username,
@@ -863,7 +889,13 @@ def delete_camera(
             timestamp=utc_now(),
         )
     )
-    return {"ok": True, "deleted_id": camera_id}
+    # Queue filesystem credential scrub on THIS session outbox only (P0-01).
+    # Never delete camera-*.bin before durable DB commit; never share across requests.
+    if secret_ref:
+        from app.services.secret_fs_outbox import queue_delete
+
+        queue_delete(db, secret_ref, camera_id=camera_id)
+    return {"ok": True, "deleted_id": camera_id, "credential_delete_deferred": bool(secret_ref)}
 
 
 @router.get("/{camera_id}/delete-blockers")

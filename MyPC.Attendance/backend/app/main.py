@@ -85,6 +85,13 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     config_service = ConfigService(clock)
     attendance_service = AttendanceService(clock)
     secrets = SecretsStore(settings.data_dir)
+    # Crash recovery: replay durable credential FS journals left after commit-before-promote kill
+    from app.services.secret_fs_outbox import recover_pending_journals
+
+    try:
+        secret_fs_recovery = recover_pending_journals(secrets)
+    except Exception as exc:  # noqa: BLE001
+        secret_fs_recovery = {"journals_applied": 0, "journals_failed": 0, "error": str(exc)}
     camera = MockCameraGateway()
     camera.connect_mock()
 
@@ -121,6 +128,7 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     )
     container.alembic_ok = alembic_ok
     container.alembic_error = alembic_error
+    container.secret_fs_recovery = secret_fs_recovery  # type: ignore[attr-defined]
 
     with session_factory() as session:
         config_service.load_from_db(session)

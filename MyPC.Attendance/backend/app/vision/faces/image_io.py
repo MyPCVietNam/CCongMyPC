@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import imghdr
 from dataclasses import dataclass
 
 import numpy as np
@@ -13,6 +12,15 @@ MAX_COMPRESSED_BYTES = 8 * 1024 * 1024  # 8 MiB
 MAX_PIXELS = 12_000_000  # ~4000x3000
 MAX_DIM = 4096
 ALLOWED_FORMATS = {"jpeg", "png"}
+
+
+def _detect_image_kind(raw: bytes) -> str | None:
+    """Magic-byte detection — stdlib imghdr was removed in Python 3.13 (P2-09)."""
+    if raw[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    return None
 
 
 class ImageDecodeError(ValueError):
@@ -58,13 +66,7 @@ def decode_image_base64(
     if len(raw) < 24:
         raise ImageDecodeError("Tệp ảnh quá nhỏ hoặc hỏng.", "TOO_SMALL")
 
-    kind = imghdr.what(None, h=raw)
-    # imghdr may return 'jpeg'/'png'; also check magic
-    if kind is None:
-        if raw[:3] == b"\xff\xd8\xff":
-            kind = "jpeg"
-        elif raw[:8] == b"\x89PNG\r\n\x1a\n":
-            kind = "png"
+    kind = _detect_image_kind(raw)
     if kind not in ALLOWED_FORMATS:
         raise ImageDecodeError(
             "Chỉ chấp nhận JPEG hoặc PNG.",

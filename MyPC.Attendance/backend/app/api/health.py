@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app import APP_NAME, SPEC_VERSION, __version__
-from app.api.deps import AppState, get_app_state, get_current_user
+from app.api.deps import AppState, get_app_state, get_current_user, require_csrf
 from app.core.database import check_integrity
 
 router = APIRouter(tags=["health"])
@@ -64,28 +64,49 @@ def runtime_badge(
     camera_id = None
     config_revision = None
     decoded = None
+    decoder_status = None
+    operationally_ready = False
     reg = state.camera_registry
     if reg is not None:
         try:
             health_map = reg.health()
             sources = health_map.get("sources") if isinstance(health_map, dict) else None
+            # Prefer an operationally-ready LIVE source; never imply LIVE from provenance alone (P1-03)
+            chosen = None
             if sources:
-                s0 = sources[0]
-                provenance = str(s0.get("provenance") or "UNKNOWN")
-                camera_id = s0.get("camera_id")
-                config_revision = s0.get("config_revision")
+                for s in sources:
+                    if (
+                        str(s.get("provenance") or "") == "CAMERA_LIVE"
+                        and s.get("operationally_ready")
+                        and str(s.get("decoder_status") or "") == "OK"
+                    ):
+                        chosen = s
+                        break
+                if chosen is None:
+                    chosen = sources[0]
+            if chosen is not None:
+                provenance = str(chosen.get("provenance") or "UNKNOWN")
+                camera_id = chosen.get("camera_id")
+                config_revision = chosen.get("config_revision")
+                decoder_status = chosen.get("decoder_status")
+                operationally_ready = bool(chosen.get("operationally_ready"))
                 decoded = {
-                    "width": s0.get("native_width"),
-                    "height": s0.get("native_height"),
-                    "fps_estimate": s0.get("fps_estimate"),
+                    "width": chosen.get("native_width"),
+                    "height": chosen.get("native_height"),
+                    "fps_estimate": chosen.get("fps_estimate"),
                 }
+                if provenance == "CAMERA_LIVE" and not (
+                    operationally_ready and str(decoder_status or "") == "OK"
+                ):
+                    # Bound but not healthy — honest badge
+                    provenance = "CAMERA_LIVE_NOT_READY"
         except Exception:  # noqa: BLE001
             provenance = "UNKNOWN"
     else:
         provenance = "MOCK" if state.camera.state.mock_mode else "UNKNOWN"
-    # LIVE label only if provenance claims CAMERA_LIVE — still not CAMERA_LAB PASS
     label_vi = {
-        "CAMERA_LIVE": "Nguồn LIVE (chưa chứng minh CAMERA_LAB)",
+        "CAMERA_LIVE": "Nguồn LIVE đã giải mã (chưa CAMERA_LAB_PASS)",
+        "CAMERA_LIVE_NOT_READY": "Đã gắn LIVE nhưng decoder chưa sẵn sàng",
         "MOCK": "Dữ liệu mô phỏng / MOCK",
         "AUTHORIZED_RECORDED": "REPLAY đã ủy quyền",
         "UNKNOWN": "Nguồn chưa xác minh",
@@ -98,11 +119,13 @@ def runtime_badge(
         "label_vi": label_vi,
         "camera_id": camera_id,
         "config_revision": config_revision,
+        "decoder_status": decoder_status,
+        "operationally_ready": operationally_ready,
         "decoded": decoded,
         "camera_lab_pass": False,
         "face_pilot_pass": False,
         "note_vi": (
-            "Nhãn MOCK/LIVE lấy từ server. TCP camera ≠ decode LIVE. "
+            "Nhãn MOCK/LIVE lấy từ server. Provenance ≠ decoder healthy ≠ CAMERA_LAB_PASS. "
             "CAMERA_LAB/FACE_PILOT vẫn BLOCKED đến khi có bằng chứng vật lý."
         ),
     }
@@ -144,6 +167,12 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             ),
         },
         "sqlite_integrity": integrity,
+        "secret_fs_outbox": {
+            "startup_recovery": getattr(state, "secret_fs_recovery", None),
+            "pending": __import__(
+                "app.services.secret_fs_outbox", fromlist=["list_pending_journals"]
+            ).list_pending_journals(state.secrets),
+        },
         "gates": {
             "UNIT": "see test report",
             "MOCK_INTEGRATION": "see test report",
@@ -160,4 +189,29 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
             "end_exclusive": state.config_service.active.windows.afternoon_recognition_end_exclusive,
             "reference": state.config_service.active.windows.afternoon_selection.reference_time,
         },
+    }
+
+
+@router.post("/api/v1/system/secret-fs-outbox/retry", dependencies=[Depends(require_csrf)])
+def retry_secret_fs_outbox(
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """Safely replay durable credential FS journals left after post-commit failures."""
+    _ = user
+    from app.services.secret_fs_outbox import list_pending_journals, recover_pending_journals
+
+    summary = recover_pending_journals(state.secrets)
+    state.secret_fs_recovery = summary  # type: ignore[attr-defined]
+    pending = list_pending_journals(state.secrets)
+    return {
+        "ok": summary.get("journals_failed", 0) == 0 and not pending,
+        "recovery": summary,
+        "pending": pending,
+        "message_vi": (
+            "Đã thử phát lại nhật ký credential. "
+            "Nếu vẫn còn pending — kiểm tra quyền ACL thư mục secrets."
+            if pending
+            else "Không còn nhật ký credential chờ xử lý."
+        ),
     }

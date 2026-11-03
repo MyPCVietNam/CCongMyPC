@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 
 type Cam = { id: number; name: string; host: string; mock_mode: boolean; archived?: boolean };
@@ -24,6 +25,41 @@ type LabRun = {
   distinctions_vi?: Record<string, string>;
 };
 
+type WizardStep = {
+  id: string;
+  title: string;
+  action?: string;
+  doneWhen?: (run: LabRun | null) => boolean;
+};
+
+const STEPS: WizardStep[] = [
+  { id: "start", title: "Bắt đầu lab run" },
+  {
+    id: "measure",
+    title: "Đo LIVE nguồn",
+    action: "measure",
+    doneWhen: (r) => Boolean(r && ["LIVE_MEASURED", "OWNER_REVIEWED", "PHYSICAL_VERIFIED"].includes(r.state)),
+  },
+  {
+    id: "challenge",
+    title: "Lấy challenge (một lần)",
+    action: "reveal_challenge",
+    doneWhen: (r) => Boolean(r && ["OWNER_REVIEWED", "PHYSICAL_VERIFIED"].includes(r.state)),
+  },
+  {
+    id: "review",
+    title: "Owner review",
+    action: "owner_review",
+    doneWhen: (r) => Boolean(r && ["OWNER_REVIEWED", "PHYSICAL_VERIFIED"].includes(r.state)),
+  },
+  {
+    id: "promote",
+    title: "Promote PHYSICAL",
+    action: "promote_physical",
+    doneWhen: (r) => r?.state === "PHYSICAL_VERIFIED",
+  },
+];
+
 /**
  * Secure operator workflow: session cookie stays in the browser (HttpOnly path),
  * CSRF via in-memory header from login — never pasted into PowerShell.
@@ -40,7 +76,7 @@ export function WindowsLabPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [evidenceId, setEvidenceId] = useState("");
-  const [showJson, setShowJson] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api<Cam[]>("/api/v1/cameras")
@@ -58,9 +94,21 @@ export function WindowsLabPage() {
     return run.allowed_actions.includes(action);
   }
 
+  const activeStepId = useMemo(() => {
+    if (!run) return "start";
+    if (run.state === "PHYSICAL_VERIFIED") return "done";
+    const acts = run.allowed_actions || [];
+    if (acts.includes("measure")) return "measure";
+    if (acts.includes("reveal_challenge") && !challenge) return "challenge";
+    if (acts.includes("owner_review") || (acts.includes("reveal_challenge") && challenge)) return "review";
+    if (acts.includes("promote_physical")) return "promote";
+    return "done";
+  }, [run, challenge]);
+
   async function startRun(e: FormEvent) {
     e.preventDefault();
     if (cameraId == null) return;
+    setBusy(true);
     setErr("");
     setMsg("");
     setChallenge("");
@@ -74,6 +122,8 @@ export function WindowsLabPage() {
       setMsg(r.next_action_vi || `Đã tạo lab run ${r.run_id}`);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -83,6 +133,7 @@ export function WindowsLabPage() {
       setErr(run.next_action_vi || "Không đo được ở trạng thái hiện tại.");
       return;
     }
+    setBusy(true);
     setErr("");
     try {
       const r = await api<LabRun>(`/api/v1/cameras/${cameraId}/lab-runs/${run.run_id}/measure`, {
@@ -95,6 +146,8 @@ export function WindowsLabPage() {
       );
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -108,6 +161,7 @@ export function WindowsLabPage() {
       );
       return;
     }
+    setBusy(true);
     setErr("");
     try {
       const r = await api<{ owner_challenge: string }>(
@@ -118,6 +172,8 @@ export function WindowsLabPage() {
       setMsg("Đã lấy challenge một lần vào bộ nhớ trình duyệt — không lưu JSON/log.");
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -131,6 +187,11 @@ export function WindowsLabPage() {
       );
       return;
     }
+    if (!challenge.trim()) {
+      setErr("Cần lấy challenge trước khi xác nhận owner review.");
+      return;
+    }
+    setBusy(true);
     setErr("");
     try {
       const r = await api<LabRun>(
@@ -145,6 +206,8 @@ export function WindowsLabPage() {
       setMsg(`Owner review: ${r.state} (${r.review_kind}). ${r.next_action_vi || ""}`);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -154,6 +217,7 @@ export function WindowsLabPage() {
       setErr(run.next_action_vi || "Chưa thể promote.");
       return;
     }
+    setBusy(true);
     setErr("");
     try {
       const r = await api<{ evidence_id: string; evidence_class: string; camera_lab_pass: boolean }>(
@@ -175,10 +239,12 @@ export function WindowsLabPage() {
       setMsg(
         `Evidence ${r.evidence_id} class=${r.evidence_class}. ` +
           `PHYSICAL_VERIFIED ≠ camera_lab_pass (vẫn ${String(r.camera_lab_pass)}). ` +
-          `Cần phê duyệt HMAC riêng; cổng vật lý có thể vẫn BLOCKED.`
+          `Cần phê duyệt HMAC riêng; cổng vật lý vẫn BLOCKED cho đến khi có bằng chứng owner.`
       );
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -188,159 +254,255 @@ export function WindowsLabPage() {
       ? "N/A (CAMERA_LAB không duyệt nhận diện)"
       : String(run?.face_validation_status || checklist.face_pilot || "PENDING");
 
+  const disabledReason = (action: string): string | null => {
+    if (!run) return "Hãy bắt đầu lab run trước.";
+    if (allowed(action)) return null;
+    return run.next_action_vi || `Bước “${action}” chưa sẵn sàng (state=${run.state}).`;
+  };
+
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="font-display text-2xl text-ink">Windows Lab</h1>
-        <p className="text-sm text-muted mt-1">
-          Wizard toán tử: chỉ hiện bước hợp lệ. Không dán cookie/CSRF/challenge vào PowerShell.
-          CAMERA_LAB / FACE_PILOT / INSTALLER vẫn BLOCKED cho đến khi có bằng chứng LAN thật.
-          Owner review là xác nhận <strong>một toán tử</strong>, không phải review độc lập hai bên.
+    <div className="space-y-5 max-w-3xl">
+      <header className="space-y-1">
+        <p className="text-xs text-muted">
+          <Link to="/cai-dat" className="text-brand hover:underline">
+            ← Cài đặt
+          </Link>
+          <span className="mx-2">·</span>
+          Quản trị / Windows Lab
         </p>
-      </div>
+        <h1 className="font-display text-2xl text-ink">Windows Lab</h1>
+        <p className="text-sm text-muted">
+          Wizard từng bước: chỉ hiện hành động hợp lệ tiếp theo. Cookie/CSRF/challenge không được dán vào
+          PowerShell. CAMERA_LAB / FACE_PILOT / INSTALLER vẫn BLOCKED đến khi có bằng chứng LAN thật.
+        </p>
+      </header>
 
-      <form onSubmit={startRun} className="space-y-3 rounded-md border border-line bg-panel p-4">
-        <label className="block text-sm">
-          Camera vật lý (ưu tiên không MOCK)
-          <select
-            className="mt-1 w-full rounded-md border border-line bg-panel2 px-3 py-2"
-            value={cameraId ?? ""}
-            onChange={(e) => setCameraId(Number(e.target.value))}
-          >
-            {cams.map((c) => (
-              <option key={c.id} value={c.id}>
-                #{c.id} {c.name} {c.mock_mode ? "(MOCK — không đủ PHYSICAL)" : ""} {c.host}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          Loại lab
-          <select
-            className="mt-1 w-full rounded-md border border-line bg-panel2 px-3 py-2"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as "CAMERA_LAB" | "FACE_PILOT")}
-          >
-            <option value="CAMERA_LAB">CAMERA_LAB (kết nối / LIVE decode)</option>
-            <option value="FACE_PILOT">FACE_PILOT (case CORRECT đủ sàn — không đếm WRONG/FA)</option>
-          </select>
-        </label>
-        <button type="submit" className="rounded-md bg-brand/90 text-white px-4 py-2 text-sm">
-          1. Bắt đầu lab run mới
-        </button>
-      </form>
+      <ol className="flex flex-wrap gap-2 text-xs" aria-label="Tiến trình lab">
+        {STEPS.map((s, i) => {
+          const done = s.id === "start" ? Boolean(run) : Boolean(s.doneWhen?.(run));
+          const active = activeStepId === s.id;
+          return (
+            <li
+              key={s.id}
+              className={`rounded-md border px-2.5 py-1 ${
+                active
+                  ? "border-brand/40 bg-brand/10 text-brand"
+                  : done
+                    ? "border-line bg-panel2 text-ink"
+                    : "border-line text-muted"
+              }`}
+            >
+              {i + 1}. {s.title}
+            </li>
+          );
+        })}
+      </ol>
 
-      {run ? (
-        <div className="rounded-md border border-line bg-panel p-4 space-y-3 text-sm">
-          <div className="font-medium">Bước tiếp theo</div>
-          <p className="text-brand">{run.next_action_vi || run.state}</p>
-          <ul className="text-xs space-y-1">
-            <li>Lab run: {String(checklist.lab_run_created ?? true)}</li>
+      {activeStepId === "start" ? (
+        <form onSubmit={startRun} className="space-y-3 rounded-xl border border-line bg-panel p-4">
+          <h2 className="font-medium text-sm">Bước 1 — Bắt đầu lab run</h2>
+          <label className="block text-sm">
+            Camera vật lý (ưu tiên không MOCK)
+            <select
+              className="mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2"
+              value={cameraId ?? ""}
+              onChange={(e) => setCameraId(Number(e.target.value))}
+            >
+              {cams.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.id} {c.name} {c.mock_mode ? "(MOCK — không đủ PHYSICAL)" : ""} {c.host}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            Loại lab
+            <select
+              className="mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as "CAMERA_LAB" | "FACE_PILOT")}
+            >
+              <option value="CAMERA_LAB">CAMERA_LAB (kết nối / LIVE decode)</option>
+              <option value="FACE_PILOT">FACE_PILOT (case CORRECT đủ sàn)</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={busy || cameraId == null}
+            className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Bắt đầu lab run mới
+          </button>
+        </form>
+      ) : null}
+
+      {run && activeStepId === "measure" ? (
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-3">
+          <h2 className="font-medium text-sm">Bước 2 — Đo LIVE nguồn</h2>
+          <p className="text-sm text-muted">
+            {run.next_action_vi || "Đo độ phân giải / FPS từ decoder LIVE (không dùng MOCK/stale)."}
+          </p>
+          <button
+            type="button"
+            onClick={measure}
+            disabled={busy || !allowed("measure")}
+            title={disabledReason("measure") || undefined}
+            className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Đo LIVE ngay
+          </button>
+          {!allowed("measure") ? (
+            <p className="text-xs text-muted">{disabledReason("measure")}</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {run && activeStepId === "challenge" ? (
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-3">
+          <h2 className="font-medium text-sm">Bước 3 — Lấy challenge</h2>
+          <p className="text-sm text-muted">
+            Challenge chỉ mở một lần, giữ trong bộ nhớ trình duyệt — không ghi file/log.
+          </p>
+          <button
+            type="button"
+            onClick={fetchChallenge}
+            disabled={busy || !allowed("reveal_challenge")}
+            title={disabledReason("reveal_challenge") || undefined}
+            className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Lấy challenge
+          </button>
+          {challenge ? (
+            <p className="text-xs text-muted">Đã giữ challenge trong UI · độ dài {challenge.length} ký tự.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {run && activeStepId === "review" ? (
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-3">
+          <h2 className="font-medium text-sm">Bước 4 — Owner review (một toán tử)</h2>
+          <label className="block text-sm">
+            Xác nhận (ack_vi)
+            <textarea
+              className="mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2 min-h-[72px]"
+              value={ack}
+              onChange={(e) => setAck(e.target.value)}
+            />
+          </label>
+          {!challenge ? (
+            <p className="text-xs text-danger">Chưa có challenge — lấy ở bước 3 trước.</p>
+          ) : null}
+          <button
+            type="button"
+            onClick={ownerReview}
+            disabled={busy || !allowed("owner_review") || !challenge}
+            title={disabledReason("owner_review") || undefined}
+            className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Xác nhận owner review
+          </button>
+        </section>
+      ) : null}
+
+      {run && activeStepId === "promote" ? (
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-3">
+          <h2 className="font-medium text-sm">Bước 5 — Promote PHYSICAL</h2>
+          <p className="text-sm text-muted">
+            Tạo evidence PHYSICAL. physical_verified ≠ camera_lab_pass (HMAC ký riêng). Cổng vật lý vẫn
+            BLOCKED đến khi owner cung cấp bằng chứng.
+          </p>
+          <button
+            type="button"
+            onClick={promote}
+            disabled={busy || !allowed("promote_physical")}
+            title={disabledReason("promote_physical") || undefined}
+            className="rounded-md bg-brand text-canvas px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Promote PHYSICAL
+          </button>
+        </section>
+      ) : null}
+
+      {run && activeStepId === "done" ? (
+        <section className="rounded-xl border border-line bg-panel p-4 space-y-2 text-sm">
+          <h2 className="font-medium">Hoàn tất workflow lab run</h2>
+          <p className="text-muted">
+            state={run.state}. Evidence {evidenceId || "(chưa promote)"}. camera_lab_pass vẫn false cho đến
+            khi ký HMAC — cổng CAMERA_LAB / FACE_PILOT / INSTALLER = BLOCKED.
+          </p>
+          <button
+            type="button"
+            className="rounded-md border border-line px-3 py-2 text-sm"
+            onClick={() => {
+              setRun(null);
+              setChallenge("");
+              setEvidenceId("");
+              setMsg("");
+            }}
+          >
+            Tạo lab run mới
+          </button>
+        </section>
+      ) : null}
+
+      {msg ? <p className="text-sm text-brand" role="status">{msg}</p> : null}
+      {err ? (
+        <p className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2" role="alert">
+          {err}
+        </p>
+      ) : null}
+
+      <details className="rounded-xl border border-line bg-panel p-4 text-sm">
+        <summary className="cursor-pointer font-medium">Chi tiết kỹ thuật (JSON / HMAC / provenance)</summary>
+        <div className="mt-3 space-y-2 text-xs text-muted">
+          <ul className="space-y-1">
+            <li>Lab run: {String(checklist.lab_run_created ?? Boolean(run))}</li>
             <li>LIVE_SOURCE_MEASURED: {String(checklist.LIVE_SOURCE_MEASURED ?? false)}</li>
             <li>
               PHYSICAL_CONNECTIVITY_REVIEWED:{" "}
               {String(checklist.PHYSICAL_CONNECTIVITY_REVIEWED ?? false)}
             </li>
             <li>Evidence PHYSICAL: {String(checklist.evidence_physical_record ?? false)}</li>
-            <li>camera_lab_pass (HMAC): luôn false cho đến khi ký riêng</li>
+            <li>camera_lab_pass (HMAC): luôn false đến khi ký riêng</li>
             <li>FACE_PILOT: {faceLabel}</li>
           </ul>
-          {run.distinctions_vi ? (
-            <details className="text-xs text-muted">
-              <summary>Phân biệt lớp bằng chứng</summary>
-              <ul className="mt-1 space-y-1">
-                {Object.entries(run.distinctions_vi).map(([k, v]) => (
-                  <li key={k}>
-                    <strong>{k}</strong>: {v}
-                  </li>
-                ))}
-              </ul>
-            </details>
+          {run?.distinctions_vi ? (
+            <ul className="space-y-1">
+              {Object.entries(run.distinctions_vi).map(([k, v]) => (
+                <li key={k}>
+                  <strong className="text-ink">{k}</strong>: {v}
+                </li>
+              ))}
+            </ul>
           ) : null}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={measure}
-          disabled={!run || !allowed("measure")}
-          className="rounded-md border border-line px-3 py-2 text-sm disabled:opacity-40"
-        >
-          2. Đo LIVE
-        </button>
-        <button
-          type="button"
-          onClick={fetchChallenge}
-          disabled={!run || !allowed("reveal_challenge")}
-          className="rounded-md border border-line px-3 py-2 text-sm disabled:opacity-40"
-        >
-          3. Lấy challenge
-        </button>
-        <button
-          type="button"
-          onClick={ownerReview}
-          disabled={!run || !allowed("owner_review")}
-          className="rounded-md border border-line px-3 py-2 text-sm disabled:opacity-40"
-        >
-          4. Owner review
-        </button>
-        <button
-          type="button"
-          onClick={promote}
-          disabled={!run || !allowed("promote_physical")}
-          className="rounded-md border border-line px-3 py-2 text-sm disabled:opacity-40"
-        >
-          5. Promote PHYSICAL
-        </button>
-      </div>
-
-      <label className="block text-sm">
-        Xác nhận (ack_vi)
-        <textarea
-          className="mt-1 w-full rounded-md border border-line bg-panel2 px-3 py-2 min-h-[72px]"
-          value={ack}
-          onChange={(e) => setAck(e.target.value)}
-        />
-      </label>
-
-      {challenge ? (
-        <p className="text-xs text-muted">
-          Challenge đang giữ trong bộ nhớ UI (không ghi file). Độ dài: {challenge.length} ký tự.
-        </p>
-      ) : null}
-
-      <label className="text-xs flex items-center gap-2">
-        <input type="checkbox" checked={showJson} onChange={(e) => setShowJson(e.target.checked)} />
-        Hiện JSON kỹ thuật (nâng cao)
-      </label>
-
-      {run && showJson ? (
-        <pre className="text-xs bg-panel2 border border-line rounded-md p-3 overflow-auto">
-          {JSON.stringify(
-            {
-              run_id: run.run_id,
-              kind: run.kind,
-              state: run.state,
-              next_action: run.next_action,
-              decoded: `${run.decoded_w}x${run.decoded_h}`,
-              fps_measured: run.fps_measured,
-              layers: run.evidence_layers,
-              face_validation_status: run.face_validation_status,
-              review_kind: run.review_kind,
-              camera_lab_pass: run.camera_lab_pass,
-              face_pilot_pass: run.face_pilot_pass,
-              note_vi: run.note_vi,
-              evidence_id: evidenceId || null,
-            },
-            null,
-            2
+          {run ? (
+            <pre className="bg-canvas border border-line rounded-md p-3 overflow-auto whitespace-pre-wrap">
+              {JSON.stringify(
+                {
+                  run_id: run.run_id,
+                  kind: run.kind,
+                  state: run.state,
+                  next_action: run.next_action,
+                  allowed_actions: run.allowed_actions,
+                  decoded: `${run.decoded_w}x${run.decoded_h}`,
+                  fps_measured: run.fps_measured,
+                  layers: run.evidence_layers,
+                  face_validation_status: run.face_validation_status,
+                  review_kind: run.review_kind,
+                  camera_lab_pass: run.camera_lab_pass,
+                  face_pilot_pass: run.face_pilot_pass,
+                  note_vi: run.note_vi,
+                  evidence_id: evidenceId || null,
+                },
+                null,
+                2
+              )}
+            </pre>
+          ) : (
+            <p>Chưa có lab run.</p>
           )}
-        </pre>
-      ) : null}
-
-      {msg ? <p className="text-sm text-brand">{msg}</p> : null}
-      {err ? <p className="text-sm text-red-600">{err}</p> : null}
+        </div>
+      </details>
 
       <p className="text-xs text-muted">
         MOCK / khung stale / cùng frame / sai camera không bao giờ promote PHYSICAL. Không xuất

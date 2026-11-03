@@ -48,7 +48,7 @@ class _LiveStub:
         img = np.full((120, 160, 3), 90, dtype=np.uint8)
         return CameraFrame.from_bgr(
             img,
-            frame_id="stub-f1",
+            frame_id=f"stub-f-{id(self)}-{now.timestamp()}",
             camera_id=self.camera_id,
             capture_time_utc=now,
             receive_time_utc=now,
@@ -56,17 +56,22 @@ class _LiveStub:
             decoder_status=DecoderStatus.OK,
             config_revision=self.config_revision,
             clock_trust=ClockTrust.SERVER_RECEIVE,
+            integrity_ok=True,
         )
+
+    def get_latest_good_frame(self):
+        fr = self.get_latest_frame()
+        return fr if fr is not None and fr.integrity_ok else None
 
     def health(self):
         return GatewayHealth(
             provenance=StreamProvenance.CAMERA_LIVE,
-            decoder_status=DecoderStatus.OK,
+            decoder_status=DecoderStatus.OK if self._running else DecoderStatus.STOPPED,
             native_width=160,
             native_height=120,
             detail_vi="STUB LIVE — không phải camera vật lý",
             camera_lab_pass=False,
-            operationally_ready=False,
+            operationally_ready=bool(self._running),
         )
 
 

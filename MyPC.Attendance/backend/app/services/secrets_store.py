@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -47,10 +48,24 @@ class SecretsStore:
         # Idempotent: skip destructive reset when inheritable ACL already healthy
         ensure_secrets_dir_acl(self._dir, force=False)
 
-    def put_camera_secret(self, camera_id: int, username: str, password: str) -> str:
+    def live_camera_ref(self, camera_id: int) -> str:
+        return f"camera-{int(camera_id)}.bin"
+
+    def _validate_ref(self, secret_ref: str) -> None:
+        if not secret_ref:
+            raise ValueError("ref trống")
+        if secret_ref in {"master.key", "session.secret", "face_templates.key"}:
+            raise ValueError("ref không hợp lệ")
+        if ".." in secret_ref or "/" in secret_ref or "\\" in secret_ref:
+            raise ValueError("ref không hợp lệ")
+        # Allow camera-N.bin and camera-N.staged-<uuid>.bin only
+        if not secret_ref.startswith("camera-"):
+            raise ValueError("ref không hợp lệ")
+
+    def _write_encrypted(self, ref: str, username: str, password: str) -> str:
+        self._validate_ref(ref)
         payload = json.dumps({"username": username, "password": password}).encode()
         token = self._fernet.encrypt(payload)
-        ref = f"camera-{camera_id}.bin"
         path = self._dir / ref
         path.write_bytes(token)
         try:
@@ -60,7 +75,47 @@ class SecretsStore:
         apply_new_secret_file_acl(path)
         return ref
 
+    def put_camera_secret(self, camera_id: int, username: str, password: str) -> str:
+        """Immediate live write — prefer stage_camera_secret + promote for transactional paths."""
+        return self._write_encrypted(self.live_camera_ref(camera_id), username, password)
+
+    def stage_camera_secret(self, camera_id: int, username: str, password: str) -> str:
+        """Write a unique staged blob; does not overwrite the live camera-{id}.bin."""
+        token = uuid.uuid4().hex
+        ref = f"camera-{int(camera_id)}.staged-{token}.bin"
+        return self._write_encrypted(ref, username, password)
+
+    def promote_staged_camera_secret(self, staged_ref: str, live_ref: str) -> None:
+        """Atomically replace live credential with staged content after DB commit."""
+        self._validate_ref(staged_ref)
+        self._validate_ref(live_ref)
+        staged = self._dir / staged_ref
+        live = self._dir / live_ref
+        if not staged.exists():
+            raise FileNotFoundError(f"staged secret missing: {staged_ref}")
+        # Same-directory replace is atomic on Windows/POSIX for the final name.
+        os.replace(staged, live)
+        try:
+            os.chmod(live, 0o600)
+        except OSError:
+            pass
+        apply_new_secret_file_acl(live)
+
+    def scrub_orphaned_staged_secrets(self) -> int:
+        """Crash recovery: remove unreferenced staged blobs left after abrupt stop."""
+        n = 0
+        for path in self._dir.glob("camera-*.staged-*.bin"):
+            try:
+                self.delete_camera_secret(path.name)
+                n += 1
+            except Exception:
+                pass
+        return n
+
     def get_camera_secret(self, secret_ref: str) -> dict[str, str] | None:
+        if not secret_ref:
+            return None
+        self._validate_ref(secret_ref)
         path = self._dir / secret_ref
         if not path.exists():
             return None
@@ -78,13 +133,18 @@ class SecretsStore:
         return data.get("username") or None
 
     def has_secret(self, secret_ref: str) -> bool:
-        return bool(secret_ref) and (self._dir / secret_ref).exists()
+        if not secret_ref:
+            return False
+        try:
+            self._validate_ref(secret_ref)
+        except ValueError:
+            return False
+        return (self._dir / secret_ref).exists()
 
     def delete_camera_secret(self, secret_ref: str) -> None:
         if not secret_ref:
             return
-        if secret_ref in {"master.key", "session.secret", "face_templates.key"} or ".." in secret_ref or "/" in secret_ref or "\\" in secret_ref:
-            raise ValueError("ref không hợp lệ")
+        self._validate_ref(secret_ref)
         path = self._dir / secret_ref
         if not path.exists():
             return

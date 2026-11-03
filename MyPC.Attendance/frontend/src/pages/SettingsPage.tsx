@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { vi } from "../i18n/vi";
 
@@ -210,6 +211,41 @@ export function SettingsPage() {
           {error}
         </div>
       )}
+
+      <details className="rounded-xl border border-line bg-panel p-5">
+        <summary className="cursor-pointer font-medium">Phần quản trị (Windows Lab · Nhật ký)</summary>
+        <div className="mt-3 space-y-3 text-sm">
+          <p className="text-muted">
+            Các công cụ chẩn đoán và lab vật lý chỉ dành cho quản trị viên. API vẫn kiểm tra quyền.
+            Cổng CAMERA_LAB / FACE_PILOT / EXIT_VERIFICATION / INSTALLER giữ BLOCKED đến khi có bằng
+            chứng Windows thật từ owner.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/lab-windows"
+              className="rounded-md border border-line px-3 py-2 hover:bg-panel2 transition"
+            >
+              Windows Lab (wizard)
+            </Link>
+            <Link
+              to="/nhat-ky"
+              className="rounded-md border border-line px-3 py-2 hover:bg-panel2 transition"
+            >
+              Nhật ký & chẩn đoán
+            </Link>
+            <Link
+              to="/camera"
+              className="rounded-md border border-line px-3 py-2 hover:bg-panel2 transition"
+            >
+              Camera LIVE
+            </Link>
+          </div>
+          <p className="text-xs text-muted">
+            mock_camera_enabled (cấu hình ứng dụng) = {String(draft.mock_camera_enabled)} — khác với
+            trạng thái LIVE từng camera.
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

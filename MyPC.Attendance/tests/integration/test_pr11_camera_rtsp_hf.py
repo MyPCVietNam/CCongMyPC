@@ -264,12 +264,20 @@ def test_credential_helper_blank_does_not_wipe():
         def __init__(self):
             self.data = {"camera-1.bin": {"username": "u", "password": "p"}}
 
+        def live_camera_ref(self, camera_id):
+            return f"camera-{int(camera_id)}.bin"
+
         def put_camera_secret(self, camera_id, username, password):
             self.data[f"camera-{camera_id}.bin"] = {
                 "username": username,
                 "password": password,
             }
             return f"camera-{camera_id}.bin"
+
+        def stage_camera_secret(self, camera_id, username, password):
+            ref = f"camera-{camera_id}.staged-test.bin"
+            self.data[ref] = {"username": username, "password": password}
+            return ref
 
         def get_camera_secret(self, ref):
             return self.data.get(ref)
