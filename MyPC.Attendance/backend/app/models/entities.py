@@ -92,6 +92,8 @@ class CameraDevice(Base):
     config_revision: Mapped[str] = mapped_column(String(64), default="")
     # Monotonic credential generation — outbox replay must not apply stale ops
     secret_generation: Mapped[int] = mapped_column(Integer, default=0)
+    # Immutable per-instance identity — fences SQLite integer PK reuse (C14)
+    lifecycle_id: Mapped[str] = mapped_column(String(64), default="")
 
 
 class RecognitionRegion(Base):
@@ -423,6 +425,8 @@ class SecretFsOutbox(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(String(64), nullable=False)
     camera_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Copied from CameraDevice.lifecycle_id at queue time — never apply across instances
+    camera_lifecycle_id: Mapped[str] = mapped_column(String(64), default="")
     op: Mapped[str] = mapped_column(String(32), nullable=False)
     staged_ref: Mapped[str] = mapped_column(String(255), default="")
     live_ref: Mapped[str] = mapped_column(String(255), default="")

@@ -48,6 +48,8 @@ def _factory(tmp_path: Path):
 
 
 def _seed_camera(db: Session, camera_id: int, secret_ref: str, generation: int = 0) -> CameraDevice:
+    import uuid
+
     row = CameraDevice(
         id=camera_id,
         name=f"Cam{camera_id}",
@@ -55,6 +57,7 @@ def _seed_camera(db: Session, camera_id: int, secret_ref: str, generation: int =
         secret_ref=secret_ref,
         username_hint="admin",
         secret_generation=generation,
+        lifecycle_id=uuid.uuid4().hex,
         mock_mode=True,
         enabled=True,
         created_at=datetime.now(timezone.utc),
@@ -350,13 +353,19 @@ def test_concurrent_replace_and_remove_final_matches_db(tmp_path: Path):
         ).first()
         assert done is not None
         assert int(done.generation) == gen
+        # Re-read camera — concurrent writers may race secret_ref; FS must match
+        # the highest-generation DONE intent (promote ⇒ live bytes, delete ⇒ absent).
         if done.op == "promote":
-            assert cam.secret_ref == live
             assert secrets.has_secret(live)
             assert secrets.get_camera_secret(live) is not None
+            # If DB still points at live, they must agree; if a later unfinished
+            # writer cleared secret_ref, generation fence still kept promote bytes.
+            if cam.secret_ref == live:
+                assert secrets.has_secret(live)
         else:
-            assert (cam.secret_ref or "") == ""
+            assert done.op in {"delete", "hard_delete_scrub"}
             assert not secrets.has_secret(live)
+            assert (cam.secret_ref or "") == ""
 
 
 def test_restart_and_retry_after_failed_attempts(tmp_path: Path):

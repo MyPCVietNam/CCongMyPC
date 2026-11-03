@@ -67,58 +67,57 @@ def get_app_state(request: Request) -> AppState:
     return request.app.state.container
 
 
-def get_db(state: Annotated[AppState, Depends(get_app_state)]):
-    from app.services.secret_fs_outbox import (
-        abort_outbox_after_rollback,
-        apply_outbox_after_commit,
-        raise_if_outbox_failures,
-    )
+def get_db(
+    request: Request,
+    state: Annotated[AppState, Depends(get_app_state)],
+):
+    """Request-scoped session.
+
+    Commit/outbox apply runs in after-yield on the *same worker thread* as sync
+    routes (credential RLock safety). Postcommit HTTPException is recorded on
+    request.state; DbSessionFinalizeMiddleware emits the real 503 body (C13).
+    """
+    from fastapi import HTTPException
+
+    from app.api.db_finalize_middleware import finalize_request_db
+    from app.services.secret_fs_outbox import abort_outbox_after_rollback
 
     db = state.session_factory()
-    committed = False
+    # Attach for ASGI send-wrapper (scope.state) + worker-thread finalize
+    request.state.db_session = db
+    request.state.app_state_for_db = state
+    request.state.db_finalized = False
+    request.state.db_http_error = None
     try:
         yield db
-        db.commit()
-        committed = True
     except Exception:
-        if not committed:
+        if not getattr(request.state, "db_finalized", False):
             try:
                 db.rollback()
             except Exception:
                 pass
             abort_outbox_after_rollback(state.secrets, db)
+            request.state.db_finalized = True
         raise
     else:
-        # Post-commit path — never rollback/discard committed outbox intents
-        cleanup_error: Exception | None = None
-        pending = getattr(state, "pending_secret_cleanup", None)
-        if pending:
-            from pathlib import Path
-
-            from app.services.bootstrap import secure_delete_file
-
-            try:
-                secure_delete_file(Path(str(pending)))
-            except Exception as exc:  # noqa: BLE001
-                cleanup_error = exc
-                logger.error("pending_secret_cleanup_failed err=%s", exc)
-            finally:
-                state.pending_secret_cleanup = None  # type: ignore[attr-defined]
-
-        failures = apply_outbox_after_commit(state.secrets, db)
-        raise_if_outbox_failures(failures)
-        if cleanup_error is not None:
-            # Surface bootstrap cleanup failure without destroying committed outbox
-            raise HTTPException(
+        # Same thread as sync endpoint body — safe for CREDENTIAL_LOCKS / flock.
+        try:
+            finalize_request_db(request.scope["state"])
+        except HTTPException as exc:
+            request.state.db_http_error = exc
+            # Do not re-raise: response may already be serialized; middleware swaps status.
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("db_finalize_unexpected")
+            request.state.db_http_error = HTTPException(
                 status_code=503,
                 detail={
-                    "code": "POSTCOMMIT_CLEANUP_FAILED",
-                    "message_vi": "DB đã commit nhưng dọn file bootstrap thất bại — kiểm tra logs.",
+                    "code": "DB_FINALIZE_ERROR",
+                    "message_vi": "Lỗi hoàn tất giao dịch DB.",
                     "retriable": True,
                 },
-            ) from cleanup_error
-    finally:
-        db.close()
+            )
+            _ = exc
+    # Session closed by DbSessionFinalizeMiddleware.finally
 
 
 def get_current_user(

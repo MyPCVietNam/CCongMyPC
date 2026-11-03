@@ -121,11 +121,14 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     )
     container.alembic_ok = alembic_ok
     container.alembic_error = alembic_error
-    # Crash recovery from commit-proven SQLite outbox only (never pre-commit JSON)
+    # Crash recovery from commit-proven SQLite outbox only (never pre-commit JSON).
+    # Exclusive age-gated staged scrub only at startup (C11 — never during admin retry).
     from app.services.secret_fs_outbox import recover_pending_outbox
 
     try:
-        container.secret_fs_recovery = recover_pending_outbox(secrets, session_factory)  # type: ignore[attr-defined]
+        container.secret_fs_recovery = recover_pending_outbox(  # type: ignore[attr-defined]
+            secrets, session_factory, scrub_orphans=True
+        )
     except Exception as exc:  # noqa: BLE001
         container.secret_fs_recovery = {  # type: ignore[attr-defined]
             "journals_applied": 0,
@@ -173,6 +176,10 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
             except Exception:
                 pass
 
+    # Innermost ASGI wrap: finalize DB before http.response.start (C13)
+    from app.api.db_finalize_middleware import DbSessionFinalizeMiddleware
+
+    app.add_middleware(DbSessionFinalizeMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
