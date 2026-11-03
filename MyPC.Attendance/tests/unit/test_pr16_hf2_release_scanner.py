@@ -24,6 +24,26 @@ def test_synthetic_password_member_fails_scan():
     assert "leaked.txt" in ei.value.path
 
 
+def test_test_tree_password_fixture_allowed():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "MyPC.Attendance/tests/integration/example.py",
+            'password = "CamSecret!99"\n',
+        )
+    scan_zip_bytes(buf.getvalue())  # allowed under tests/
+
+
+def test_fixture_file_under_docs_path_still_fails():
+    """Synthetic fixture content under a non-test path must block release."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures/release_scan/synthetic_secret_fixture.txt"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("MyPC.Attendance/docs/oops.txt", fixture.read_text())
+    with pytest.raises(ScanFailure):
+        scan_zip_bytes(buf.getvalue())
+
+
 def test_nested_zip_with_private_key_fails():
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w") as z:

@@ -42,6 +42,12 @@ ALLOWLIST_EXACT = {
     "MyPC.Attendance/tests/unit/test_pr16_hf2_release_scanner.py",
 }
 
+# Path prefixes where GENERIC_PASSWORD_ASSIGN is permitted (unit/integration fixtures).
+# PRIVATE_KEY / AWS / SQLITE / DENY_PATH still fail closed everywhere.
+ALLOW_GENERIC_PASSWORD_PREFIXES = (
+    "MyPC.Attendance/tests/",
+)
+
 
 class ScanFailure(Exception):
     def __init__(self, rule: str, path: str):
@@ -51,12 +57,12 @@ class ScanFailure(Exception):
 
 
 def _scan_bytes(name: str, data: bytes, *, allow_fixture: bool) -> None:
-    if DENY_PATH.search(name.replace("\\", "/")):
+    norm = name.replace("\\", "/")
+    if DENY_PATH.search(norm):
         raise ScanFailure("DENY_PATH", name)
     # binary sqlite header
     if data.startswith(b"SQLite format 3\x00"):
         raise ScanFailure("SQLITE_HEADER", name)
-    text = None
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -66,12 +72,16 @@ def _scan_bytes(name: str, data: bytes, *, allow_fixture: bool) -> None:
             continue
         if isinstance(pat.pattern, (bytes, bytearray)):
             continue
-        if pat.search(text or ""):
-            if allow_fixture and name.replace("\\", "/") in ALLOWLIST_EXACT:
-                continue
-            # nested synthetic under tests/fixtures/release_scan/ inside proposed ZIP still fails
-            # unless the member path itself is allowlisted
-            raise ScanFailure(rule_id, name)
+        if not pat.search(text or ""):
+            continue
+        if allow_fixture and norm in ALLOWLIST_EXACT:
+            continue
+        if rule_id == "GENERIC_PASSWORD_ASSIGN" and any(
+            norm.startswith(p) for p in ALLOW_GENERIC_PASSWORD_PREFIXES
+        ):
+            continue
+        # Non-test path with password assign / key material → fail closed
+        raise ScanFailure(rule_id, name)
 
 
 def scan_zip_bytes(raw: bytes, *, outer_name: str = "zip") -> None:
