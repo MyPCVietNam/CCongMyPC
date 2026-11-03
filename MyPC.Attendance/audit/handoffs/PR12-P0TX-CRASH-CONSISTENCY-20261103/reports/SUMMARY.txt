@@ -1,0 +1,10 @@
+pytest: 309 passed
+frontend build: OK
+npm audit: 0 vulnerabilities
+feature_commit: 4eba3d67a53468a2240fd2373b07aa95aa0cd49a
+baseline_commit: a702bc5de2eb0231ca4a9abdd8a1bcc3cdf26615
+physical gates: CAMERA_LAB FACE_PILOT EXIT_VERIFICATION INSTALLER = BLOCKED
+crash recovery journal: PASS
+post-commit FS failure observable+retry: PASS
+concurrent REPLACE serialize: PASS
+LIVE configure rollback compensate: PASS
