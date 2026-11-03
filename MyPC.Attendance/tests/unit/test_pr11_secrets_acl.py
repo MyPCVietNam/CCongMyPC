@@ -39,8 +39,13 @@ def test_known_secret_names():
     assert is_known_secret_name("master.key")
     assert is_known_secret_name("face_templates.key")
     assert is_known_secret_name("camera-12.bin")
+    assert is_known_secret_name("camera-1.staged-" + ("a" * 32) + ".bin")
     assert not is_known_secret_name("notes.txt")
     assert not is_known_secret_name("camera-x.bin")
+    assert not is_known_secret_name("camera-1.staged-short.bin")
+    assert not is_known_secret_name("camera-1.staged-" + ("A" * 32) + ".bin")  # uppercase rejected
+    assert not is_known_secret_name("../camera-1.bin")
+    assert not is_known_secret_name("camera-1.bin/../x")
 
 
 def test_defect_a_ps1_no_home_assignment_and_has_bom():
