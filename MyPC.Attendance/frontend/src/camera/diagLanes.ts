@@ -192,17 +192,28 @@ export function mjpegWatchdogState(
 }
 
 /**
- * Browser MJPEG transport freshness. Without an observable client receive
- * signal, transport is UNVERIFIED even if server decoder is OK.
+ * Browser MJPEG transport freshness.
+ *
+ * `<img onLoad>` is NOT a per-multipart-frame heartbeat (browsers typically fire
+ * once when the stream element becomes displayable). Only pass
+ * lastClientActivityMs when the caller has a verified per-frame / multipart
+ * receive signal. Otherwise leave it null → UNVERIFIED. Never use this lane to
+ * claim LIVE_STABILITY_PASS.
  */
 export function browserMjpegTransportState(opts: {
   serverWatchdog: ServerDecoderWatchdog;
-  /** Monotonic client activity marker (e.g. last multipart paint / load event). */
+  /**
+   * Monotonic client activity marker from a verified multipart/frame heartbeat.
+   * Do not feed `<img onLoad>` timestamps here.
+   */
   lastClientActivityMs?: number | null;
+  /** When false (default), ignore activity and stay UNVERIFIED — honest without frame proof. */
+  multipartHeartbeatVerified?: boolean;
   nowMs?: number;
   staleAfterMs?: number;
 }): "OK" | "STALE" | "UNVERIFIED" | "SERVER_NOT_OK" {
   if (opts.serverWatchdog !== "OK") return "SERVER_NOT_OK";
+  if (opts.multipartHeartbeatVerified !== true) return "UNVERIFIED";
   const last = opts.lastClientActivityMs;
   if (last == null || !Number.isFinite(last)) return "UNVERIFIED";
   const now = opts.nowMs ?? Date.now();

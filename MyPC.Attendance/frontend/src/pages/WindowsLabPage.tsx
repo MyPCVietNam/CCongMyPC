@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { isSignOpLive, type SignSelection } from "../lab/signOpGuard";
 
 type Cam = { id: number; name: string; host: string; mock_mode: boolean; archived?: boolean };
 
@@ -95,10 +96,31 @@ export function WindowsLabPage() {
     }>
   >([]);
   const [busy, setBusy] = useState(false);
-  const evidenceGen = useRef(0);
+  /** Bumped on camera/kind change — fences ALL post-await UI updates (sign + evidence). */
+  const selectionEpoch = useRef(0);
+  const cameraIdRef = useRef(cameraId);
+  const kindRef = useRef(kind);
+  useEffect(() => {
+    cameraIdRef.current = cameraId;
+  }, [cameraId]);
+  useEffect(() => {
+    kindRef.current = kind;
+  }, [kind]);
+
+  function liveSelection() {
+    return {
+      epoch: selectionEpoch.current,
+      cameraId: cameraIdRef.current,
+      kind: kindRef.current,
+    };
+  }
+
+  function bumpSelectionEpoch() {
+    selectionEpoch.current += 1;
+  }
 
   function resetEvidenceAndSigned() {
-    evidenceGen.current += 1;
+    bumpSelectionEpoch();
     setEvidenceId("");
     setApprovalId("");
     setSignedLab(false);
@@ -107,6 +129,7 @@ export function WindowsLabPage() {
   }
 
   function resetWizardForCameraChange() {
+    setBusy(false);
     setRun(null);
     setChallenge("");
     resetEvidenceAndSigned();
@@ -136,16 +159,19 @@ export function WindowsLabPage() {
     setErr("");
   }, [kind]);
 
-  async function loadPriorEvidence(cid: number) {
-    const gen = ++evidenceGen.current;
-    const expectedKind = kind;
+  async function loadPriorEvidence(cid: number, op?: SignSelection) {
+    const started: SignSelection = op ?? {
+      epoch: selectionEpoch.current,
+      cameraId: cid,
+      kind,
+    };
     try {
       const r = await api<{
         items: typeof priorEvidence;
         signed_active: { approval_id?: string; expires_at?: string | null } | null;
         physical_verified_ne_signed?: boolean;
-      }>(`/api/v1/cameras/${cid}/quality/evidence?kind=${expectedKind}`);
-      if (gen !== evidenceGen.current || cid !== cameraId || expectedKind !== kind) {
+      }>(`/api/v1/cameras/${started.cameraId}/quality/evidence?kind=${started.kind}`);
+      if (!isSignOpLive(started, liveSelection())) {
         return; // stale response discarded
       }
       setPriorEvidence(r.items || []);
@@ -158,7 +184,7 @@ export function WindowsLabPage() {
         setSignedMeta(null);
       }
     } catch (ex) {
-      if (gen !== evidenceGen.current) return;
+      if (!isSignOpLive(started, liveSelection())) return;
       setPriorEvidence([]);
       setErr(ex instanceof Error ? ex.message : String(ex));
     }
@@ -343,6 +369,12 @@ export function WindowsLabPage() {
       );
       return;
     }
+    const started: SignSelection = {
+      epoch: selectionEpoch.current,
+      cameraId,
+      kind,
+    };
+    const evidenceForOp = evidenceId;
     setBusy(true);
     setErr("");
     try {
@@ -351,20 +383,30 @@ export function WindowsLabPage() {
         evidence_id: string;
         camera_lab_pass: boolean;
         pins_source?: string;
-      }>(`/api/v1/cameras/${cameraId}/quality/approvals`, {
+      }>(`/api/v1/cameras/${started.cameraId}/quality/approvals`, {
         method: "POST",
         body: JSON.stringify({
           kind: "CAMERA_LAB",
-          evidence_id: evidenceId,
-          note_vi: "Owner ký sau PHYSICAL_VERIFIED trên Windows Lab (PR16-HF1).",
+          evidence_id: evidenceForOp,
+          note_vi: "Owner ký sau PHYSICAL_VERIFIED trên Windows Lab (PR16-HF3).",
         }),
       });
+      // Backend commit for started.cameraId stands; do not paint onto another selection
+      if (!isSignOpLive(started, liveSelection())) {
+        return;
+      }
       setApprovalId(r.approval_id);
       // POST 200 alone ≠ CAMERA_LAB_SIGNED — reload verified status from backend
-      await loadPriorEvidence(cameraId);
+      await loadPriorEvidence(started.cameraId, started);
+      if (!isSignOpLive(started, liveSelection())) {
+        return;
+      }
       const gh = await api<{ signed_camera_lab?: boolean; camera_lab_pass?: boolean }>(
-        `/api/v1/cameras/gateway/health?camera_id=${cameraId}`
+        `/api/v1/cameras/gateway/health?camera_id=${started.cameraId}`
       );
+      if (!isSignOpLive(started, liveSelection())) {
+        return;
+      }
       setSignedLab(Boolean(gh.signed_camera_lab));
       setMsg(
         `Approval POST ok id=${r.approval_id}. ` +
@@ -373,10 +415,15 @@ export function WindowsLabPage() {
           `LIVE_STABILITY / FACE_PILOT / INSTALLER vẫn BLOCKED.`
       );
     } catch (ex) {
+      if (!isSignOpLive(started, liveSelection())) {
+        return;
+      }
       setErr(ex instanceof Error ? ex.message : String(ex));
       setSignedLab(false);
     } finally {
-      setBusy(false);
+      if (isSignOpLive(started, liveSelection())) {
+        setBusy(false);
+      }
     }
   }
 

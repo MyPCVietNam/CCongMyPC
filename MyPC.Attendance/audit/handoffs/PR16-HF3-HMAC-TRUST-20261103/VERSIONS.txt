@@ -1,0 +1,5 @@
+Python: 3.12.3
+FastAPI: 0.115.14
+Node/npm: frontend package-lock driven
+pytest: full suite 379 passed
+vitest: 9 passed

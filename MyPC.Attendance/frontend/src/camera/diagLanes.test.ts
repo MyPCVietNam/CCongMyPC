@@ -98,13 +98,30 @@ describe("diagLanes HF2", () => {
         lastClientActivityMs: null,
       })
     ).toBe("UNVERIFIED");
+    // img onLoad-style timestamp without multipartHeartbeatVerified ⇒ still UNVERIFIED
+    expect(
+      browserMjpegTransportState({
+        serverWatchdog: "OK",
+        lastClientActivityMs: Date.now(),
+        multipartHeartbeatVerified: false,
+      })
+    ).toBe("UNVERIFIED");
     expect(
       browserMjpegTransportState({
         serverWatchdog: "OK",
         lastClientActivityMs: Date.now() - 20_000,
         nowMs: Date.now(),
+        multipartHeartbeatVerified: true,
       })
     ).toBe("STALE");
+    expect(
+      browserMjpegTransportState({
+        serverWatchdog: "OK",
+        lastClientActivityMs: Date.now(),
+        nowMs: Date.now(),
+        multipartHeartbeatVerified: true,
+      })
+    ).toBe("OK");
   });
 
   it("drops live lane from another camera id", () => {

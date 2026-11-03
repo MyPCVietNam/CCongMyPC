@@ -15,9 +15,8 @@ from app.core.utc_time import (
     parse_canonical_utc_z,
     to_utc_aware,
 )
-from app.models.entities import PilotApprovalRecord
+from app.models.entities import CameraDevice, CameraLabRun, PilotApprovalRecord, PilotEvidenceRecord
 from app.services.pilot_approval import issue_approval, revoke_approvals, verify_active_approval
-
 
 SECRET = "unit-test-csprng-secret-key-not-for-production-use-9f3a"
 
@@ -30,6 +29,81 @@ def db_session(tmp_path):
     with factory() as s:
         yield s
         s.rollback()
+
+
+def _seed_physical_backing(
+    db: Session,
+    *,
+    camera_id: int,
+    evidence_id: str,
+    kind: str = "CAMERA_LAB",
+    rev: str = "rev-hmac",
+    pins: dict[str, str] | None = None,
+) -> None:
+    """PR16-HF3: verify_active_approval re-checks live evidence/lab run."""
+    pins = pins or {
+        "model_hash_pin": "m1",
+        "gallery_revision_pin": "g1",
+        "threshold_id_pin": "t1",
+    }
+    cam = db.get(CameraDevice, camera_id)
+    if cam is None:
+        cam = CameraDevice(
+            id=camera_id,
+            name=f"Cam{camera_id}",
+            host="192.0.2.50",
+            mock_mode=False,
+            config_revision=rev,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(cam)
+        db.flush()
+    else:
+        cam.config_revision = rev
+    run_id = f"lab-{evidence_id}"
+    if db.scalar(select(CameraLabRun).where(CameraLabRun.run_id == run_id)) is None:
+        db.add(
+            CameraLabRun(
+                run_id=run_id,
+                nonce=f"nonce-{evidence_id}",
+                kind=kind,
+                camera_id=camera_id,
+                state="PHYSICAL_VERIFIED",
+                revoked=False,
+                config_revision=rev,
+                provenance="CAMERA_LIVE",
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+    if (
+        db.scalar(select(PilotEvidenceRecord).where(PilotEvidenceRecord.evidence_id == evidence_id))
+        is None
+    ):
+        db.add(
+            PilotEvidenceRecord(
+                evidence_id=evidence_id,
+                kind=kind,
+                evidence_class="PHYSICAL_VERIFIED",
+                camera_id=camera_id,
+                lab_run_id=run_id,
+                config_revision=rev,
+                provenance="CAMERA_LIVE",
+                decoded_w=160,
+                decoded_h=120,
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                labeled_known=1 if kind == "FACE_PILOT" else 0,
+                labeled_unknown=1 if kind == "FACE_PILOT" else 0,
+                operator="admin",
+                created_at=datetime.now(timezone.utc),
+                payload_json="{}",
+            )
+        )
+    db.flush()
 
 
 def test_canonical_zulu_stable_across_naive_rehydrate():
@@ -51,6 +125,16 @@ def test_ambiguous_timestamp_rejected():
 
 def test_issue_commit_reopen_verify_hmac(db_session: Session, tmp_path):
     clock = datetime(2026, 11, 2, 4, 0, 0, tzinfo=timezone.utc)
+    _seed_physical_backing(
+        db_session,
+        camera_id=7,
+        evidence_id="ev-test-1",
+        pins={
+            "model_hash_pin": "m1",
+            "gallery_revision_pin": "g1",
+            "threshold_id_pin": "t1",
+        },
+    )
     row = issue_approval(
         db_session,
         secret_key=SECRET,
@@ -95,6 +179,16 @@ def test_issue_commit_reopen_verify_hmac(db_session: Session, tmp_path):
 
 def test_expiry_exact_utc_boundary(db_session: Session):
     clock = datetime(2026, 11, 2, 10, 0, 0, tzinfo=timezone.utc)
+    _seed_physical_backing(
+        db_session,
+        camera_id=1,
+        evidence_id="ev-test-1",
+        pins={
+            "model_hash_pin": "m",
+            "gallery_revision_pin": "g",
+            "threshold_id_pin": "t",
+        },
+    )
     row = issue_approval(
         db_session,
         secret_key=SECRET,

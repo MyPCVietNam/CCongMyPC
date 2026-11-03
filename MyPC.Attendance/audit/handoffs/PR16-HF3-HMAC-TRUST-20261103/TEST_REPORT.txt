@@ -1,0 +1,11 @@
+=== pytest (full) ===
+........................................................................ [ 56%]
+........................................................................ [ 75%]
+........................................................................ [ 94%]
+...................                                                      [100%]
+379 passed in 72.27s (0:01:12)
+
+=== targeted HF3 ===
+tests/unit/test_reject_stale_physical_evidence.py PASS
+tests/integration/test_pr16_hf3_hmac_trust_chain.py PASS
+tests/unit/test_pr16_hf2_evidence_pins_eligibility.py PASS
