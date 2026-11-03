@@ -34,9 +34,10 @@ def test_configure_live_rollback_unbinds_runtime(app_client):
     assert cam.status_code == 200, cam.text
     cid = cam.json()["id"]
 
-    # Fail after route bound LIVE but before durable commit completes
+    # Fail AFTER LIVE bind + compensate registration, BEFORE durable SQL commit.
+    # (Pre-commit JSON journal removed — commit proof is SQLite outbox only.)
     with mock.patch(
-        "app.services.secret_fs_outbox.write_durable_journal",
+        "app.api.cameras.SystemClock",
         side_effect=RuntimeError("simulated_pre_commit_failure"),
     ):
         with pytest.raises(RuntimeError, match="simulated_pre_commit_failure"):

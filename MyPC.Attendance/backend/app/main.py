@@ -85,13 +85,6 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     config_service = ConfigService(clock)
     attendance_service = AttendanceService(clock)
     secrets = SecretsStore(settings.data_dir)
-    # Crash recovery: replay durable credential FS journals left after commit-before-promote kill
-    from app.services.secret_fs_outbox import recover_pending_journals
-
-    try:
-        secret_fs_recovery = recover_pending_journals(secrets)
-    except Exception as exc:  # noqa: BLE001
-        secret_fs_recovery = {"journals_applied": 0, "journals_failed": 0, "error": str(exc)}
     camera = MockCameraGateway()
     camera.connect_mock()
 
@@ -128,7 +121,20 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
     )
     container.alembic_ok = alembic_ok
     container.alembic_error = alembic_error
-    container.secret_fs_recovery = secret_fs_recovery  # type: ignore[attr-defined]
+    # Crash recovery from commit-proven SQLite outbox only (never pre-commit JSON).
+    # Exclusive age-gated staged scrub only at startup (C11 — never during admin retry).
+    from app.services.secret_fs_outbox import recover_pending_outbox
+
+    try:
+        container.secret_fs_recovery = recover_pending_outbox(  # type: ignore[attr-defined]
+            secrets, session_factory, scrub_orphans=True
+        )
+    except Exception as exc:  # noqa: BLE001
+        container.secret_fs_recovery = {  # type: ignore[attr-defined]
+            "journals_applied": 0,
+            "journals_failed": 0,
+            "error": str(exc),
+        }
 
     with session_factory() as session:
         config_service.load_from_db(session)
@@ -170,6 +176,10 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
             except Exception:
                 pass
 
+    # Innermost ASGI wrap: finalize DB before http.response.start (C13)
+    from app.api.db_finalize_middleware import DbSessionFinalizeMiddleware
+
+    app.add_middleware(DbSessionFinalizeMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

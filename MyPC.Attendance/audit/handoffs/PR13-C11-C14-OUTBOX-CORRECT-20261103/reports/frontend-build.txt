@@ -1,0 +1,13 @@
+
+> mypc-attendance-ui@0.1.0-p00 build
+> vite build
+
+vite v6.4.5 building for production...
+transforming...
+✓ 1605 modules transformed.
+rendering chunks...
+computing gzip size...
+../backend/app/static/index.html                   0.43 kB │ gzip:  0.29 kB
+../backend/app/static/assets/index-BKGLRzjp.css   15.46 kB │ gzip:  3.92 kB
+../backend/app/static/assets/index-C22QF5rG.js   262.12 kB │ gzip: 80.32 kB
+✓ built in 1.66s

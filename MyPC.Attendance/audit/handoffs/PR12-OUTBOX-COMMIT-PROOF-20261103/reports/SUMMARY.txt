@@ -1,0 +1,6 @@
+PR12 outbox commit-proof — 2026-11-03T03:07Z
+feature_commit=6503713e683ee0d31a8c7d37a50a636139b47bf4
+baseline_pr12_head=b74b59466a921ac54866eadeb5ec331649067e5b
+pytest: 284 passed (unit+integration)
+npm audit: 0 vulnerabilities (frontend --omit=dev)
+physical gates: CAMERA_LAB/FACE_PILOT/EXIT/INSTALLER = BLOCKED

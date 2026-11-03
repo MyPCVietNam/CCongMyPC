@@ -1,0 +1,1 @@
+NOTE: FINAL_HEAD.txt initially equals feature_commit; packaging commit tip is recorded in PR body after push.

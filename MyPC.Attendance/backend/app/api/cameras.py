@@ -196,6 +196,8 @@ def create_camera(
                 )
 
     now = SystemClock().now_utc()
+    import uuid as _uuid
+
     row = CameraDevice(
         name=body.name,
         host=host,
@@ -208,6 +210,7 @@ def create_camera(
         last_health_status="CHUA_CAU_HINH" if not host else "CHO_KIEM_TRA",
         connection_status="CONFIG_SAVED" if (host or rtsp) else "UNKNOWN",
         username_hint=(body.username or "").strip(),
+        lifecycle_id=_uuid.uuid4().hex,
     )
     db.add(row)
     db.flush()
@@ -822,6 +825,8 @@ def delete_camera(
     if state.camera_registry is not None:
         state.camera_registry.unbind(camera_id)
     secret_ref = row.secret_ref or ""
+    # Capture immutable instance id before row delete (C14 — SQLite may reuse PK)
+    camera_lifecycle_id = (getattr(row, "lifecycle_id", None) or "").strip()
     # Cascade-clean config-only dependents (not historical attendance / evidence)
     from app.models.entities import (
         CameraLiveBinding,
@@ -891,10 +896,17 @@ def delete_camera(
     )
     # Queue filesystem credential scrub on THIS session outbox only (P0-01).
     # Never delete camera-*.bin before durable DB commit; never share across requests.
+    # hard_delete + lifecycle fence: old intents must not scrub a recreated camera id (C14).
     if secret_ref:
         from app.services.secret_fs_outbox import queue_delete
 
-        queue_delete(db, secret_ref, camera_id=camera_id)
+        queue_delete(
+            db,
+            secret_ref,
+            camera_id=camera_id,
+            camera_lifecycle_id=camera_lifecycle_id,
+            hard_delete=True,
+        )
     return {"ok": True, "deleted_id": camera_id, "credential_delete_deferred": bool(secret_ref)}
 
 
