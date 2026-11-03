@@ -8,8 +8,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app import APP_NAME, SPEC_VERSION, __version__
-from app.api.deps import AppState, get_app_state, get_current_user, require_csrf
+from app.api.deps import (
+    AppState,
+    get_app_state,
+    get_current_user,
+    require_csrf,
+    require_permission,
+)
 from app.core.database import check_integrity
+from app.core.permissions import SETTINGS_APPLY
+from app.models.entities import User
 
 router = APIRouter(tags=["health"])
 
@@ -133,12 +141,23 @@ def runtime_badge(
 
 @router.get("/api/v1/system/diagnostics")
 def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
+    """Unauthenticated readiness diagnostics — redacted (no outbox paths/errors)."""
     integrity = "n/a"
     try:
         engine = state.session_factory.kw["bind"]  # type: ignore[index]
         integrity = check_integrity(engine)
     except Exception as exc:  # noqa: BLE001
         integrity = f"error:{type(exc).__name__}"
+
+    recovery = getattr(state, "secret_fs_recovery", None) or {}
+    pending_count = 0
+    try:
+        with state.session_factory() as db:
+            from app.services.secret_fs_outbox import list_pending_outbox
+
+            pending_count = len(list_pending_outbox(db, redact=True))
+    except Exception:
+        pending_count = -1
 
     return {
         "app": APP_NAME,
@@ -168,10 +187,10 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
         },
         "sqlite_integrity": integrity,
         "secret_fs_outbox": {
-            "startup_recovery": getattr(state, "secret_fs_recovery", None),
-            "pending": __import__(
-                "app.services.secret_fs_outbox", fromlist=["list_pending_journals"]
-            ).list_pending_journals(state.secrets),
+            "pending_count": pending_count,
+            "startup_applied": recovery.get("journals_applied"),
+            "startup_failed": recovery.get("journals_failed"),
+            # No paths, public_ids, or error strings on unauthenticated diagnostics
         },
         "gates": {
             "UNIT": "see test report",
@@ -195,23 +214,30 @@ def diagnostics(state: Annotated[AppState, Depends(get_app_state)]) -> dict:
 @router.post("/api/v1/system/secret-fs-outbox/retry", dependencies=[Depends(require_csrf)])
 def retry_secret_fs_outbox(
     state: Annotated[AppState, Depends(get_app_state)],
-    user: Annotated[dict[str, Any], Depends(get_current_user)],
+    _: Annotated[User, Depends(require_permission(SETTINGS_APPLY))],
 ) -> dict:
-    """Safely replay durable credential FS journals left after post-commit failures."""
-    _ = user
-    from app.services.secret_fs_outbox import list_pending_journals, recover_pending_journals
+    """Replay commit-proven SQLite outbox rows — SETTINGS_APPLY required."""
+    from app.services.secret_fs_outbox import list_pending_outbox, recover_pending_outbox
 
-    summary = recover_pending_journals(state.secrets)
+    summary = recover_pending_outbox(
+        state.secrets, state.session_factory, force_retry=True
+    )
     state.secret_fs_recovery = summary  # type: ignore[attr-defined]
-    pending = list_pending_journals(state.secrets)
+    with state.session_factory() as db:
+        pending = list_pending_outbox(db, redact=True)
     return {
         "ok": summary.get("journals_failed", 0) == 0 and not pending,
-        "recovery": summary,
+        "recovery": {
+            "journals_applied": summary.get("journals_applied"),
+            "journals_failed": summary.get("journals_failed"),
+            "journals_abandoned": summary.get("journals_abandoned"),
+            "orphaned_staged_scrubbed": summary.get("orphaned_staged_scrubbed"),
+        },
         "pending": pending,
         "message_vi": (
-            "Đã thử phát lại nhật ký credential. "
-            "Nếu vẫn còn pending — kiểm tra quyền ACL thư mục secrets."
+            "Đã thử phát lại outbox credential (SQLite commit-proven). "
+            "Nếu vẫn còn pending — kiểm tra ACL thư mục secrets."
             if pending
-            else "Không còn nhật ký credential chờ xử lý."
+            else "Không còn outbox credential chờ xử lý."
         ),
     }

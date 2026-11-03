@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Callable
@@ -19,6 +20,8 @@ from app.services.auth_session_service import get_valid_session
 from app.services.config_service import ConfigService
 from app.services.secrets_store import SecretsStore
 from app.vision.mock_camera import MockCameraGateway
+
+logger = logging.getLogger(__name__)
 
 # Routes reachable while must_change_password is true (fail-closed elsewhere).
 PASSWORD_CHANGE_ALLOWLIST_PREFIXES = (
@@ -48,8 +51,8 @@ class AppState:
     # Soft rate limit: username/ip -> (fail_count, locked_until_mono)
     login_failures: dict[str, tuple[int, float]] = field(default_factory=dict)
     pending_secret_cleanup: str | None = None
-    # NOTE: camera credential FS ops use per-Session outbox (db.info), never a
-    # process-global list — see app.services.secret_fs_outbox (P0-01).
+    # NOTE: camera credential FS ops use SQLite SecretFsOutbox (commit-proven), never
+    # process-global lists or pre-commit JSON journals (P0 audit 2026-11-03).
     face_pipeline: Any = None
     template_store: Any = None
     enrollment_service: Any = None
@@ -69,16 +72,25 @@ def get_db(state: Annotated[AppState, Depends(get_app_state)]):
         abort_outbox_after_rollback,
         apply_outbox_after_commit,
         raise_if_outbox_failures,
-        write_durable_journal,
     )
 
     db = state.session_factory()
+    committed = False
     try:
         yield db
-        # Durable journal BEFORE commit — survives kill between commit and promote
-        write_durable_journal(state.secrets, db)
         db.commit()
-        # Only after durable commit — scrub first-run secret file if requested
+        committed = True
+    except Exception:
+        if not committed:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            abort_outbox_after_rollback(state.secrets, db)
+        raise
+    else:
+        # Post-commit path — never rollback/discard committed outbox intents
+        cleanup_error: Exception | None = None
         pending = getattr(state, "pending_secret_cleanup", None)
         if pending:
             from pathlib import Path
@@ -87,25 +99,24 @@ def get_db(state: Annotated[AppState, Depends(get_app_state)]):
 
             try:
                 secure_delete_file(Path(str(pending)))
+            except Exception as exc:  # noqa: BLE001
+                cleanup_error = exc
+                logger.error("pending_secret_cleanup_failed err=%s", exc)
             finally:
                 state.pending_secret_cleanup = None  # type: ignore[attr-defined]
-        # Camera credential FS ops — journal/session owned (never AppState-global)
+
         failures = apply_outbox_after_commit(state.secrets, db)
         raise_if_outbox_failures(failures)
-    except Exception:
-        # HTTPException from raise_if_outbox_failures must propagate as-is (DB already committed)
-        from fastapi import HTTPException as _HTTPException
-
-        import sys
-
-        exc = sys.exc_info()[1]
-        if isinstance(exc, _HTTPException) and (
-            isinstance(exc.detail, dict) and exc.detail.get("code") == "SECRET_FS_OUTBOX_INCOMPLETE"
-        ):
-            raise
-        db.rollback()
-        abort_outbox_after_rollback(state.secrets, db)
-        raise
+        if cleanup_error is not None:
+            # Surface bootstrap cleanup failure without destroying committed outbox
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "POSTCOMMIT_CLEANUP_FAILED",
+                    "message_vi": "DB đã commit nhưng dọn file bootstrap thất bại — kiểm tra logs.",
+                    "retriable": True,
+                },
+            ) from cleanup_error
     finally:
         db.close()
 

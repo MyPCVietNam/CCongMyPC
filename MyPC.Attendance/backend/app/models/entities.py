@@ -90,6 +90,8 @@ class CameraDevice(Base):
     username_hint: Mapped[str] = mapped_column(String(128), default="")
     connection_status: Mapped[str] = mapped_column(String(64), default="UNKNOWN")
     config_revision: Mapped[str] = mapped_column(String(64), default="")
+    # Monotonic credential generation — outbox replay must not apply stale ops
+    secret_generation: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class RecognitionRegion(Base):
@@ -410,3 +412,27 @@ class CameraLiveBinding(Base):
     config_revision: Mapped[str] = mapped_column(String(64), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SecretFsOutbox(Base):
+    """Commit-proven credential filesystem intents — only committed rows are replayed."""
+
+    __tablename__ = "secret_fs_outbox"
+    __table_args__ = (UniqueConstraint("public_id", name="uq_secret_fs_outbox_public_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    camera_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    op: Mapped[str] = mapped_column(String(32), nullable=False)
+    staged_ref: Mapped[str] = mapped_column(String(255), default="")
+    live_ref: Mapped[str] = mapped_column(String(255), default="")
+    delete_ref: Mapped[str] = mapped_column(String(255), default="")
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_sha256: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=8)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

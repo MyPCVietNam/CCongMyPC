@@ -15,6 +15,7 @@ from app.models.entities import (
     PilotApprovalRecord,
     RawObservation,
     RecognitionRegion,
+    SecretFsOutbox,
     User,
 )
 
@@ -34,4 +35,5 @@ __all__ = [
     "AbEvaluationRun",
     "PilotApprovalRecord",
     "CameraLiveBinding",
+    "SecretFsOutbox",
 ]

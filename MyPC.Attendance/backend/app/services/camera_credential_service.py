@@ -72,7 +72,7 @@ def apply_camera_credentials(
 
     if action == "remove":
         if current_secret_ref and db is not None:
-            queue_delete(db, current_secret_ref, camera_id=camera_id)
+            queue_delete(db, current_secret_ref, camera_id=int(camera_id))
         elif current_secret_ref and db is None:
             # Legacy/unit path without session — immediate (tests only)
             secrets.delete_camera_secret(current_secret_ref)
@@ -154,7 +154,13 @@ def _stage_replace(
         )
     acquire_camera_credential_lock(db, camera_id)
     staged = secrets.stage_camera_secret(camera_id, username, password)
-    queue_promote(db, staged_ref=staged, live_ref=live_ref, camera_id=camera_id)
+    queue_promote(
+        db,
+        staged_ref=staged,
+        live_ref=live_ref,
+        camera_id=camera_id,
+        secrets=secrets,
+    )
     return CredentialApplyResult(
         secret_ref=live_ref,
         username_hint=username,
