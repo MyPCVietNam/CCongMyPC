@@ -1,5 +1,9 @@
 # Acceptance — PR #12 P0 transactional integrity correction
 
+**Final GitHub HEAD:** `3e820a55b3c7948c14fc8fc86f981e3a12bf25d1`
+**Feature fix commit:** `52b2683caaf0910431f3989b5958c952cbe1f876`
+
+
 | ID | Item | Status |
 | --- | --- | --- |
 | P0-01 | Session-scoped secret FS outbox (no AppState-global drain) | PASS |
