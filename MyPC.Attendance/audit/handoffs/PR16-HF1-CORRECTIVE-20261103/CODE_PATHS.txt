@@ -12,6 +12,7 @@ MyPC.Attendance/tests/unit/test_pr16_camera_status_honesty.py
 MyPC.Attendance/tests/unit/test_pr16_hf1_frontend_diag_lanes.py
 MyPC.Attendance/tests/unit/test_pr16_hf1_gateway_fps_session.py
 MyPC.Attendance/tests/unit/test_pr16_hf1_opencv_ffmpeg_parse.py
+MyPC.Attendance/tests/unit/test_pr16_hf1_packaging_contract.py
 MyPC.Attendance/tests/unit/test_pr16_hf1_secret_audit_readonly.py
 MyPC.Attendance/tools/audit_camera_secrets_readonly.py
 MyPC.Attendance/tools/package_pr16_hf1_complete_audit.py

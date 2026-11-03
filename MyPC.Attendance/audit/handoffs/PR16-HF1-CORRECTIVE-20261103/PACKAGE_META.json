@@ -1,8 +1,8 @@
 {
   "baseline": "1bdaef6a7aa63b24127239911fb021dcaf3e147a",
-  "feature": "4aa1fc14651b27ec9673ec7d00e91a7668d80347",
-  "final_head": "4aa1fc14651b27ec9673ec7d00e91a7668d80347",
-  "generated_at_utc": "2026-11-03T10:42:47.799209+00:00",
+  "feature": "5671e2b7f8d7d181e517a3add323753ae548f687",
+  "final_head": "5671e2b7f8d7d181e517a3add323753ae548f687",
+  "generated_at_utc": "2026-11-03T10:43:27.040966+00:00",
   "code_paths": [
     "MyPC.Attendance/backend/app/api/cameras.py",
     "MyPC.Attendance/backend/app/api/health.py",
@@ -24,6 +24,7 @@
     "MyPC.Attendance/tools/package_pr16_hf1_complete_audit.py"
   ],
   "handoff_paths": [
+    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/.gitignore",
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/ACCEPTANCE_MATRIX.md",
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/BASELINE_COMMIT.txt",
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/BASELINE_RCA.md",
@@ -43,23 +44,11 @@
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/SHA256SUMS.txt",
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/TEST_REPORT.txt",
     "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/VERSIONS.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/WINDOWS-SAFE-EVIDENCE.zip",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/ACCEPTANCE_MATRIX.md",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/BASELINE_COMMIT.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/BASELINE_RCA.md",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/CHANGED_PATHS.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/CHANGELOG.md",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/CODE_PATHS.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/FEATURE_COMMIT.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/FINAL_HEAD.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/HANDOFF_PATHS.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/OWNER_WINDOWS_STEPS_VI.md",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/TEST_REPORT.txt",
-    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/_evidence_stage/VERSIONS.txt"
+    "MyPC.Attendance/audit/handoffs/PR16-HF1-CORRECTIVE-20261103/WINDOWS-SAFE-EVIDENCE.zip"
   ],
   "sha256": {
-    "CHANGED-SOURCE-AUDIT.zip": "c171764ba25ad9a92916219c622b5215e2e7abe846766b9dbf1124e7f6f2458f",
-    "FULL-SOURCE.zip": "59fb5638392b7f06495120cdfd5550c87aadb194f5679e094e5ff7472eeb160a",
-    "WINDOWS-SAFE-EVIDENCE.zip": "c6cc914b5ef29370d42b0ed8cf0a4b8ae18dcdd512bada3246b87c43332cc289"
+    "CHANGED-SOURCE-AUDIT.zip": "9affda24866551bbe94df1087afbb99e82ef94e9bbbbaff9eb16b8548c0850a1",
+    "FULL-SOURCE.zip": "e30b792bf925b6ce2f29abf358ee617220ce3fb3ff326b9e145cd0ff14d3c144",
+    "WINDOWS-SAFE-EVIDENCE.zip": "930c8d3d348c8c6a3d6407851ac1d687c48170c2ffbe1e47cd87ae9e2e53e2b9"
   }
 }
