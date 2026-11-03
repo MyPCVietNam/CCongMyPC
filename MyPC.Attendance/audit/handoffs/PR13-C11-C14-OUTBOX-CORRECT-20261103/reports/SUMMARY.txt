@@ -1,0 +1,9 @@
+PR13 C11-C14 corrective — 2026-11-03T04:22Z
+feature_commit=c2c7ba72e97a176789d30bb4b94171e618c38720
+baseline_pr13_head=98742661970fceaf3aac94712033df94b9b8a97b
+Python: 3.12.3
+pytest tests/unit + tests/integration + test_pr13_independent_regressions: 288 passed / 288 collected
+npm audit --omit=dev: 0 vulnerabilities
+frontend vite build: OK
+physical gates: CAMERA_LAB/FACE_PILOT/EXIT/INSTALLER = BLOCKED
+Note: Full ZIP lacks .git — git-ancestry acceptance tests (if any) must be verified in a real checkout, separate from code tests.
