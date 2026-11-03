@@ -8,3 +8,5 @@ HF3:
   FEATURE_COMMIT   code corrective (HMAC trust + UI fence + MJPEG honesty)
   PACKAGING_FREEZE COMPLETE A/B/C/D ZIP bytes
   REMOTE_PR_TIP    after push (may advance past freeze via sidecar-only commits)
+Packaging freeze commit (ZIP-introducing): 854deeb9902a31448dd708e5e8a28530db01f270
+Content built from parent: 8d9fcf73cf2929c05a68f6a6139907f49aa86252
