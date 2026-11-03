@@ -1,1 +1,3 @@
-7b8ac7f586acbd7b6d08e1303dac7a84991bfc99
+894669a69952ca9d7f9de4d348d90635a67bb6ee
+feature_fix=52b2683caaf0910431f3989b5958c952cbe1f876
+note=Authoritative branch tip is this file's containing commit on origin/cursor/pr11-realcam-ux-harden-83a8 (verify: gh pr view 12 --json headRefOid). ZIP SHA256 lines are frozen and must match the two .zip files beside this handoff.
