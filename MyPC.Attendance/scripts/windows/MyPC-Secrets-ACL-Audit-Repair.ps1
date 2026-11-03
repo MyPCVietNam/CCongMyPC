@@ -145,7 +145,8 @@ foreach ($file in $files) {
     if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "Reparse point in secrets: $($file.Name). Stop."
     }
-    if ($file.Name -match '^(session\.secret|master\.key|face_templates\.key|camera-[0-9]+\.bin)$') {
+    # LIVE camera-N.bin or app staged camera-N.staged-<32 hex>.bin only (least privilege)
+    if ($file.Name -match '^(session\.secret|master\.key|face_templates\.key|camera-[0-9]+(\.staged-[0-9a-f]{32})?\.bin)$') {
         $targetFiles += $file
     } else {
         $unknown += $file.Name

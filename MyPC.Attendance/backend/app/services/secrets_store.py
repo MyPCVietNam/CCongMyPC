@@ -52,15 +52,40 @@ class SecretsStore:
         return f"camera-{int(camera_id)}.bin"
 
     def _validate_ref(self, secret_ref: str) -> None:
+        from app.core.windows_secrets_acl import (
+            CAMERA_SECRET_RE,
+            CAMERA_STAGED_SECRET_RE,
+        )
+
         if not secret_ref:
             raise ValueError("ref trống")
         if secret_ref in {"master.key", "session.secret", "face_templates.key"}:
             raise ValueError("ref không hợp lệ")
         if ".." in secret_ref or "/" in secret_ref or "\\" in secret_ref:
             raise ValueError("ref không hợp lệ")
-        # Allow camera-N.bin and camera-N.staged-<uuid>.bin only
-        if not secret_ref.startswith("camera-"):
+        if secret_ref != Path(secret_ref).name:
             raise ValueError("ref không hợp lệ")
+        # LIVE camera-N.bin or app staged camera-N.staged-<32 hex>.bin only
+        if not (
+            CAMERA_SECRET_RE.match(secret_ref) or CAMERA_STAGED_SECRET_RE.match(secret_ref)
+        ):
+            raise ValueError("ref không hợp lệ")
+
+    def _secure_unlink_unmanaged(self, path: Path, ref: str) -> None:
+        """Best-effort wipe when ACL failed after write — no unmanaged credential left."""
+        try:
+            if path.exists():
+                size = path.stat().st_size
+                with path.open("wb") as f:
+                    f.write(b"\0" * max(size, 1))
+                    f.flush()
+                    os.fsync(f.fileno())
+                path.unlink(missing_ok=True)
+        except OSError:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _write_encrypted(self, ref: str, username: str, password: str) -> str:
         self._validate_ref(ref)
@@ -72,7 +97,12 @@ class SecretsStore:
             os.chmod(path, 0o600)
         except OSError:
             pass
-        apply_new_secret_file_acl(path)
+        try:
+            apply_new_secret_file_acl(path)
+        except Exception:
+            # Do not leave a credential blob without managed ACL on Windows.
+            self._secure_unlink_unmanaged(path, ref)
+            raise
         return ref
 
     def put_camera_secret(self, camera_id: int, username: str, password: str) -> str:

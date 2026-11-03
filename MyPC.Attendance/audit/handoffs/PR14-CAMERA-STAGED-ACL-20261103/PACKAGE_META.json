@@ -1,0 +1,11 @@
+{
+  "tag": "PR14-STAGED-ACL-527fcb993d51",
+  "generated_at_utc": "2026-11-03T08:53:41.982393+00:00",
+  "full_entries": 350,
+  "changed_entries": 6,
+  "sha256": {
+    "MyPC.Attendance-CHANGED-PR14-STAGED-ACL-527fcb993d51.zip": "1c9a62647c0def5bc3d551c585ce220e76a1a142c3c8d324a2a08bd64dae4fa9",
+    "MyPC.Attendance-FULL-PR14-STAGED-ACL-527fcb993d51.zip": "d9571d3b1da6f1dd936309885f7a9dea168a389acf3c8a9b45c9cbd581870cff"
+  },
+  "note": "SHA256SUMS written after ZIP freeze; not embedded inside archives."
+}

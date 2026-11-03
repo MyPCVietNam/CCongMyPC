@@ -1,0 +1,6 @@
+MyPC.Attendance/backend/app/core/windows_secrets_acl.py
+MyPC.Attendance/backend/app/services/secrets_store.py
+MyPC.Attendance/scripts/windows/MyPC-Secrets-ACL-Audit-Repair.ps1
+MyPC.Attendance/scripts/windows/Repair-MyPCSecretsAcl.ps1
+MyPC.Attendance/tests/unit/test_pr11_secrets_acl.py
+MyPC.Attendance/tests/unit/test_windows_camera_staged_acl.py

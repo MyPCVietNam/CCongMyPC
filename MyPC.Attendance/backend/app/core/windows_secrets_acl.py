@@ -29,7 +29,11 @@ KNOWN_SECRET_NAMES = frozenset(
         "face_templates.key",
     }
 )
+# LIVE: camera-<digits>.bin
+# STAGED (app-created only): camera-<digits>.staged-<32 lowercase hex>.bin
+# Reject wildcards, traversal, UUID-with-dashes, arbitrary suffixes.
 CAMERA_SECRET_RE = re.compile(r"^camera-\d+\.bin$")
+CAMERA_STAGED_SECRET_RE = re.compile(r"^camera-\d+\.staged-[0-9a-f]{32}\.bin$")
 
 # Well-known SIDs
 SID_SYSTEM = "S-1-5-18"
@@ -133,7 +137,13 @@ def is_windows() -> bool:
 
 
 def is_known_secret_name(name: str) -> bool:
-    return name in KNOWN_SECRET_NAMES or bool(CAMERA_SECRET_RE.match(name))
+    """Least-privilege allowlist for secret filenames (basename only)."""
+    if not name or name != Path(name).name:
+        # Reject nested/relative paths smuggled as "names"
+        return False
+    if name in KNOWN_SECRET_NAMES:
+        return True
+    return bool(CAMERA_SECRET_RE.match(name) or CAMERA_STAGED_SECRET_RE.match(name))
 
 
 def list_known_secret_files(secrets_dir: Path) -> list[Path]:
