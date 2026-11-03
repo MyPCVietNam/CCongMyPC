@@ -64,28 +64,49 @@ def runtime_badge(
     camera_id = None
     config_revision = None
     decoded = None
+    decoder_status = None
+    operationally_ready = False
     reg = state.camera_registry
     if reg is not None:
         try:
             health_map = reg.health()
             sources = health_map.get("sources") if isinstance(health_map, dict) else None
+            # Prefer an operationally-ready LIVE source; never imply LIVE from provenance alone (P1-03)
+            chosen = None
             if sources:
-                s0 = sources[0]
-                provenance = str(s0.get("provenance") or "UNKNOWN")
-                camera_id = s0.get("camera_id")
-                config_revision = s0.get("config_revision")
+                for s in sources:
+                    if (
+                        str(s.get("provenance") or "") == "CAMERA_LIVE"
+                        and s.get("operationally_ready")
+                        and str(s.get("decoder_status") or "") == "OK"
+                    ):
+                        chosen = s
+                        break
+                if chosen is None:
+                    chosen = sources[0]
+            if chosen is not None:
+                provenance = str(chosen.get("provenance") or "UNKNOWN")
+                camera_id = chosen.get("camera_id")
+                config_revision = chosen.get("config_revision")
+                decoder_status = chosen.get("decoder_status")
+                operationally_ready = bool(chosen.get("operationally_ready"))
                 decoded = {
-                    "width": s0.get("native_width"),
-                    "height": s0.get("native_height"),
-                    "fps_estimate": s0.get("fps_estimate"),
+                    "width": chosen.get("native_width"),
+                    "height": chosen.get("native_height"),
+                    "fps_estimate": chosen.get("fps_estimate"),
                 }
+                if provenance == "CAMERA_LIVE" and not (
+                    operationally_ready and str(decoder_status or "") == "OK"
+                ):
+                    # Bound but not healthy — honest badge
+                    provenance = "CAMERA_LIVE_NOT_READY"
         except Exception:  # noqa: BLE001
             provenance = "UNKNOWN"
     else:
         provenance = "MOCK" if state.camera.state.mock_mode else "UNKNOWN"
-    # LIVE label only if provenance claims CAMERA_LIVE — still not CAMERA_LAB PASS
     label_vi = {
-        "CAMERA_LIVE": "Nguồn LIVE (chưa chứng minh CAMERA_LAB)",
+        "CAMERA_LIVE": "Nguồn LIVE đã giải mã (chưa CAMERA_LAB_PASS)",
+        "CAMERA_LIVE_NOT_READY": "Đã gắn LIVE nhưng decoder chưa sẵn sàng",
         "MOCK": "Dữ liệu mô phỏng / MOCK",
         "AUTHORIZED_RECORDED": "REPLAY đã ủy quyền",
         "UNKNOWN": "Nguồn chưa xác minh",
@@ -98,11 +119,13 @@ def runtime_badge(
         "label_vi": label_vi,
         "camera_id": camera_id,
         "config_revision": config_revision,
+        "decoder_status": decoder_status,
+        "operationally_ready": operationally_ready,
         "decoded": decoded,
         "camera_lab_pass": False,
         "face_pilot_pass": False,
         "note_vi": (
-            "Nhãn MOCK/LIVE lấy từ server. TCP camera ≠ decode LIVE. "
+            "Nhãn MOCK/LIVE lấy từ server. Provenance ≠ decoder healthy ≠ CAMERA_LAB_PASS. "
             "CAMERA_LAB/FACE_PILOT vẫn BLOCKED đến khi có bằng chứng vật lý."
         ),
     }

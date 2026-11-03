@@ -7,7 +7,7 @@ Hệ thống chấm công offline-first bằng camera IP EZVIZ cho MyPC Việt N
 
 ## Yêu cầu phát triển
 
-- Python 3.12+
+- Python **3.12** (khuyến nghị / hỗ trợ chính trên Windows). Python 3.13+ cũng chạy được sau khi bỏ phụ thuộc `imghdr`.
 - Node.js 20+ (chỉ khi build frontend)
 - Hệ điều hành: Linux (dev) / Windows 10/11 x64 (mục tiêu triển khai)
 

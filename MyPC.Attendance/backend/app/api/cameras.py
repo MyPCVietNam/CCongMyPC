@@ -223,6 +223,7 @@ def create_camera(
             action=action if action in {"keep", "replace", "remove"} else "keep",
             username=body.username,
             password=body.password,
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -404,6 +405,7 @@ def configure_live_gateway(
             action=credential_action if credential_action in {"keep", "replace", "remove"} else "keep",  # type: ignore[arg-type]
             username=username,
             password="" if password is None else str(password),
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -411,7 +413,9 @@ def configure_live_gateway(
     row.username_hint = cred.username_hint
     # Persist editable RTSP path (no userinfo) on configure
     row.rtsp_url_override = safe_uri
-    stored = state.secrets.get_camera_secret(row.secret_ref) if row.secret_ref else None
+    # Same-request: prefer staged blob until post-commit promote
+    read_ref = cred.staged_ref or row.secret_ref
+    stored = state.secrets.get_camera_secret(read_ref) if read_ref else None
     if stored and stored.get("username"):
         from urllib.parse import quote
 
@@ -688,6 +692,7 @@ def update_camera(
             action=action,  # type: ignore[arg-type]
             username=body.username,
             password=body.password,
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -874,14 +879,12 @@ def delete_camera(
             timestamp=utc_now(),
         )
     )
-    # Queue filesystem credential scrub ONLY after get_db commits successfully.
-    # Never delete camera-*.bin before durable DB commit (rollback must keep secrets).
+    # Queue filesystem credential scrub on THIS session outbox only (P0-01).
+    # Never delete camera-*.bin before durable DB commit; never share across requests.
     if secret_ref:
-        pending = getattr(state, "pending_camera_secret_deletes", None)
-        if pending is None:
-            state.pending_camera_secret_deletes = [secret_ref]  # type: ignore[attr-defined]
-        else:
-            pending.append(secret_ref)
+        from app.services.secret_fs_outbox import queue_delete
+
+        queue_delete(db, secret_ref)
     return {"ok": True, "deleted_id": camera_id, "credential_delete_deferred": bool(secret_ref)}
 
 

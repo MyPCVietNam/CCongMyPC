@@ -48,6 +48,7 @@ class CameraSourceRegistry:
     """Maps camera DB id → active gateway. One LiveRTSPGateway per unique physical stream."""
 
     def __init__(self) -> None:
+        self._last_biometric_frame_ids: dict[int, str] = {}
         self._lock = threading.RLock()
         self._by_id: dict[int, BoundSource] = {}
         self._leases: dict[str, _StreamLease] = {}
@@ -276,18 +277,17 @@ class CameraSourceRegistry:
         if for_biometric and fr.clock_trust.value not in {"SERVER_RECEIVE"}:
             raise FrameAccessError("UNTRUSTED_CLOCK", "Đồng hồ khung hình chưa tin cậy cho chấm công.")
 
-        # Reject repeated frame_id for biometric (must be a new event)
+        # Reject repeated frame_id for biometric — atomic under registry lock (P1-06).
+        # Durable exactly-once for attendance side-effects remains RawObservation.idempotency_key.
         if for_biometric:
-            last_ids: dict[int, str] = getattr(self, "_last_biometric_frame_ids", None) or {}
-            if not hasattr(self, "_last_biometric_frame_ids"):
-                self._last_biometric_frame_ids = last_ids  # type: ignore[attr-defined]
-            prev = last_ids.get(camera_db_id)
-            if prev and prev == fr.frame_id:
-                raise FrameAccessError(
-                    "DUPLICATE_FRAME_ID",
-                    "frame_id trùng lần quan sát trước — từ chối tái sử dụng.",
-                )
-            last_ids[camera_db_id] = fr.frame_id
+            with self._lock:
+                prev = self._last_biometric_frame_ids.get(camera_db_id)
+                if prev and prev == fr.frame_id:
+                    raise FrameAccessError(
+                        "DUPLICATE_FRAME_ID",
+                        "frame_id trùng lần quan sát trước — từ chối tái sử dụng.",
+                    )
+                self._last_biometric_frame_ids[camera_db_id] = fr.frame_id
         return bound, fr
 
     def health(self, camera_db_id: int | None = None) -> dict[str, Any]:

@@ -170,9 +170,11 @@ class GatewayHealth:
 
 
 def frame_looks_corrupt(bgr: np.ndarray) -> bool:
-    """Cheap integrity heuristic — rejects empty / mostly-black / near-constant slabs.
+    """Cheap IMAGE-STATISTIC heuristic — not RTP/HEVC bitstream proof (P1-04).
 
-    Does NOT invent a clean substitute. False negatives possible; false positives rare.
+    Rejects empty / mostly-black / near-constant slabs. Damaged partial frames can
+    evade this; treat as necessary but insufficient. Real CAMERA_LAB still needs
+    owner A/B evidence. Does NOT invent a clean substitute.
     """
     if bgr is None or not isinstance(bgr, np.ndarray) or bgr.size == 0:
         return True
@@ -384,6 +386,7 @@ class LiveRTSPGateway(CameraGateway):
             if not self._uri:
                 self._status = DecoderStatus.NOT_CONFIGURED
                 return
+            # Refuse a second reader while a prior worker is still alive (P1-05)
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop.clear()
@@ -392,12 +395,23 @@ class LiveRTSPGateway(CameraGateway):
             )
             self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, *, join_timeout_s: float | None = None) -> None:
         self._stop.set()
         thr = self._thread
+        alive_after = False
+        timeout = 5.0 if join_timeout_s is None else float(join_timeout_s)
         if thr is not None and thr.is_alive():
-            thr.join(timeout=5)
+            thr.join(timeout=timeout)
+            alive_after = thr.is_alive()
         with self._start_lock:
+            if alive_after:
+                # Do NOT clear _thread or release while reader may still block in read()
+                with self._lock:
+                    self._latest = None
+                    self._latest_good = None
+                    self._status = DecoderStatus.STOPPED
+                    self._last_error_class = "STOP_JOIN_TIMEOUT"
+                return
             self._thread = None
         self._release()
         with self._lock:
@@ -537,7 +551,7 @@ class LiveRTSPGateway(CameraGateway):
             recv = datetime.now(timezone.utc)
             if not ok or frame is None:
                 self._decode_errors += 1
-                self._hevc_ref_events += 1  # often accompanies HEVC ref-loss storms
+                # Generic read/decode failure — do NOT inflate hevc_ref_events (P1-04)
                 self._reconnects += 1  # decode-fail reopen counts toward budget (R09)
                 self._status = DecoderStatus.RECONNECTING
                 self._last_error_class = "DECODE_FAILED"

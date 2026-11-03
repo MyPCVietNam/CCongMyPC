@@ -509,11 +509,11 @@ export function CameraPage() {
       </header>
 
       <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm space-y-1 min-w-[220px] flex-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className="text-sm space-y-1 w-full sm:min-w-[220px] sm:flex-1">
             <span className="text-muted">Camera đang chọn</span>
             <select
-              className="w-full rounded-md bg-canvas border border-line px-3 py-2"
+              className="w-full min-h-11 rounded-md bg-canvas border border-line px-3 py-2"
               value={selected ?? ""}
               onChange={(e) => {
                 const v = e.target.value;
@@ -537,18 +537,19 @@ export function CameraPage() {
               ))}
             </select>
           </label>
-          <label className="text-sm flex items-center gap-2 pb-2">
+          <label className="text-sm flex items-center gap-2 min-h-11 sm:pb-2">
             <input
               type="checkbox"
+              className="h-4 w-4"
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
             />
             Hiện đã lưu trữ
           </label>
-          <label className="text-sm space-y-1">
-            <span className="text-muted">Lọc</span>
+          <label className="text-sm space-y-1 w-full sm:w-auto">
+            <span className="text-muted block">Lọc</span>
             <select
-              className="rounded-md bg-canvas border border-line px-3 py-2"
+              className="w-full sm:w-auto min-h-11 rounded-md bg-canvas border border-line px-3 py-2"
               value={listFilter}
               onChange={(e) => setListFilter(e.target.value as ListFilter)}
             >
