@@ -4,3 +4,4 @@
 FEATURE   HF4 config lifecycle corrective
 FREEZE    COMPLETE ZIP bytes
 TIP       after push
+ZIP-introducing freeze: 113e470eca9d0e68ef1c4b1fc1684371aa0f3f9b
