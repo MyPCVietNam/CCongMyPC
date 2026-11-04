@@ -1,0 +1,62 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "baseline": "56660d0ddd7fb48883f6789400e28ab72a09825e",
+  "feature_commit": "1a095068b810cbc83c6c752a2fac77ec3cd84ec8",
+  "packaging_freeze_commit": "175fc4b8fe704d1dfa093cd2a21c695a0816d1f3",
+  "remote_pr_tip": null,
+  "remote_pr_tip_note": "Null until post-push sidecar. ZIP-introducing commit in PACKAGING_FREEZE_COMMIT_SIDECAR.txt.",
+  "generated_at_utc": "2026-11-04T02:49:56.574562+00:00",
+  "code_paths": [
+    "MyPC.Attendance/backend/app/api/cameras.py",
+    "MyPC.Attendance/backend/app/services/camera_trust_lifecycle.py",
+    "MyPC.Attendance/backend/app/services/pilot_approval.py",
+    "MyPC.Attendance/backend/app/static/assets/index-BRx11ug4.js",
+    "MyPC.Attendance/backend/app/static/index.html",
+    "MyPC.Attendance/tests/integration/test_pr16_hf4_config_lifecycle.py",
+    "MyPC.Attendance/tests/integration/test_pr16_hf5_credential_and_ab.py",
+    "MyPC.Attendance/tests/unit/test_auto_validation_backing_ab.py",
+    "MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py",
+    "MyPC.Attendance/tools/owner_windows_safe_evidence.ps1",
+    "MyPC.Attendance/tools/package_pr16_hf5_complete_audit.py"
+  ],
+  "handoff_paths": [
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/.gitignore",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/ACCEPTANCE_MATRIX.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/ARCHITECTURE_DECISIONS.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/BASELINE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/BASELINE_FAIL.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/BASELINE_RCA.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/CHANGED_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/CHANGELOG.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/CODE_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/COMMIT_GRAPH.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/DELETED_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/FEATURE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/FINAL_HEAD.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/FREEZE_VS_TIP_TIMELINE.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/FRONTEND_BUILD_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/HANDOFF_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/OWNER_WINDOWS_STEPS_VI.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/PACKAGING_FREEZE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/README.md",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/REMOTE_PR_TIP.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/SCANNER_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/TEST_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/PR16-HF5-TRUST-CLOSURE-20261104/VERSIONS.txt"
+  ],
+  "sha256": {
+    "CHANGED-SOURCE-AUDIT.zip": "f0a0110c0ecda166ff0c25b577210ae903751e02b70b93457c23daa7513d5c5a",
+    "FULL-SOURCE.zip": "a6669919fff482f520d75d712d0531240b3b337409911deb42633938045b52f7",
+    "WINDOWS-SAFE-EVIDENCE.zip": "121c89f2efb3d38061e0ce8c853575e02393bf1f8e65b40f0805116d65d62bf7"
+  },
+  "gates_blocked": [
+    "LIVE_STABILITY_PASS",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_ATTENDANCE",
+    "WINDOWS_PHYSICAL_SOAK",
+    "HEVC_NATIVE_RCA",
+    "CAMERA_LAB_OWNER_SIGN"
+  ],
+  "synthetic_credentials_in_tests": true
+}
