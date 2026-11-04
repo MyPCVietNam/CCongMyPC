@@ -1,0 +1,11 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/services/camera_trust_lifecycle.py
+MyPC.Attendance/backend/app/services/pilot_approval.py
+MyPC.Attendance/backend/app/static/assets/index-BRx11ug4.js
+MyPC.Attendance/backend/app/static/index.html
+MyPC.Attendance/tests/integration/test_pr16_hf4_config_lifecycle.py
+MyPC.Attendance/tests/integration/test_pr16_hf5_credential_and_ab.py
+MyPC.Attendance/tests/unit/test_auto_validation_backing_ab.py
+MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py
+MyPC.Attendance/tools/owner_windows_safe_evidence.ps1
+MyPC.Attendance/tools/package_pr16_hf5_complete_audit.py

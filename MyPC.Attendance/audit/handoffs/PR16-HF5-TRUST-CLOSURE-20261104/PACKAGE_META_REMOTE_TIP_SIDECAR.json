@@ -1,0 +1,12 @@
+{
+  "schema": "mypc.package-meta.remote-tip-sidecar.v1",
+  "baseline": "56660d0ddd7fb48883f6789400e28ab72a09825e",
+  "feature_commit": "1a095068b810cbc83c6c752a2fac77ec3cd84ec8",
+  "packaging_freeze_commit_sidecar": "2f6a4c719daaedb15cd86159ad3af10ece5a91cc",
+  "remote_pr_tip": "1dc7af519bdccebcaaf1e3653eb00ea2cc95522f",
+  "pr_number": 21,
+  "pr_url": "https://github.com/MyPCVietNam/CCongMyPC/pull/21",
+  "complete_zip_sha256": "6da91e9a299c72dd30a4077fab8a87f3fbaaa0f3a0b3ba205235c757661074f4",
+  "complete_zip_bytes": 3675973,
+  "note": "Sidecar only — does not rewrite COMPLETE ZIP bytes at freeze 2f6a4c7"
+}

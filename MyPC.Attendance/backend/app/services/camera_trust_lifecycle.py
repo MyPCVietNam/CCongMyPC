@@ -64,7 +64,13 @@ def classify_camera_update(
     proposed_enabled: bool | None,
     credential_action: str,
 ) -> MaterialChangePlan:
-    """Compare proposed PATCH against current row (before mutation)."""
+    """Compare proposed PATCH against current row (before mutation).
+
+    Declared ``credential_action=keep`` alone is NOT material — ``apply_camera_credentials``
+    may still change the secret under keep (implicit password replace / username re-encrypt).
+    Callers MUST merge ``CredentialApplyResult.changed`` via
+    ``merge_effective_credential_change`` after apply.
+    """
     reasons: list[str] = []
     if proposed_host is not None and _norm_host(proposed_host) != _norm_host(row.host):
         reasons.append("host")
@@ -85,6 +91,40 @@ def classify_camera_update(
 
     if not reasons:
         return MaterialChangePlan()
+    return MaterialChangePlan(
+        reasons=reasons,
+        rotate_revision=True,
+        revoke_trust=True,
+        unbind_runtime=True,
+        mark_binding_stale=True,
+    )
+
+
+def merge_effective_credential_change(
+    plan: MaterialChangePlan,
+    *,
+    credential_changed: bool,
+    declared_action: str,
+    effective_action: str,
+) -> MaterialChangePlan:
+    """Promote plan to material when the secret store actually changed (PR16-HF5).
+
+    Covers keep+nonempty password and keep+username re-encrypt where the helper
+    returns changed=True even if action remains labeled ``keep``.
+    """
+    if not credential_changed:
+        return plan
+    reasons = list(plan.reasons)
+    tag = "credential_effective"
+    # Distinguish declared vs effective without leaking secrets
+    if (declared_action or "").strip().lower() == "keep" and (
+        (effective_action or "").strip().lower() in {"keep", "replace"}
+    ):
+        tag = "credential_effective_under_keep"
+    if tag not in reasons and "credential" not in reasons:
+        reasons.append(tag)
+    elif "credential" not in reasons and tag not in reasons:
+        reasons.append(tag)
     return MaterialChangePlan(
         reasons=reasons,
         rotate_revision=True,

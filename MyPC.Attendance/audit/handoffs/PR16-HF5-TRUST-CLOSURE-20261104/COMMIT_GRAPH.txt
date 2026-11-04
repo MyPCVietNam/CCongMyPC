@@ -1,0 +1,6 @@
+9c5e706  HF3 tip / PR #19
+56660d0  HF4 tip / PR #20 HEAD  <<< HF5 BASELINE
+1a095068b810cbc83c6c752a2fac77ec3cd84ec8  HF5 feature (trust closure)
+175fc4b8fe704d1dfa093cd2a21c695a0816d1f3  path manifests (package input tree)
+2f6a4c719daaedb15cd86159ad3af10ece5a91cc  packaging freeze (ZIP-introducing COMPLETE bytes)
+1ce83491c49b3cdf9efee16efa4c62545dc6c49a  remote PR tip (docs sidecars; ZIP unchanged)

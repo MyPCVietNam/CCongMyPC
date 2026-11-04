@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.core.utc_time import utc_now
 from app.models.entities import (
+    AbEvaluationRun,
     CameraDevice,
     CameraLabRun,
     CameraLiveBinding,
@@ -378,13 +379,31 @@ def test_auto_validated_invalid_when_camera_lab_revoked(app_client):
             evidence_id=f"ev-face-{cid}",
             **pins,
         )
+        db.add(
+            AbEvaluationRun(
+                camera_id=cid,
+                run_id=f"ab-hf4-{cid}",
+                source_mix="LIVE",
+                sample_count=4,
+                metrics_json="{}",
+                blockers_json="[]",
+                can_auto_enable=True,
+                approval_status="APPROVED",
+                evidence_class=EVIDENCE_PHYSICAL,
+                config_revision="rev-av",
+                model_hash_pin=pins["model_hash_pin"],
+                gallery_revision_pin=pins["gallery_revision_pin"],
+                threshold_id_pin=pins["threshold_id_pin"],
+                created_at=now,
+            )
+        )
         issue_approval(
             db,
             secret_key=app.state.container.settings.secret_key,
             kind="AUTO_VALIDATED",
             camera_id=cid,
             issued_by="admin",
-            ab_run_id="synthetic-ab",
+            ab_run_id=f"ab-hf4-{cid}",
             **pins,
         )
         db.commit()

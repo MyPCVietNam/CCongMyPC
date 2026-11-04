@@ -284,6 +284,35 @@ def verify_active_approval(
                     break
             if not deps_ok:
                 continue
+            # PR16-HF5: re-check linked AbEvaluationRun on every AUTO_VALIDATED verify
+            ab_run_id = (data.get("ab_run_id") or getattr(row, "ab_run_id", None) or "").strip()
+            if not ab_run_id:
+                continue
+            from app.models.entities import AbEvaluationRun
+            from app.services.evidence_store import ab_run_promotable
+
+            ab = db.scalar(select(AbEvaluationRun).where(AbEvaluationRun.run_id == ab_run_id))
+            if ab is None or ab.camera_id != camera_id:
+                continue
+            ok_ab, _ab_code = ab_run_promotable(ab)
+            if not ok_ab:
+                continue
+            # Pins on AB row (when present) must match current server pins
+            if ab.model_hash_pin or ab.gallery_revision_pin or ab.threshold_id_pin:
+                if (
+                    ab.model_hash_pin != (model_hash_pin or "")
+                    or ab.gallery_revision_pin != (gallery_revision_pin or "")
+                    or ab.threshold_id_pin != (threshold_id_pin or "")
+                ):
+                    continue
+            # Config revision on AB must match current camera when recorded
+            ab_rev = (ab.config_revision or "").strip()
+            if ab_rev:
+                from app.models.entities import CameraDevice
+
+                cam = db.get(CameraDevice, int(camera_id))
+                if cam is None or (cam.config_revision or "").strip() != ab_rev:
+                    continue
         return ApprovalView(
             approval_id=row.approval_id,
             kind=row.kind,
