@@ -1,4 +1,5 @@
 2808ff3  HF5 tip / PR #21  <<< P02 BASELINE
 1620e9c51580c06b11a33678ab783795bbed129e  P02 feature (real face overlay)
-FREEZE   COMPLETE ZIP bytes (next)
+1aef1ed1f4337894b9eb69b2d44aecd35cd80c7a  path manifests (package input tree)
+43c144557f7e4304474b85ff27f78b37eb533a09  packaging freeze (ZIP-introducing COMPLETE bytes)
 TIP      after push
