@@ -1,4 +1,4 @@
 2808ff3  HF5 tip / PR #21  <<< P02 BASELINE
-FEATURE  P02 real face overlay
-FREEZE   COMPLETE ZIP bytes
+1620e9c51580c06b11a33678ab783795bbed129e  P02 feature (real face overlay)
+FREEZE   COMPLETE ZIP bytes (next)
 TIP      after push

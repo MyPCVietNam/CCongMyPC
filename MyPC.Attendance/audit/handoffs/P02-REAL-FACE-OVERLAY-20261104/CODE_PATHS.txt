@@ -1,0 +1,16 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/api/deps.py
+MyPC.Attendance/backend/app/main.py
+MyPC.Attendance/backend/app/services/live_face_detect_preview.py
+MyPC.Attendance/backend/app/static/assets/index-9TtdYGpe.js
+MyPC.Attendance/backend/app/static/assets/index-BRx11ug4.js
+MyPC.Attendance/backend/app/static/assets/index-CGXZXDtN.css
+MyPC.Attendance/backend/app/static/assets/index-DR3tvPoc.css
+MyPC.Attendance/backend/app/static/index.html
+MyPC.Attendance/backend/app/vision/faces/annotate.py
+MyPC.Attendance/frontend/src/camera/imageCoords.test.ts
+MyPC.Attendance/frontend/src/camera/imageCoords.ts
+MyPC.Attendance/frontend/src/pages/CameraPage.tsx
+MyPC.Attendance/tests/integration/test_p02_live_face_overlay_api.py
+MyPC.Attendance/tests/unit/test_p02_live_face_detect_preview.py
+MyPC.Attendance/tools/package_p02_real_face_overlay_complete_audit.py
