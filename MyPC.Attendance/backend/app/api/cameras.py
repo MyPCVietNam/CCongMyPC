@@ -504,6 +504,7 @@ def configure_live_gateway(
         profile=profile,
         stream_fingerprint=fp,
     )
+    _clear_face_detect_cache(state, camera_db_id)
     # Start the (possibly shared) gateway after bind
     bound.gateway.start()
     state.camera_gateway = bound.gateway  # legacy pointer
@@ -586,6 +587,7 @@ def stop_live_gateway(
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
     if state.camera_registry is not None:
         state.camera_registry.unbind(camera_id)
+    _clear_face_detect_cache(state, camera_id)
     row.enabled = False
     row.connection_status = "STOPPED"
     db.add(
@@ -1297,6 +1299,268 @@ def preview_mjpeg(
             "Pragma": "no-cache",
             "X-View-Mode": "LIVE_MJPEG",
             "X-Camera-Lab-Pass": "false",
+        },
+    )
+
+
+def _clear_face_detect_cache(state: AppState, camera_id: int) -> None:
+    svc = getattr(state, "face_detect_preview", None)
+    if svc is not None:
+        try:
+            svc.clear_camera(int(camera_id))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _load_arrival_roi(db: Session, camera_id: int) -> tuple[dict[str, float] | None, int]:
+    region = db.scalar(
+        select(RecognitionRegion).where(
+            RecognitionRegion.camera_id == camera_id,
+            RecognitionRegion.name == "arrival",
+            RecognitionRegion.active.is_(True),
+        )
+    )
+    if region is None:
+        return None, 0
+    try:
+        rect = json.loads(region.norm_rect_json or "{}")
+        return (
+            {
+                "x": float(rect.get("x", 0.3)),
+                "y": float(rect.get("y", 0.05)),
+                "w": float(rect.get("w", 0.4)),
+                "h": float(rect.get("h", 0.25)),
+            },
+            int(region.calibration_version or 1),
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, int(getattr(region, "calibration_version", 0) or 0)
+
+
+def _resolve_ai_preview_frame(camera_id: int, db: Session, state: AppState):
+    """LIVE detection source — reject MOCK/unbound; fresher than browser preview path."""
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if row.archived:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CAMERA_ARCHIVED", "message_vi": "Camera đã lưu trữ — không chạy AI overlay."},
+        )
+    if row.mock_mode:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REJECTED_MOCK",
+                "message_vi": "Camera MOCK — không chạy YuNet overlay như LIVE thật.",
+                "status": "REJECTED_MOCK",
+            },
+        )
+    reg = state.camera_registry
+    bound = reg.get(camera_id) if reg is not None else None
+    if bound is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "LIVE_NOT_CONFIGURED",
+                "message_vi": "Chưa gắn nguồn LIVE — không có khung CAMERA_LIVE để detect.",
+                "status": "NOT_BOUND",
+            },
+        )
+    if bound.provenance.value != "CAMERA_LIVE":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REJECTED_NON_LIVE",
+                "message_vi": f"Provenance {bound.provenance.value} — chỉ CAMERA_LIVE được detect overlay.",
+                "status": "REJECTED_NON_LIVE",
+            },
+        )
+    from app.vision.camera.registry import FrameAccessError
+
+    try:
+        bound, fr = reg.get_frame(
+            camera_id,
+            expected_revision=row.config_revision or None,
+            allow_mock=False,
+            allow_recorded=False,
+            require_live=True,
+            allow_stale=False,
+            max_age_s=5.0,
+            for_biometric=False,
+            require_integrity=False,
+        )
+    except FrameAccessError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": exc.code,
+                "message_vi": exc.message_vi,
+                "status": exc.code,
+                "config_revision": bound.config_revision if bound else None,
+            },
+        ) from exc
+    return row, bound, fr
+
+
+def _encode_annotated_jpeg(bgr, *, max_w: int = 1280, quality: int = 72) -> bytes:
+    import cv2
+
+    pixels = np_as_bgr(bgr)
+    h, w = pixels.shape[:2]
+    if w > max_w:
+        scale = max_w / float(w)
+        pixels = cv2.resize(pixels, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", pixels, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        raise RuntimeError("JPEG_ENCODE_FAILED")
+    return buf.tobytes()
+
+
+def np_as_bgr(bgr):
+    import numpy as np
+
+    if not isinstance(bgr, np.ndarray):
+        raise TypeError("expected ndarray")
+    return bgr
+
+
+@router.get("/{camera_id}/regions")
+def get_regions(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict:
+    """Load saved recognition ROI (does not invent defaults over stored DB values)."""
+    row = db.get(CameraDevice, camera_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    roi, cal_ver = _load_arrival_roi(db, camera_id)
+    return {
+        "camera_id": camera_id,
+        "name": "arrival",
+        "roi": roi,
+        "calibration_version": cal_ver,
+        "has_saved_roi": roi is not None,
+        "default_hint": {"x": 0.3, "y": 0.05, "w": 0.4, "h": 0.25},
+        "note_vi": (
+            "ROI đã lưu từ DB."
+            if roi is not None
+            else "Chưa có ROI trong DB — UI có thể hiển thị gợi ý nhưng không ghi đè khi chưa Lưu."
+        ),
+    }
+
+
+@router.get("/{camera_id}/live/face-detect")
+def live_face_detect(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+    max_ai_fps: float = 2.0,
+) -> dict:
+    """
+    JSON detection+quality on one fresh CAMERA_LIVE frame (shared server cache).
+    Detection only — no identity, embeddings, or attendance writes.
+    """
+    _ = user
+    row, _bound, fr = _resolve_ai_preview_frame(camera_id, db, state)
+    roi, cal_ver = _load_arrival_roi(db, camera_id)
+    svc = state.face_detect_preview
+    if svc is None:
+        from app.services.live_face_detect_preview import get_live_face_detect_service
+
+        svc = get_live_face_detect_service()
+        state.face_detect_preview = svc
+    snap, _ = svc.analyze_frame(
+        camera_id=camera_id,
+        frame=fr,
+        face_pipeline=state.face_pipeline,
+        roi_norm=roi,
+        max_ai_fps=max_ai_fps,
+        want_annotated=False,
+    )
+    out = snap.to_dict()
+    out["device_config_revision"] = row.config_revision or ""
+    out["roi_calibration_version"] = cal_ver
+    out["actor_permission"] = CAMERA_MANAGE
+    return out
+
+
+@router.get("/{camera_id}/preview/mjpeg-ai")
+def preview_mjpeg_ai(
+    camera_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+    max_ai_fps: float = 2.0,
+) -> StreamingResponse:
+    """
+    Opt-in annotated MJPEG: YuNet boxes + ROI drawn on the SAME frame being encoded.
+    Bounded 1–3 AI FPS; original /preview/mjpeg remains unchanged.
+    """
+    _ = user
+    _resolve_ai_preview_frame(camera_id, db, state)
+    fps = max(1.0, min(float(max_ai_fps or 2.0), 3.0))
+    interval = 1.0 / fps
+    boundary = b"frame"
+    svc = state.face_detect_preview
+    if svc is None:
+        from app.services.live_face_detect_preview import get_live_face_detect_service
+
+        svc = get_live_face_detect_service()
+        state.face_detect_preview = svc
+
+    def generate():
+        last_id = ""
+        while True:
+            try:
+                with state.session_factory() as sdb:
+                    _row, _bound, fr = _resolve_ai_preview_frame(camera_id, sdb, state)
+                    roi, _cal = _load_arrival_roi(sdb, camera_id)
+                if fr.frame_id == last_id:
+                    time.sleep(interval)
+                    continue
+                last_id = fr.frame_id
+                snap, ann = svc.analyze_frame(
+                    camera_id=camera_id,
+                    frame=fr,
+                    face_pipeline=state.face_pipeline,
+                    roi_norm=roi,
+                    max_ai_fps=fps,
+                    want_annotated=True,
+                )
+                if ann is None:
+                    ann = fr.clone_pixels()
+                jpeg = _encode_annotated_jpeg(ann, max_w=1280, quality=72)
+                header = (
+                    b"--" + boundary + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n"
+                    b"X-View-Mode: LIVE_MJPEG_AI\r\n"
+                    b"X-Frame-Id: " + fr.frame_id.encode("ascii", errors="ignore") + b"\r\n"
+                    b"X-Detect-Status: " + snap.status.encode("ascii", errors="ignore") + b"\r\n"
+                    b"X-Face-Count: " + str(snap.face_count).encode("ascii") + b"\r\n"
+                    b"\r\n"
+                )
+                yield header + jpeg + b"\r\n"
+            except HTTPException:
+                break
+            except Exception:
+                time.sleep(interval)
+                continue
+            time.sleep(interval)
+
+    return StreamingResponse(
+        generate(),
+        media_type=f"multipart/x-mixed-replace; boundary={boundary.decode('ascii')}",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "X-View-Mode": "LIVE_MJPEG_AI",
+            "X-Camera-Lab-Pass": "false",
+            "X-Face-Pilot-Pass": "false",
+            "X-Phase": "DETECTION_QUALITY_ONLY",
         },
     )
 
@@ -2512,11 +2776,20 @@ def put_regions(
     camera_id: int,
     body: RegionIn,
     db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
     _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
 ) -> dict:
+    """Save arrival ROI.
+
+    Gate decision (P02): ROI edit bumps ``calibration_version`` and clears
+    ``exit_calibration_valid`` (spatial calibration / attendance geometry).
+    It does NOT rotate ``config_revision`` and does NOT revoke CAMERA_LAB /
+    PHYSICAL HMAC connectivity trust (display/geometry only relative to source).
+    """
     row = db.get(CameraDevice, camera_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    prior_rev = row.config_revision or ""
     try:
         rect = validate_roi(body.x, body.y, body.w, body.h)
     except ValidationErrorVi as exc:
@@ -2536,11 +2809,24 @@ def put_regions(
         region.calibration_version += 1
         region.exit_calibration_valid = False
     db.flush()
+    _clear_face_detect_cache(state, camera_id)
     return {
         "ok": True,
         "region": rect,
         "calibration_version": region.calibration_version,
         "exit_calibration_valid": region.exit_calibration_valid,
+        "config_revision_unchanged": prior_rev,
+        "config_revision": row.config_revision or "",
+        "camera_lab_revoked": False,
+        "trust_gate": {
+            "revokes_camera_lab_hmac": False,
+            "rotates_config_revision": False,
+            "invalidates_exit_calibration": True,
+            "note_vi": (
+                "ROI chỉ ảnh hưởng hiệu chỉnh không gian / attendance geometry; "
+                "không thu hồi CAMERA_LAB HMAC vì đổi ROI."
+            ),
+        },
         "message_vi": "Đã lưu vùng nhận diện — cần hiệu chỉnh lại xác minh ra về",
     }
 

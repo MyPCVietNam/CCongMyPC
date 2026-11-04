@@ -59,6 +59,7 @@ class AppState:
     auto_enrollment_service: Any = None
     camera_gateway: Any = None  # legacy singleton pointer
     camera_registry: Any = None  # CameraSourceRegistry — per-camera LIVE/REPLAY/MOCK
+    face_detect_preview: Any = None  # LiveFaceDetectPreviewService — shared AI overlay cache
     alembic_ok: bool = True
     alembic_error: str | None = None
 

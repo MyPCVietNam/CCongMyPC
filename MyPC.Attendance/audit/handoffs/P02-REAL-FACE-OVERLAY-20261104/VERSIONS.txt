@@ -1,0 +1,5 @@
+Python: 3.12.3
+pytest full: 410 passed (~92s)
+vitest: 13 passed
+frontend: npm ci + typecheck + vitest + vite build PASS
+static: index-9TtdYGpe.js / index-DR3tvPoc.css

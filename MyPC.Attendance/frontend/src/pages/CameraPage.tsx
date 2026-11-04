@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import {
   HandshakeLane,
@@ -10,6 +10,12 @@ import {
   serverDecoderWatchdogState,
   uiStateFromLanes,
 } from "../camera/diagLanes";
+import {
+  faceBoxToOverlay,
+  normRectToOverlay,
+  objectContainMapping,
+  type NormRect,
+} from "../camera/imageCoords";
 
 type Cam = {
   id: number;
@@ -65,8 +71,46 @@ type QualityDiag = {
   provenance?: string | null;
 };
 
+type FaceDetectFace = {
+  x_px: number;
+  y_px: number;
+  w_px: number;
+  h_px: number;
+  score: number;
+  outside_roi?: boolean;
+  inter_eye_px?: number;
+};
+
+type FaceDetectResult = {
+  frame_id: string;
+  status: string;
+  status_vi: string;
+  face_count: number;
+  faces: FaceDetectFace[];
+  quality?: {
+    ok?: boolean;
+    face_width_px?: number;
+    score?: number;
+    reasons_vi?: string[];
+    pose?: { yaw_deg?: number; pitch_deg?: number; slot_hint?: string } | null;
+  };
+  enrollment_gate?: string;
+  enrollment_gate_vi?: string;
+  inference_mode?: string;
+  model_ready?: boolean;
+  native_width?: number;
+  native_height?: number;
+  min_face_width_px?: number;
+  preferred_face_width_px?: number;
+  cache_hit?: boolean;
+  identity_exposed?: boolean;
+  attendance_written?: boolean;
+};
+
 type Mode = "new" | "edit";
 type ListFilter = "ALL" | "ACTIVE" | "MOCK" | "LIVE";
+
+const ROI_HINT: NormRect = { x: 0.3, y: 0.05, w: 0.4, h: 0.25 };
 
 const emptyForm = () => ({
   name: "EZVIZ H8 Pro",
@@ -88,7 +132,13 @@ export function CameraPage() {
   const [liveHealth, setLiveHealth] = useState<LiveHealthLane | null>(null);
   const [quality, setQuality] = useState<QualityDiag | null>(null);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
-  const [roi, setRoi] = useState({ x: 0.3, y: 0.05, w: 0.4, h: 0.25 });
+  const [roi, setRoi] = useState<NormRect>({ ...ROI_HINT });
+  const [roiSaved, setRoiSaved] = useState(false);
+  const [roiCalVer, setRoiCalVer] = useState(0);
+  const [aiOverlay, setAiOverlay] = useState(false);
+  const [faceDetect, setFaceDetect] = useState<FaceDetectResult | null>(null);
+  const [faceDetectErr, setFaceDetectErr] = useState("");
+  const [yunetReady, setYunetReady] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -99,10 +149,15 @@ export function CameraPage() {
   const [dupesMsg, setDupesMsg] = useState("");
   const [showAdmin, setShowAdmin] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [overlayBox, setOverlayBox] = useState({ w: 0, h: 0 });
   const selectGen = useRef(0);
   const liveHealthGen = useRef(0);
+  const faceDetectGen = useRef(0);
   const hiddenRef = useRef(false);
   const inFlight = useRef(false);
+  const faceInFlight = useRef(false);
+  const liveImgRef = useRef<HTMLImageElement | null>(null);
+  const liveWrapRef = useRef<HTMLDivElement | null>(null);
   /** Reserved for a future verified multipart frame heartbeat — never fed from img onLoad. */
   const clientMjpegActivityMs: number | null = null;
 
@@ -148,6 +203,9 @@ export function CameraPage() {
     setLiveHealth(null);
     setQuality(null);
     setAnalyzeMsg("");
+    setFaceDetect(null);
+    setFaceDetectErr("");
+    setRoiSaved(false);
     try {
       const cam = await api<Cam>(`/api/v1/cameras/${id}`);
       if (gen !== selectGen.current) return;
@@ -155,6 +213,29 @@ export function CameraPage() {
       setMode("edit");
       setCams((prev) => prev.map((c) => (c.id === cam.id ? { ...c, ...cam } : c)));
       setMjpegNonce((n) => n + 1);
+      try {
+        const regions = await api<{
+          roi: NormRect | null;
+          has_saved_roi?: boolean;
+          calibration_version?: number;
+          default_hint?: NormRect;
+        }>(`/api/v1/cameras/${id}/regions`);
+        if (gen !== selectGen.current) return;
+        if (regions.roi) {
+          setRoi({ ...regions.roi });
+          setRoiSaved(true);
+          setRoiCalVer(Number(regions.calibration_version || 0));
+        } else {
+          // Hint only — do not silently persist over DB
+          setRoi({ ...(regions.default_hint || ROI_HINT) });
+          setRoiSaved(false);
+          setRoiCalVer(0);
+        }
+      } catch {
+        if (gen !== selectGen.current) return;
+        setRoi({ ...ROI_HINT });
+        setRoiSaved(false);
+      }
     } catch (err) {
       if (gen !== selectGen.current) return;
       setError(err instanceof Error ? err.message : "Không tải được camera");
@@ -591,15 +672,70 @@ export function CameraPage() {
   async function saveRoi() {
     if (selected == null) return;
     try {
-      await api(`/api/v1/cameras/${selected}/regions`, {
+      const out = await api<{
+        calibration_version?: number;
+        camera_lab_revoked?: boolean;
+        trust_gate?: { note_vi?: string };
+        message_vi?: string;
+      }>(`/api/v1/cameras/${selected}/regions`, {
         method: "PUT",
         body: JSON.stringify({ name: "arrival", ...roi }),
       });
-      setAnalyzeMsg("Đã lưu vùng nhận diện.");
+      setRoiSaved(true);
+      setRoiCalVer(Number(out.calibration_version || 0));
+      setAnalyzeMsg(
+        `${out.message_vi || "Đã lưu vùng nhận diện."} CAMERA_LAB_HMAC_revoked=${String(
+          !!out.camera_lab_revoked
+        )}. ${out.trust_gate?.note_vi || ""}`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi");
     }
   }
+
+  useEffect(() => {
+    if (!aiOverlay || selected == null || mode !== "edit" || viewMode !== "mjpeg") {
+      return;
+    }
+    let cancelled = false;
+    const camId = selected;
+    const gen = ++faceDetectGen.current;
+    const tick = async () => {
+      if (cancelled || hiddenRef.current || faceInFlight.current) return;
+      faceInFlight.current = true;
+      try {
+        const d = await api<FaceDetectResult>(
+          `/api/v1/cameras/${camId}/live/face-detect?max_ai_fps=2`
+        );
+        if (cancelled || gen !== faceDetectGen.current || camId !== selected) return;
+        setFaceDetect(d);
+        setFaceDetectErr("");
+        setYunetReady(Boolean(d.model_ready) && d.inference_mode === "REAL");
+      } catch (err) {
+        if (cancelled || gen !== faceDetectGen.current) return;
+        setFaceDetectErr(err instanceof Error ? err.message : "Lỗi face-detect");
+        setFaceDetect(null);
+      } finally {
+        faceInFlight.current = false;
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), 600);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [aiOverlay, selected, mode, viewMode, mjpegNonce]);
+
+  useLayoutEffect(() => {
+    const el = liveWrapRef.current;
+    if (!el) return;
+    const sync = () => setOverlayBox({ w: el.clientWidth, h: el.clientHeight });
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [selected, viewMode, aiOverlay]);
 
   const selectedCam = cams.find((c) => c.id === selected);
   const statusLabel = uiStateFromLanes(selectedCam, preview, liveHealth, {
@@ -622,8 +758,23 @@ export function CameraPage() {
       : statusLabel;
   const mjpegSrc =
     selected != null
-      ? `/api/v1/cameras/${selected}/preview/mjpeg?max_fps=12&_=${mjpegNonce}`
+      ? aiOverlay
+        ? `/api/v1/cameras/${selected}/preview/mjpeg-ai?max_ai_fps=2&_=${mjpegNonce}`
+        : `/api/v1/cameras/${selected}/preview/mjpeg?max_fps=12&_=${mjpegNonce}`
       : "";
+
+  const nativeW =
+    faceDetect?.native_width ||
+    liveHealth?.native_width ||
+    liveImgRef.current?.naturalWidth ||
+    2304;
+  const nativeH =
+    faceDetect?.native_height ||
+    liveHealth?.native_height ||
+    liveImgRef.current?.naturalHeight ||
+    1296;
+  const containMap = objectContainMapping(nativeW, nativeH, overlayBox.w, overlayBox.h);
+  const draftRoiOverlay = normRectToOverlay(roi, nativeW, nativeH, containMap);
 
   const statusHint =
     displayStatus === "LIVE"
@@ -746,20 +897,65 @@ export function CameraPage() {
 
       {mode === "edit" && selected != null ? (
         <div className="rounded-xl border border-line bg-panel p-3 sm:p-4 space-y-3">
-          <div className="relative aspect-video bg-canvas rounded-md overflow-hidden border border-line">
+          <div
+            ref={liveWrapRef}
+            className="relative aspect-video bg-canvas rounded-md overflow-hidden border border-line"
+          >
             {viewMode === "mjpeg" ? (
               <>
                 <img
-                  alt="LIVE MJPEG"
+                  ref={liveImgRef}
+                  alt={aiOverlay ? "LIVE MJPEG AI overlay" : "LIVE MJPEG"}
                   src={mjpegSrc}
                   className="w-full h-full object-contain"
                   onLoad={() => {
                     // Displayable once ≠ per-frame MJPEG receipt. Do not advance
                     // browser transport freshness from onLoad (stays UNVERIFIED).
                     void clientMjpegActivityMs;
+                    const el = liveWrapRef.current;
+                    if (el) setOverlayBox({ w: el.clientWidth, h: el.clientHeight });
                   }}
-                  onError={() => setViewMode("snapshot")}
+                  onError={() => {
+                    if (aiOverlay) {
+                      setAiOverlay(false);
+                      setFaceDetectErr("Không tải được MJPEG AI — đã tắt overlay.");
+                      return;
+                    }
+                    setViewMode("snapshot");
+                  }}
                 />
+                {/* Client SVG: draft ROI (+ optional face boxes when metadata matches). AI MJPEG already paints server boxes. */}
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none"
+                  viewBox={`0 0 ${Math.max(overlayBox.w, 1)} ${Math.max(overlayBox.h, 1)}`}
+                >
+                  <rect
+                    x={draftRoiOverlay.x}
+                    y={draftRoiOverlay.y}
+                    width={draftRoiOverlay.w}
+                    height={draftRoiOverlay.h}
+                    fill="none"
+                    stroke="rgba(80,200,255,0.85)"
+                    strokeWidth={2}
+                    strokeDasharray={roiSaved ? undefined : "6 4"}
+                  />
+                  {!aiOverlay &&
+                    faceDetect?.faces?.map((f, i) => {
+                      const b = faceBoxToOverlay(f, containMap);
+                      return (
+                        <rect
+                          key={`f-${i}-${f.x_px}-${f.y_px}`}
+                          x={b.x}
+                          y={b.y}
+                          width={b.w}
+                          height={b.h}
+                          fill="none"
+                          stroke={f.outside_roi ? "rgba(240,80,80,0.9)" : "rgba(40,220,40,0.9)"}
+                          strokeWidth={2}
+                        />
+                      );
+                    })}
+                </svg>
                 <div
                   className={`absolute left-2 top-2 text-xs bg-canvas/85 border px-2 py-1 rounded ${
                     displayStatus === "LIVE"
@@ -767,7 +963,7 @@ export function CameraPage() {
                       : "border-danger/40 text-danger"
                   }`}
                 >
-                  MJPEG · {displayStatus}
+                  {aiOverlay ? "MJPEG+AI" : "MJPEG"} · {displayStatus}
                   {serverWatch !== "OK" && serverWatch !== "UNKNOWN"
                     ? ` · SERVER_DECODER=${serverWatch}`
                     : ""}
@@ -791,6 +987,62 @@ export function CameraPage() {
               </div>
             )}
           </div>
+
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            <span className="rounded border border-line px-2 py-1">
+              (a) Decoder: {displayStatus === "LIVE" ? "LIVE" : displayStatus}
+            </span>
+            <span className="rounded border border-line px-2 py-1">
+              (b) Browser: {browserTransport}
+            </span>
+            <span className="rounded border border-line px-2 py-1">
+              (c) YuNet REAL:{" "}
+              {yunetReady == null ? "—" : yunetReady ? "READY" : "NOT_READY"}
+            </span>
+            <span className="rounded border border-line px-2 py-1">
+              (d) Face: {faceDetect?.status || (aiOverlay ? "…" : "OFF")}
+              {faceDetect?.quality?.face_width_px
+                ? ` · ${faceDetect.quality.face_width_px}px`
+                : ""}
+            </span>
+            <span className="rounded border border-line px-2 py-1">
+              (e) CAMERA_LAB: {liveHealth?.signed_camera_lab ? "signed" : "—"}
+            </span>
+            <span className="rounded border border-line px-2 py-1">(f) FACE_PILOT: pending</span>
+          </div>
+
+          {aiOverlay ? (
+            <div className="text-xs space-y-1 border border-line rounded-md p-2 bg-canvas/40">
+              <div className="font-medium">
+                AI detection (chỉ phát hiện + chất lượng — không nhận dạng / không chấm công)
+              </div>
+              {faceDetectErr ? <div className="text-danger">{faceDetectErr}</div> : null}
+              {faceDetect ? (
+                <>
+                  <div>
+                    status={faceDetect.status} · faces={faceDetect.face_count} · frame=
+                    {faceDetect.frame_id.slice(0, 12)} · gate={faceDetect.enrollment_gate}
+                  </div>
+                  <div className="text-muted">{faceDetect.status_vi}</div>
+                  {faceDetect.quality?.face_width_px != null ? (
+                    <div>
+                      face_width_px={faceDetect.quality.face_width_px} (min{" "}
+                      {faceDetect.min_face_width_px ?? 120} / preferred{" "}
+                      {faceDetect.preferred_face_width_px ?? 160}) · score=
+                      {faceDetect.quality.score ?? "?"}
+                    </div>
+                  ) : null}
+                  <div className="text-muted">
+                    identity_exposed={String(!!faceDetect.identity_exposed)} · attendance_written=
+                    {String(!!faceDetect.attendance_written)}
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted">Đang chờ kết quả detect…</div>
+              )}
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -800,6 +1052,20 @@ export function CameraPage() {
             >
               Kết nối lại
             </button>
+            <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={aiOverlay}
+                onChange={(e) => {
+                  setAiOverlay(e.target.checked);
+                  setFaceDetect(null);
+                  setFaceDetectErr("");
+                  setMjpegNonce((n) => n + 1);
+                }}
+              />
+              AI phát hiện khuôn mặt (overlay)
+            </label>
             <button
               type="button"
               disabled={busy}
@@ -937,6 +1203,10 @@ export function CameraPage() {
 
         {mode === "edit" ? (
           <div className="mt-4 border-t border-line pt-4 space-y-3">
+            <p className="text-xs text-muted">
+              ROI arrival {roiSaved ? `(đã lưu DB · cal_v${roiCalVer})` : "(nháp — chưa ghi DB)"}. Đường
+              nét trên LIVE là bản nháp cho đến khi bấm Lưu. Đổi ROI không thu hồi CAMERA_LAB HMAC.
+            </p>
             <div className="grid grid-cols-4 gap-2 text-xs">
               {(["x", "y", "w", "h"] as const).map((k) => (
                 <label key={k} className="space-y-1">
@@ -948,7 +1218,10 @@ export function CameraPage() {
                     max={1}
                     className="w-full rounded-md bg-canvas border border-line px-2 py-1"
                     value={roi[k]}
-                    onChange={(e) => setRoi({ ...roi, [k]: Number(e.target.value) })}
+                    onChange={(e) => {
+                      setRoi({ ...roi, [k]: Number(e.target.value) });
+                      setRoiSaved(false);
+                    }}
                   />
                 </label>
               ))}

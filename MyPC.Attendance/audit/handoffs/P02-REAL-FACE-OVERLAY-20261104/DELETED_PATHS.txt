@@ -1,0 +1,2 @@
+MyPC.Attendance/backend/app/static/assets/index-BRx11ug4.js
+MyPC.Attendance/backend/app/static/assets/index-CGXZXDtN.css
