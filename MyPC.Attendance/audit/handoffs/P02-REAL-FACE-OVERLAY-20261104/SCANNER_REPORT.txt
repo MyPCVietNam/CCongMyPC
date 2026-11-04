@@ -1,1 +1,2 @@
-scanner: nested ZIP CRC+SHA256+sensitive scan via tools/release_sensitive_scan.py
+scanner: nested ZIP CRC + SHA256 + sensitive scan via tools/release_sensitive_scan.py
+result: PASS (CHANGED/FULL/WINDOWS-SAFE/COMPLETE) — synthetic frames/credentials only under tests/
