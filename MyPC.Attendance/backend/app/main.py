@@ -104,6 +104,8 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         settings=settings,
     )
 
+    from app.services.live_face_detect_preview import LiveFaceDetectPreviewService
+
     container = AppState(
         settings=settings,
         clock=clock,
@@ -118,6 +120,9 @@ def create_app(settings: AppSettings | None = None, clock=None) -> FastAPI:
         auto_enrollment_service=auto_enrollment_service,
         camera_gateway=MockFrameGateway(camera_id="default-mock"),
         camera_registry=CameraSourceRegistry(),
+        face_detect_preview=LiveFaceDetectPreviewService(
+            min_interval_s=1.0 / 3.0, max_interval_s=1.0
+        ),
     )
     container.alembic_ok = alembic_ok
     container.alembic_error = alembic_error
