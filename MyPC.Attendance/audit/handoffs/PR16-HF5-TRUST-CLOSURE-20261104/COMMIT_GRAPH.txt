@@ -1,0 +1,5 @@
+9c5e706  HF3 tip / PR #19
+56660d0  HF4 tip / PR #20 HEAD  <<< HF5 BASELINE
+FEATURE  HF5 trust closure
+FREEZE   COMPLETE ZIP bytes
+TIP      after push

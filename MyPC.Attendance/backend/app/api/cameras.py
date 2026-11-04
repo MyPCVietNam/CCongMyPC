@@ -196,6 +196,18 @@ def create_camera(
                     },
                 )
 
+    action = (body.credential_action or "keep").strip().lower()
+    if action not in {"keep", "replace", "remove"}:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_CREDENTIAL_ACTION",
+                "message_vi": "credential_action phải là keep|replace|remove.",
+            },
+        )
+    if body.password or action == "replace":
+        action = "replace"
+
     now = SystemClock().now_utc()
     import uuid as _uuid
 
@@ -215,16 +227,13 @@ def create_camera(
     )
     db.add(row)
     db.flush()
-    action = (body.credential_action or "keep").strip().lower()
-    if body.password or action == "replace":
-        action = "replace"
     try:
         cred = apply_camera_credentials(
             state.secrets,
             camera_id=row.id,
             current_secret_ref="",
             current_username_hint="",
-            action=action if action in {"keep", "replace", "remove"} else "keep",
+            action=action,  # type: ignore[arg-type]
             username=body.username,
             password=body.password,
             db=db,
@@ -398,6 +407,14 @@ def configure_live_gateway(
     password_provided = "password" in body and body.get("password") is not None
     password = body.get("password") if password_provided else None
     credential_action = str(body.get("credential_action") or "keep").strip().lower()
+    if credential_action not in {"keep", "replace", "remove"}:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_CREDENTIAL_ACTION",
+                "message_vi": "credential_action phải là keep|replace|remove.",
+            },
+        )
     if password_provided and password not in (None, "") and credential_action == "keep":
         credential_action = "replace"
     try:
@@ -406,7 +423,7 @@ def configure_live_gateway(
             camera_id=camera_db_id,
             current_secret_ref=row.secret_ref or "",
             current_username_hint=row.username_hint or "",
-            action=credential_action if credential_action in {"keep", "replace", "remove"} else "keep",  # type: ignore[arg-type]
+            action=credential_action,  # type: ignore[arg-type]
             username=username,
             password="" if password is None else str(password),
             db=db,
@@ -415,6 +432,16 @@ def configure_live_gateway(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     row.secret_ref = cred.secret_ref
     row.username_hint = cred.username_hint
+    # Effective credential mutation always invalidates prior physical trust (even if bind
+    # revision somehow matches). Bind below still rotates revision for LIVE identity.
+    if cred.changed:
+        from app.services.camera_trust_lifecycle import revoke_camera_physical_trust
+
+        revoke_camera_physical_trust(
+            db,
+            camera_id=camera_db_id,
+            reason="CAMERA_CONFIGURE_CREDENTIAL_EFFECTIVE_CHANGE",
+        )
     # Persist editable RTSP path (no userinfo) on configure
     row.rtsp_url_override = safe_uri
     # Same-request: prefer staged blob until post-commit promote
@@ -740,11 +767,18 @@ def update_camera(
 
     action = (body.credential_action or "keep").strip().lower()
     if action not in {"keep", "replace", "remove"}:
-        action = "keep"
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_CREDENTIAL_ACTION",
+                "message_vi": "credential_action phải là keep|replace|remove.",
+            },
+        )
 
     from app.services.camera_trust_lifecycle import (
         apply_material_trust_invalidation,
         classify_camera_update,
+        merge_effective_credential_change,
     )
 
     plan = classify_camera_update(
@@ -794,6 +828,14 @@ def update_camera(
     row.secret_ref = cred.secret_ref
     row.username_hint = cred.username_hint
 
+    # PR16-HF5: effective secret change under keep (password/username rewrite) is MATERIAL
+    plan = merge_effective_credential_change(
+        plan,
+        credential_changed=bool(cred.changed),
+        declared_action=action,
+        effective_action=str(cred.action or ""),
+    )
+
     trust_meta = apply_material_trust_invalidation(
         db, row=row, state=state, plan=plan, actor=user.username
     )
@@ -807,7 +849,8 @@ def update_camera(
             entity_type="camera",
             entity_id=str(row.id),
             reason=(
-                f"credential_action={cred.action}; material={plan.is_material}; "
+                f"credential_action_declared={action}; credential_action_effective={cred.action}; "
+                f"credential_changed={bool(cred.changed)}; material={plan.is_material}; "
                 f"reasons={','.join(plan.reasons) or 'none'}; secrets_redacted=true"
             ),
             timestamp=utc_now(),

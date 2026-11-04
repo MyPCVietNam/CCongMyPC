@@ -1,0 +1,50 @@
+=== BASELINE RED (HF4 unmodified) ===
+MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py::test_helper_keep_with_password_replaces_credentials PASSED [ 25%]
+MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py::test_patch_implicit_password_replacement_must_invalidate_hmac FAILED [ 50%]
+MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py::test_helper_keep_with_username_change_reencrypts_credentials PASSED [ 75%]
+MyPC.Attendance/tests/unit/test_auto_validation_backing_ab.py::test_auto_validated_must_recheck_ab_backing FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_patch_implicit_password_replacement_must_invalidate_hmac _________
+MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py:58: in test_patch_implicit_password_replacement_must_invalidate_hmac
+    assert after is None, "SECURITY REGRESSION: credential replacement kept old approval valid"
+E   AssertionError: SECURITY REGRESSION: credential replacement kept old approval valid
+E   assert ApprovalView(approval_id='029c053c-de17-4833-885f-245b044187a4', kind='CAMERA_LAB', camera_id=1, expires_at=datetime.datetime(2026, 12, 4, 2, 41, 16, 131255, tzinfo=datetime.timezone.utc), valid=True, reason_vi='Phê duyệt server còn hiệu lực (HMAC + UTC Zulu + khớp hàng DB + evidence).', code='OK') is None
+----------------------------- Captured stdout call -----------------------------
+PRE-APPLY classification MaterialChangePlan(reasons=[], rotate_revision=False, revoke_trust=False, unbind_runtime=False, mark_binding_stale=False)
+API PATCH material= False rev= test-old-rev HMAC active after replacement= True
+_________________ test_auto_validated_must_recheck_ab_backing __________________
+MyPC.Attendance/tests/unit/test_auto_validation_backing_ab.py:34: in test_auto_validated_must_recheck_ab_backing
+    assert view is None, 'AUTO_VALIDATED must deny if signed AB run no longer exists'
+E   AssertionError: AUTO_VALIDATED must deny if signed AB run no longer exists
+E   assert ApprovalView(approval_id='59f72114-4233-4471-9305-73a4224129cd', kind='AUTO_VALIDATED', camera_id=1, expires_at=datetime.datetime(2026, 12, 4, 2, 41, 16, 178748, tzinfo=datetime.timezone.utc), valid=True, reason_vi='Phê duyệt server còn hiệu lực (HMAC + UTC Zulu + khớp hàng DB + evidence).', code='OK') is None
+----------------------------- Captured stdout call -----------------------------
+AUTO_VALIDATED with nonexistent AB backing: True
+=========================== short test summary info ============================
+FAILED MyPC.Attendance/tests/unit/test_credential_keep_hmac_bypass.py::test_patch_implicit_password_replacement_must_invalidate_hmac
+FAILED MyPC.Attendance/tests/unit/test_auto_validation_backing_ab.py::test_auto_validated_must_recheck_ab_backing
+========================= 2 failed, 2 passed in 0.13s ==========================
+
+=== AFTER FIX ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.7.0 -- /workspace/MyPC.Attendance/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/MyPC.Attendance
+configfile: pytest.ini
+plugins: asyncio-0.24.0, anyio-4.16.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 4 items
+
+tests/unit/test_credential_keep_hmac_bypass.py::test_helper_keep_with_password_replaces_credentials PASSED [ 25%]
+tests/unit/test_credential_keep_hmac_bypass.py::test_patch_implicit_password_replacement_must_invalidate_hmac PASSED [ 50%]
+tests/unit/test_credential_keep_hmac_bypass.py::test_helper_keep_with_username_change_reencrypts_credentials PASSED [ 75%]
+tests/unit/test_auto_validation_backing_ab.py::test_auto_validated_must_recheck_ab_backing PASSED [100%]
+
+============================== 4 passed in 0.11s ===============================
+
+=== FULL PYTEST ===
+........................................................................ [ 54%]
+........................................................................ [ 72%]
+........................................................................ [ 90%]
+......................................                                   [100%]
+398 passed in 78.38s (0:01:18)
