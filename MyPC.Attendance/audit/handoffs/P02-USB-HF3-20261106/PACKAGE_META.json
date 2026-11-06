@@ -1,28 +1,28 @@
 {
   "schema": "mypc.package-meta.v2",
-  "baseline": "05f6ba991b4b43b3719125551298b18441578bcb",
-  "baseline_note": "PR #27 pre-fix HEAD (property-bag / COM lifetime corrective)",
+  "baseline": "ff6789ecd15ede618101e6a4c4938c3290ed1748",
+  "baseline_note": "PR #27 pre-fix HEAD (COM exactly-once release / PS5.1 Update corrective)",
   "baseline_pr26": "146d04cb930a446f891f48178a33672f0537b95e",
+  "baseline_property_bag": "05f6ba991b4b43b3719125551298b18441578bcb",
   "baseline_pr": 27,
-  "feature_commit": "c765e3c2d4f5c8d78f11a597c43ddd4e86f66854",
-  "packaging_freeze_commit": "c765e3c2d4f5c8d78f11a597c43ddd4e86f66854",
-  "generated_at_utc": "2026-11-06T11:41:24.607719+00:00",
+  "feature_commit": "0a4d1adbe1ee93bb060e10a30a02b0141bd2931e",
+  "packaging_freeze_commit": "0a4d1adbe1ee93bb060e10a30a02b0141bd2931e",
+  "generated_at_utc": "2026-11-06T12:00:24.591466+00:00",
   "code_paths": [
     "MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py",
-    "MyPC.Attendance/backend/app/vision/camera/usb_device.py",
     "MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md",
     "MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1",
-    "MyPC.Attendance/scripts/windows/p02_usb_hf3_readonly_diag.py",
-    "MyPC.Attendance/tests/integration/test_p02_usb_hf3_windows_owner_guard.py",
     "MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_com_release_update.py",
     "MyPC.Attendance/tests/unit/test_p02_usb_hf3_property_bag_stages.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_update_rename_rollback.py",
     "MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py"
   ],
   "deleted_paths": [],
   "sha256": {
-    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "72ec3e46fb9c7e70b375144e1fd3569f7e440874644e074b2ef686a34fb4be55",
-    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "c569cdaa1dd7c2b762075e6e91bfb88f0b3d575eab11d73b11febffaf2103379",
-    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "beab3d3a66fc47e685eb7473b665fbd9fa407ee93d2a8a45a4b093d4ee1a7fd6"
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "b5e1c5536b174840dd18bcbdbfc3905bd210ddd1e31af109299f173b26f7910f",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "8d8641b219a0a6eaca7e1eeee14b3187a0c7aa6cb8e68eaa35a96416a0ab80de",
+    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "e0bb602acacf150c5f4c90b27c1646584a04aac84f034e775a900d8ac8ce8d1f"
   },
   "gates_blocked": [
     "USB_WINDOWS_PHYSICAL",
@@ -33,5 +33,5 @@
     "PRODUCTION_READY"
   ],
   "candidate_port": 18878,
-  "phase": "USB_HF3_IPROPERTYBAG_COM_LIFETIME"
+  "phase": "USB_HF3_COM_RELEASE_UPDATE"
 }

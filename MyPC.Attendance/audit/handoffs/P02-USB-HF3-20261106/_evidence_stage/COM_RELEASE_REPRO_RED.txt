@@ -1,0 +1,79 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_________ test_automatic_com_pointer_finalizer_must_not_double_release _________
+
+    def test_automatic_com_pointer_finalizer_must_not_double_release():
+        """Emulate comtypes 1.4.17 pointer ownership: __del__ invokes Release().
+    
+        comtypes 1.4.17: _post_coinit/unknwn.py _compointer_base.__del__ calls Release.
+        Manually invoking Release and then disposing a Python pointer can call it twice.
+        """
+        calls = []
+    
+        class ManagedPointer:
+            def Release(self):
+                calls.append("release")
+    
+            def __del__(self):
+                self.Release()
+    
+        ptr = ManagedPointer()
+        warnings = []
+        dce._safe_release(ptr, warnings)
+        ptr = None
+        gc.collect()
+>       assert len(calls) == 1, (
+            f"COM pointer released {len(calls)} times, expected exactly once. "
+            "Do not manually Release an owned comtypes pointer and then allow its "
+            "__del__ to Release again."
+        )
+E       AssertionError: COM pointer released 2 times, expected exactly once. Do not manually Release an owned comtypes pointer and then allow its __del__ to Release again.
+E       assert 2 == 1
+E        +  where 2 = len(['release', 'release'])
+
+tests/unit/test_p02_usb_hf3_com_release_update.py:37: AssertionError
+______ test_update_script_must_not_pass_absolute_paths_as_rename_newname _______
+
+    def test_update_script_must_not_pass_absolute_paths_as_rename_newname():
+        root = Path(__file__).resolve().parents[2]
+        ps = (root / "scripts/windows/p02_usb_hf3_candidate_18878.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+>       assert not re.search(r"Rename-Item\s+\$srcDir\s+\$backup\b", ps), (
+            "Rename-Item -NewName cannot be an absolute backup path. "
+            "Use Split-Path -Leaf for same-directory rename, or Move-Item plus "
+            "explicit validated backup/rollback."
+        )
+E       AssertionError: Rename-Item -NewName cannot be an absolute backup path. Use Split-Path -Leaf for same-directory rename, or Move-Item plus explicit validated backup/rollback.
+E       assert not <re.Match object; span=(10034, 10061), match='Rename-Item $srcDir $backup'>
+E        +  where <re.Match object; span=(10034, 10061), match='Rename-Item $srcDir $backup'> = <function search at 0x7f7d65cd4720>('Rename-Item\\s+\\$srcDir\\s+\\$backup\\b', '#Requires -Version 5.1\n<#\n.SYNOPSIS\n  P02-USB-HF3 isolated candidate on 127.0.0.1:18878 — Prepare/Update/Preflight...ationPath $zipOut -Force\n    Write-Log ("SafeExport ZIP={0} sha={1}" -f $zipOut, (Get-Sha256Lower $zipOut))\n  }\n}\n')
+E        +    where <function search at 0x7f7d65cd4720> = re.search
+
+tests/unit/test_p02_usb_hf3_com_release_update.py:50: AssertionError
+_______ test_com_release_warning_telemetry_must_account_for_root_cleanup _______
+
+    def test_com_release_warning_telemetry_must_account_for_root_cleanup():
+        text = inspect.getsource(dce._enumerate_on_com_thread)
+        metric_pos = text.find("com_release_warning_count=len(release_warnings)")
+        root_cleanup_pos = text.find("_safe_release(bind_ctx, release_warnings)")
+        assert root_cleanup_pos >= 0, "No explicit root COM pointer cleanup found"
+>       assert metric_pos < 0 or metric_pos > root_cleanup_pos, (
+            "Release warning count was frozen before root pointer releases and "
+            "CoUninitialize; failures in final cleanup are not observable. "
+            "Finalize cleanup before producing the result/telemetry."
+        )
+E       AssertionError: Release warning count was frozen before root pointer releases and CoUninitialize; failures in final cleanup are not observable. Finalize cleanup before producing the result/telemetry.
+E       assert (9650 < 0 or 9650 > 9823)
+
+tests/unit/test_p02_usb_hf3_com_release_update.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_p02_usb_hf3_com_release_update.py::test_automatic_com_pointer_finalizer_must_not_double_release - AssertionError: COM pointer released 2 times, expected exactly once. Do not manually Release an owned comtypes pointer and then allow its __del__ to Release again.
+assert 2 == 1
+ +  where 2 = len(['release', 'release'])
+FAILED tests/unit/test_p02_usb_hf3_com_release_update.py::test_update_script_must_not_pass_absolute_paths_as_rename_newname - AssertionError: Rename-Item -NewName cannot be an absolute backup path. Use Split-Path -Leaf for same-directory rename, or Move-Item plus explicit validated backup/rollback.
+assert not <re.Match object; span=(10034, 10061), match='Rename-Item $srcDir $backup'>
+ +  where <re.Match object; span=(10034, 10061), match='Rename-Item $srcDir $backup'> = <function search at 0x7f7d65cd4720>('Rename-Item\\s+\\$srcDir\\s+\\$backup\\b', '#Requires -Version 5.1\n<#\n.SYNOPSIS\n  P02-USB-HF3 isolated candidate on 127.0.0.1:18878 — Prepare/Update/Preflight...ationPath $zipOut -Force\n    Write-Log ("SafeExport ZIP={0} sha={1}" -f $zipOut, (Get-Sha256Lower $zipOut))\n  }\n}\n')
+ +    where <function search at 0x7f7d65cd4720> = re.search
+FAILED tests/unit/test_p02_usb_hf3_com_release_update.py::test_com_release_warning_telemetry_must_account_for_root_cleanup - AssertionError: Release warning count was frozen before root pointer releases and CoUninitialize; failures in final cleanup are not observable. Finalize cleanup before producing the result/telemetry.
+assert (9650 < 0 or 9650 > 9823)
+3 failed in 0.25s

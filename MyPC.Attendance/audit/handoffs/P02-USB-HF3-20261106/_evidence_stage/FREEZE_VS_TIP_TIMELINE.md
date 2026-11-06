@@ -1,4 +1,5 @@
-- packaging_freeze = source tree used to build FULL/CHANGED ZIPs
-- packaging_freeze_sidecar = ZIP-introducing commit
-- remote tip may advance for URL/SHA documentation
-- baseline = PR #26 tip `146d04cb930a446f891f48178a33672f0537b95e`
+feature_commit will be packaging freeze HEAD
+baseline_pre_fix=ff6789ecd15ede618101e6a4c4938c3290ed1748
+baseline_property_bag=05f6ba991b4b43b3719125551298b18441578bcb
+baseline_pr26=146d04cb930a446f891f48178a33672f0537b95e
+GitHub Actions status: report separately after push

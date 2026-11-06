@@ -1,32 +1,25 @@
 # MyPC Attendance — P02-USB-HF3 COMPLETE AUDIT
 
-Corrective on PR #26 + **in-place identity patch on PR #27**: native DirectShow COM enum and **strict** DevicePath↔PnP video-function binding.
+PR #27 in-place corrective: COM **exactly-once** release + PS 5.1 Update leaf rename/rollback,
+preserving IPropertyBag stage telemetry and strict DevicePath identity matching.
 
 **Download:** `MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip`
 
 | Task alias | Archive member |
 |------------|----------------|
-| CHANGED-SOURCE-AUDIT.zip | `MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip` |
+| CHANGED-SOURCE-AUDIT.zip | `MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip` (vs pre-fix `ff6789e`) |
 | FULL-SOURCE.zip | `MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip` |
 | WINDOWS-SAFE-EVIDENCE.zip | `MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip` |
 | COMPLETE-AUDIT.zip | `MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip` |
 
-Physical gates **BLOCKED**. Port `18878` HF3 DataDir only.
+Physical gates **BLOCKED**. Port `18878` HF3 DataDir only. Use `-Mode Update` on an already-prepared candidate — do **not** re-run Prepare.
 
-## Verified COMPLETE (HTTP + SHA256 OK)
+## Pins (filled after packaging freeze commit)
 
-Pin (ZIP-introducing packaging freeze): `c951b2abeabb82ae4141f41a94d20070be9e1487`
-
-Feature / source freeze tree: `058481f9989b0126648fc64bc14507f638057dd4`
+Pre-fix tip: `ff6789ecd15ede618101e6a4c4938c3290ed1748`
 
 Baseline PR #26: `146d04cb930a446f891f48178a33672f0537b95e`
 
-https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/c951b2abeabb82ae4141f41a94d20070be9e1487/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip
+Property-bag prior tip: `05f6ba991b4b43b3719125551298b18441578bcb`
 
-SHA256 `19f17e5eca907adf32e6043c3e3b7b30bcbda504fca858a2e9d29b15651ac2b9` · **3839797** bytes
-
-```powershell
-$u='https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/c951b2abeabb82ae4141f41a94d20070be9e1487/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip'; $o="$env:TEMP\MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip"; Invoke-WebRequest -Uri $u -OutFile $o; (Get-FileHash $o -Algorithm SHA256).Hash.ToLower()
-```
-
-Expected hash: `19f17e5eca907adf32e6043c3e3b7b30bcbda504fca858a2e9d29b15651ac2b9`
+See `SHA256SUMS-COMPLETE.txt` / packaging freeze commit after agent push for immutable raw URL.

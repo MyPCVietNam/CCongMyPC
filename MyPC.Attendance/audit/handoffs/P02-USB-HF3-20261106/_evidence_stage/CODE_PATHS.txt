@@ -1,9 +1,8 @@
 MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py
-MyPC.Attendance/backend/app/vision/camera/usb_device.py
 MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md
 MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1
-MyPC.Attendance/scripts/windows/p02_usb_hf3_readonly_diag.py
-MyPC.Attendance/tests/integration/test_p02_usb_hf3_windows_owner_guard.py
 MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_com_release_update.py
 MyPC.Attendance/tests/unit/test_p02_usb_hf3_property_bag_stages.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_update_rename_rollback.py
 MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py

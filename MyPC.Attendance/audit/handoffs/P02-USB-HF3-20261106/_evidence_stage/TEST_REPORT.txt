@@ -1,8 +1,24 @@
-........................................................................ [ 14%]
-................ss...................................................... [ 29%]
-........................................................................ [ 44%]
-........................................................................ [ 59%]
-........................................................................ [ 74%]
-........................................................................ [ 89%]
-.....................................................                    [100%]
-483 passed, 2 skipped in 92.43s (0:01:32)
+P02-USB-HF3 COM release / Update corrective — local agent CI
+utc_note: machine clock UTC; owner zone Asia/Bangkok (UTC+7)
+
+Command:
+  cd MyPC.Attendance && PYTHONPATH=backend python -m pytest -q
+
+Result:
+  492 passed, 2 skipped
+  (owner Windows integration tests SKIP without MYPC_OWNER_WINDOWS_USB=1)
+
+Independent repro (was 3 FAIL on ff6789e):
+  tests/unit/test_p02_usb_hf3_com_release_update.py → 3 PASS
+
+HF3-focused:
+  44 passed, 2 skipped (unit + owner-guard)
+
+NOT claimed:
+  USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN,
+  FACE_PILOT, INSTALLER, PRODUCTION_READY
+
+Tail:
+........................................................................ [ 87%]
+..............................................................           [100%]
+492 passed, 2 skipped in 91.94s (0:01:31)
