@@ -611,6 +611,13 @@ def dshow_open_target(friendly_name: str) -> str:
 
 def usb_redacted_diagnostics() -> dict[str, Any]:
     """Aggregate redacted USB enum diagnostics for owner scripts / SafeExport."""
+    # Fresh DirectShow stage counters (also fills get_last_dshow_enum_result)
+    try:
+        from app.vision.camera.dshow_com_enum import enumerate_video_capture_monikers
+
+        enumerate_video_capture_monikers()
+    except Exception:
+        pass
     diag = redacted_enum_diagnostics()
     try:
         devices = get_usb_enumerator().list_devices()

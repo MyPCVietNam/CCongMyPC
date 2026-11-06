@@ -6,14 +6,14 @@ tsc exit: 0
 
  RUN  v3.2.4 /workspace/MyPC.Attendance/frontend
 
- ✓ src/camera/imageCoords.test.ts (4 tests) 3ms
- ✓ src/camera/diagLanes.test.ts (5 tests) 3ms
+ ✓ src/camera/imageCoords.test.ts (4 tests) 2ms
  ✓ src/lab/signOpGuard.test.ts (4 tests) 4ms
+ ✓ src/camera/diagLanes.test.ts (5 tests) 3ms
 
  Test Files  3 passed (3)
       Tests  13 passed (13)
-   Start at  11:11:19
-   Duration  290ms (transform 88ms, setup 0ms, collect 125ms, tests 10ms, environment 0ms, prepare 348ms)
+   Start at  11:40:53
+   Duration  280ms (transform 81ms, setup 0ms, collect 117ms, tests 10ms, environment 0ms, prepare 333ms)
 
 --- build ---
 
@@ -25,4 +25,4 @@ computing gzip size...
 ../backend/app/static/index.html                   0.43 kB │ gzip:  0.29 kB
 ../backend/app/static/assets/index-DCP3Ovnp.css   15.71 kB │ gzip:  3.99 kB
 ../backend/app/static/assets/index-BF6qSwhf.js   284.47 kB │ gzip: 87.09 kB
-✓ built in 1.43s
+✓ built in 1.48s

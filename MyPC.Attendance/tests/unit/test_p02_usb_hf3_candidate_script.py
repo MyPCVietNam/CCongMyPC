@@ -12,8 +12,9 @@ DIAG = ROOT / "scripts" / "windows" / "p02_usb_hf3_readonly_diag.py"
 def test_hf3_script_modes_and_port():
     text = PS1.read_text(encoding="utf-8")
     assert "-Mode" in text
-    for mode in ("Prepare", "Preflight", "Start", "Stop", "Diagnose", "SafeExport"):
+    for mode in ("Prepare", "Update", "Preflight", "Start", "Stop", "Diagnose", "SafeExport"):
         assert mode in text
+    assert "DataDir untouched" in text or "src only" in text.lower()
     assert "18878" in text
     assert "18876" not in text or "18876/18877" in text  # mention only as forbidden
     assert "uvicorn" in text

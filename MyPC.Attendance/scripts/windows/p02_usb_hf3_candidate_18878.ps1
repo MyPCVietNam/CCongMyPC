@@ -1,19 +1,20 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  P02-USB-HF3 isolated candidate on 127.0.0.1:18878 — Prepare/Preflight/Start/Stop/Diagnose/SafeExport.
+  P02-USB-HF3 isolated candidate on 127.0.0.1:18878 — Prepare/Update/Preflight/Start/Stop/Diagnose/SafeExport.
   Native DirectShow COM enum (comtypes). NEVER touches 18876/18877 DataDirs or secrets.
 
 .EXAMPLE
   .\p02_usb_hf3_candidate_18878.ps1 -Mode Prepare -FullSourceZip C:\path\FULL.zip -ExpectedSha256 <hex> -ModelsSourceDir C:\path\weights
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Update -FullSourceZip C:\path\FULL.zip -ExpectedSha256 <hex>
   .\p02_usb_hf3_candidate_18878.ps1 -Mode Preflight
-  .\p02_usb_hf3_candidate_18878.ps1 -Mode Start
   .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Start
   .\p02_usb_hf3_candidate_18878.ps1 -Mode Stop
   .\p02_usb_hf3_candidate_18878.ps1 -Mode SafeExport
 #>
 param(
-  [ValidateSet("Prepare", "Preflight", "Start", "Stop", "Diagnose", "SafeExport", "Export")]
+  [ValidateSet("Prepare", "Update", "Preflight", "Start", "Stop", "Diagnose", "SafeExport", "Export")]
   [string]$Mode = "Preflight",
   [string]$CandidateRoot = "$env:LOCALAPPDATA\MyPC.Attendance\p02-usb-hf3-candidate",
   [string]$FullSourceZip = "",
@@ -215,6 +216,37 @@ switch ($Mode) {
     }
     Write-Log "MODEL_PINS_PASS=true"
     Write-Log "Prepare OK — DataDir=$dataDir models=$modelsDir venv=$venvDir"
+  }
+  "Update" {
+    # Source-only refresh for an already-prepared HF3 candidate.
+    # NEVER wipe DataDir, models/weights, or venv. NEVER touch 18876/18877.
+    if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {
+      throw "Update requires -FullSourceZip pointing to FULL-SOURCE ZIP"
+    }
+    if (-not $ExpectedSha256) { throw "Update requires -ExpectedSha256 (lowercase hex)" }
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare once before Update" }
+    if (-not (Test-Path $dataDir)) { throw "DataDir missing — run Prepare first (Update will not create secrets)" }
+    $got = Get-Sha256Lower $FullSourceZip
+    if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
+      throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
+    }
+    Write-Log "Update SHA256 PIN_MATCH — refreshing src only (DataDir/models/venv preserved)"
+    $stageSrc = Join-Path $CandidateRoot "src-update-staging"
+    if (Test-Path $stageSrc) { Remove-Item -Recurse -Force $stageSrc }
+    New-Item -ItemType Directory -Force -Path $stageSrc | Out-Null
+    Expand-Archive -Path $FullSourceZip -DestinationPath $stageSrc -Force
+    # Atomic-ish replace of src tree
+    $backup = Join-Path $CandidateRoot ("src-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+    if (Test-Path $srcDir) { Rename-Item $srcDir $backup }
+    Rename-Item $stageSrc $srcDir
+    $backend = Find-BackendDir $srcDir
+    $reqWin = Join-Path $backend "requirements-windows.txt"
+    if (Test-Path $reqWin) {
+      Invoke-VenvPip $venvPy @("install", "-r", $reqWin)
+      Write-Log "Update reinstalled requirements-windows.txt into existing venv"
+    }
+    Write-Log ("Update OK — src refreshed; backup={0}; DataDir untouched" -f $backup)
   }
   "Preflight" {
     Write-Log "Preflight port=$Port candidate=$CandidateRoot"

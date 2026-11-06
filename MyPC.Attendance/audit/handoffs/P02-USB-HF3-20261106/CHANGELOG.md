@@ -1,15 +1,14 @@
 # P02-USB-HF3 changelog
 
-## Patch on PR #27 (identity boundary — in-place)
+## Patch on PR #27 — IPropertyBag + COM lifetime (in-place)
 
-- **P0:** Remove unsafe `capture_instances_match` heuristics (`na in nb` / VID+PID+trailing-instance ignoring MI).
-- Require exact canonical USB video-function identity: VID + PID + MI + complete instance token (`parse_usb_video_function_id`).
-- Enforce 1:1 PnP↔DevicePath bijection in `_link_wmi_to_dshow`.
-- Balance `CoInitialize`/`CoUninitialize` for the enum call only.
-- Harden HF3 Start/Stop: refuse unrelated 18878 owners; require HTTP 200 + `status`/`startup_phase` health payload; never kill stale reused PIDs.
-- Independent identity-boundary repro (4 cases) GREEN; extra MI/prefix/audio/bijection tests added.
+- Dedicated STA COM worker thread for DirectShow enum (no pythoncom mix with WMI).
+- CreateBindCtx + BindToStorage(IID_IPropertyBag) + explicit reverse-order Release before CoUninitialize.
+- Per-stage redacted counters: PROPERTY_BAG_BIND_OK / FRIENDLY_NAME_READ / DEVICE_PATH_READ / CANONICAL / COM_RELEASE_WARNING.
+- Truthful blockers when enum succeeds but property bags fail (no silent empty success).
+- Candidate `-Mode Update` refreshes source without wiping DataDir/venv/models.
+- Keep strict VID+PID+MI+instance identity + 1:1 bijection.
 
-## Prior on PR #26 (`146d04c`)
+## Prior identity patch / native COM enum
 
-- Replace invalid `Dispatch('SystemDeviceEnum')` with typed COM `ICreateDevEnum`.
-- Enumerate video capture category only; DevicePath trust; HF3 candidate script.
+See earlier CHANGELOG entries; strict matching retained.

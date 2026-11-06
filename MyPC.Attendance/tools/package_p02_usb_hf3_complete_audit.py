@@ -14,7 +14,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-BASELINE = "146d04cb930a446f891f48178a33672f0537b95e"
+# CHANGED zip is relative to PR #27 pre-fix tip (property-bag corrective).
+# Cumulative HF3 vs PR #26 remains documented in PACKAGE_META.baseline_pr26.
+BASELINE = "05f6ba991b4b43b3719125551298b18441578bcb"
+BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 A_NAME = "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip"
 B_NAME = "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip"
 C_NAME = "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip"
@@ -199,7 +202,9 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_pr": 26,
+        "baseline_note": "PR #27 pre-fix HEAD (property-bag / COM lifetime corrective)",
+        "baseline_pr26": BASELINE_PR26,
+        "baseline_pr": 27,
         "feature_commit": head,
         "packaging_freeze_commit": head,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -215,7 +220,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_DSHOW_COM_ENUM",
+        "phase": "USB_HF3_IPROPERTYBAG_COM_LIFETIME",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
