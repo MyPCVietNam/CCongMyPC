@@ -99,11 +99,14 @@ def main() -> int:
     (HANDOFF / "COMMIT_GRAPH.txt").write_text(graph or "(no commits yet)\n", encoding="utf-8")
 
     a_members = [(rel, REPO / rel) for rel in changed if (REPO / rel).is_file()]
-    # Always include path manifests inside A
+    # Ensure path manifests exist inside A (skip if already in changed list)
+    seen_arcs = {arc for arc, _ in a_members}
     for name in ("CODE_PATHS.txt", "CHANGED_PATHS.txt", "DELETED_PATHS.txt", "CHANGELOG.md"):
+        arc = f"MyPC.Attendance/audit/handoffs/P02-USB-HF1-20261106/{name}"
         p = HANDOFF / name
-        if p.exists():
-            a_members.append((f"MyPC.Attendance/audit/handoffs/P02-USB-HF1-20261106/{name}", p))
+        if p.exists() and arc not in seen_arcs:
+            a_members.append((arc, p))
+            seen_arcs.add(arc)
     a_zip = HANDOFF / A_NAME
     write_zip(a_zip, a_members)
 
