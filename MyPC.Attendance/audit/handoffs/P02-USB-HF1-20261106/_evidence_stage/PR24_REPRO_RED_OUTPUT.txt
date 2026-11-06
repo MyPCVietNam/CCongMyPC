@@ -1,0 +1,62 @@
+F.F                                                                      [100%]
+=================================== FAILURES ===================================
+____ test_pnp_identity_without_dshow_index_should_not_block_usb_owner_flow _____
+
+app_client = (<starlette.testclient.TestClient object at 0x7f49a5231a90>, <fastapi.applications.FastAPI object at 0x7f49a5136850>)
+
+    def test_pnp_identity_without_dshow_index_should_not_block_usb_owner_flow(app_client):
+        """WMI PnP enumerator supplies stable ID but no index mapping: RED on current API."""
+        sid=fingerprint_stable_id('USB\\VID_0BDA&PID_58B0\\UGREEN-FAKE-1')
+        client,app,head,cid=_set_enum_and_camera(app_client,stable_id=sid,index_hint=None,ambiguous=False)
+        try:
+            r=client.post('/api/v1/cameras/gateway/live/configure-usb',headers=head,json={'camera_id':cid,'stable_id':sid})
+>           assert r.status_code == 200, f'PnP was enumerated but capture cannot bind: {r.status_code} {r.text}'
+E           AssertionError: PnP was enumerated but capture cannot bind: 409 {"detail":{"code":"USB_INDEX_UNKNOWN","message_vi":"Không có index mở được sau khi khớp stable_id."}}
+E           assert 409 == 200
+E            +  where 409 = <Response [409 Conflict]>.status_code
+
+tests/integration/test_p02_usb_owner_repro.py:60: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running stamp_revision  -> 20261106_0013
+_ test_same_usb_rebind_preserves_configuration_revision_without_material_change _
+
+app_client = (<starlette.testclient.TestClient object at 0x7f49a36d1f90>, <fastapi.applications.FastAPI object at 0x7f49a3820690>)
+
+    def test_same_usb_rebind_preserves_configuration_revision_without_material_change(app_client):
+        """Rebind should not invalidate signed trust if same stable identity/config: RED."""
+        sid=fingerprint_stable_id('USB\\VID_0BDA&PID_58B0\\UGREEN-FAKE-2')
+        client,app,head,cid=_set_enum_and_camera(app_client,stable_id=sid,index_hint=2,ambiguous=False)
+        try:
+            r1=client.post('/api/v1/cameras/gateway/live/configure-usb',headers=head,json={'camera_id':cid,'stable_id':sid})
+            assert r1.status_code==200, r1.text
+            with app.state.container.session_factory() as db:
+                from app.models.entities import CameraDevice
+                rev1=db.get(CameraDevice,cid).config_revision
+            r2=client.post('/api/v1/cameras/gateway/live/configure-usb',headers=head,json={'camera_id':cid,'stable_id':sid})
+            assert r2.status_code==200, r2.text
+            with app.state.container.session_factory() as db:
+                rev2=db.get(CameraDevice,cid).config_revision
+>           assert rev1==rev2, f'Nonmaterial same-USB rebind rotated revision: {rev1} -> {rev2}'
+E           AssertionError: Nonmaterial same-USB rebind rotated revision: 94ce79db-6477-4aed-bde3-43f77bdcfdb3 -> a9e7429d-e816-4e58-aac5-5f867b73e3cd
+E           assert '94ce79db-647...-43f77bdcfdb3' == 'a9e7429d-e81...-5f867b73e3cd'
+E             
+E             - a9e7429d-e816-4e58-aac5-5f867b73e3cd
+E             + 94ce79db-6477-4aed-bde3-43f77bdcfdb3
+
+tests/integration/test_p02_usb_owner_repro.py:89: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running stamp_revision  -> 20261106_0013
+=========================== short test summary info ============================
+FAILED tests/integration/test_p02_usb_owner_repro.py::test_pnp_identity_without_dshow_index_should_not_block_usb_owner_flow - AssertionError: PnP was enumerated but capture cannot bind: 409 {"detail":{"code":"USB_INDEX_UNKNOWN","message_vi":"Không có index mở được sau khi khớp stable_id."}}
+assert 409 == 200
+ +  where 409 = <Response [409 Conflict]>.status_code
+FAILED tests/integration/test_p02_usb_owner_repro.py::test_same_usb_rebind_preserves_configuration_revision_without_material_change - AssertionError: Nonmaterial same-USB rebind rotated revision: 94ce79db-6477-4aed-bde3-43f77bdcfdb3 -> a9e7429d-e816-4e58-aac5-5f867b73e3cd
+assert '94ce79db-647...-43f77bdcfdb3' == 'a9e7429d-e81...-5f867b73e3cd'
+  
+  - a9e7429d-e816-4e58-aac5-5f867b73e3cd
+  + 94ce79db-6477-4aed-bde3-43f77bdcfdb3
+2 failed, 1 passed in 1.40s

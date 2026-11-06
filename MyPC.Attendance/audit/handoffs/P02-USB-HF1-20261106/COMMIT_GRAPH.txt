@@ -1,1 +1,2 @@
-pending
+d899eb7 chore(audit): avoid duplicate members in P02-USB-HF1 CHANGED ZIP
+49505c6 fix(camera): P02-USB-HF1 stable PnP↔DirectShow bind and revision preserve
