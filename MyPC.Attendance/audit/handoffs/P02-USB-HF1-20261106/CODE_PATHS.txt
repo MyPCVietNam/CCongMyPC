@@ -1,0 +1,13 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/static/assets/index-TQqxC0tP.js
+MyPC.Attendance/backend/app/static/index.html
+MyPC.Attendance/backend/app/vision/camera/registry.py
+MyPC.Attendance/backend/app/vision/camera/usb_device.py
+MyPC.Attendance/backend/app/vision/camera/usb_uvc_gateway.py
+MyPC.Attendance/docs/gates/P02-USB-HF1-GATE-MATRIX.md
+MyPC.Attendance/docs/runbooks/P02-USB-HF1-OWNER-RUNBOOK-VI.md
+MyPC.Attendance/frontend/src/pages/CameraPage.tsx
+MyPC.Attendance/scripts/windows/p02_usb_hf1_candidate_18878.ps1
+MyPC.Attendance/tests/integration/test_p02_usb_hf1_lifecycle.py
+MyPC.Attendance/tests/integration/test_p02_usb_owner_repro.py
+MyPC.Attendance/tools/package_p02_usb_hf1_complete_audit.py

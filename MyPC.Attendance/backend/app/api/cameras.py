@@ -605,8 +605,9 @@ def enumerate_usb_devices(
             "Không tự khởi động camera từ danh sách."
         ),
         "win_compat_vi": (
-            "Win10/11: ưu tiên WMI PnPDeviceID (hashed). "
-            "Nếu WMI không có → probe chỉ số OpenCV (ambiguous=true, bắt buộc chọn lại sau cắm/rút)."
+            "Win10/11: WMI PNPDeviceID (hashed) + liên kết DirectShow (index hoặc video=tên). "
+            "Trùng tên hiển thị → USB_DEVICE_AMBIGUOUS (fail-closed). "
+            "Chỉ số OpenCV thuần → ambiguous, không đủ CAMERA_LAB/HMAC."
         ),
     }
 
@@ -627,50 +628,74 @@ def diagnose_usb_device(
     # Reject client-supplied index as identity
     if body.get("index") is not None and not stable_id:
         raise HTTPException(status_code=422, detail="Chỉ số OpenCV không phải định danh.")
+    preview_only = bool(body.get("allow_ambiguous") is True)
     try:
-        dev = resolve_device(stable_id=stable_id)
+        # Diagnostics may inspect ambiguous devices when explicitly requested;
+        # that path never becomes trusted CAMERA_LIVE bind.
+        dev = resolve_device(stable_id=stable_id, for_trusted_live=not preview_only)
     except ValueError as exc:
         raise HTTPException(
             status_code=409,
             detail={"code": str(exc), "message_vi": f"Không khớp thiết bị USB: {exc}"},
         ) from exc
-    if dev.ambiguous and body.get("allow_ambiguous") is not True:
+    if dev.ambiguous and not preview_only:
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_IDENTITY_UNSTABLE",
                 "message_vi": (
                     "Định danh USB chưa ổn định (chỉ có index). "
-                    "Cần PnP/WMI hoặc xác nhận tường minh allow_ambiguous trên máy owner."
+                    "Cần PnP/WMI đã liên kết DirectShow. "
+                    "allow_ambiguous chỉ cho đo preview — không đủ CAMERA_LAB."
                 ),
             },
         )
-    if dev.index_hint is None:
+    if dev.index_hint is None and not (dev.open_target or "").strip():
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_INDEX_UNKNOWN",
-                "message_vi": "Không xác định được index mở tạm thời cho chẩn đoán.",
+                "message_vi": (
+                    "Không có chỉ số DirectShow và không có tên mở (video=…). "
+                    "Kiểm tra liên kết PnP↔DirectShow trên Windows."
+                ),
             },
         )
     open_fn = getattr(state, "usb_open_capture", None)
     modes = diagnose_usb_modes(
-        index=int(dev.index_hint),
+        index=int(dev.index_hint) if dev.index_hint is not None else None,
+        open_target=dev.open_target or "",
         backend=dev.backend or "dshow",
         open_capture=open_fn,
     )
     return {
         "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
         "friendly_name": dev.friendly_name,
+        "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
+        "ambiguous": bool(dev.ambiguous),
+        "trusted_live_eligible": bool(
+            (not dev.ambiguous)
+            and getattr(dev, "mapping_verified", False)
+            and (dev.index_hint is not None or (dev.open_target or "").strip())
+        ),
+        "index_hint": dev.index_hint,
+        "open_by_name": bool(dev.index_hint is None and (dev.open_target or "").strip()),
         "modes": modes,
         "claims_4k": False,
+        "preview_only": preview_only and bool(dev.ambiguous),
         "message_vi": (
             "Kích thước/FPS bên dưới là đo thực tế sau read() — không phải giá trị cap.set() yêu cầu. "
-            "Tên sản phẩm 4K ≠ bằng chứng capture 4K."
+            "Tên sản phẩm 4K ≠ bằng chứng capture 4K. "
+            + (
+                "Chế độ preview ambiguous — không đủ cho HMAC/CAMERA_LAB."
+                if preview_only and dev.ambiguous
+                else ""
+            )
         ),
         "operator": user.username,
         "attendance_written": False,
         "face_pilot_pass": False,
+        "camera_lab_pass": False,
     }
 
 
@@ -713,40 +738,97 @@ def configure_live_usb_gateway(
                 "message_vi": "Cần stable_id hashed (uvc:…) từ /usb/enumerate — không nhận index thô.",
             },
         )
-    try:
-        dev = resolve_device(stable_id=stable_id)
-    except ValueError as exc:
+    # Trusted LIVE never accepts allow_ambiguous — index-only is ineligible for HMAC/CAMERA_LAB
+    if body.get("allow_ambiguous") is True:
         raise HTTPException(
             status_code=409,
-            detail={"code": str(exc), "message_vi": f"Thiết bị USB không khớp: {exc}"},
+            detail={
+                "code": "USB_AMBIGUOUS_NOT_TRUSTED_LIVE",
+                "message_vi": (
+                    "allow_ambiguous không đủ để gắn CAMERA_LIVE tin cậy. "
+                    "Dùng /usb/diagnose?allow_ambiguous cho đo preview riêng; "
+                    "HMAC/CAMERA_LAB yêu cầu PnP đã liên kết DirectShow."
+                ),
+            },
+        )
+    try:
+        dev = resolve_device(stable_id=stable_id, for_trusted_live=True)
+    except ValueError as exc:
+        code = str(exc)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": code,
+                "message_vi": (
+                    "Thiết bị USB không khớp định danh ổn định — không mở webcam khác. "
+                    f"({code})"
+                ),
+            },
         ) from exc
-    if dev.ambiguous and body.get("allow_ambiguous") is not True:
+    if dev.ambiguous:
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_IDENTITY_UNSTABLE",
-                "message_vi": "Định danh USB ambiguous — từ chối bind (fail-closed).",
+                "message_vi": "Định danh USB ambiguous — từ chối bind LIVE tin cậy (fail-closed).",
             },
         )
-    if dev.index_hint is None:
+    if not getattr(dev, "mapping_verified", False):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_IDENTITY_MISMATCH",
+                "message_vi": "Chưa liên kết được PnP hashed với nguồn DirectShow — fail-closed.",
+            },
+        )
+    if dev.index_hint is None and not (dev.open_target or "").strip():
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_INDEX_UNKNOWN",
-                "message_vi": "Không có index mở được sau khi khớp stable_id.",
+                "message_vi": (
+                    "Không có chỉ số DirectShow và không có tên mở (video=…) sau khi khớp stable_id."
+                ),
             },
         )
 
+    profile = str(body.get("profile") or "USB_MAIN")
     plan = classify_usb_bind_change(row=row, stable_id=dev.stable_id, source_type="USB_UVC")
+    # Profile change is material for capture subject
+    prior_profile = ""
+    from app.models.entities import CameraLiveBinding as _CLB
+
+    prior_binding = db.scalar(select(_CLB).where(_CLB.camera_id == camera_db_id))
+    if prior_binding is not None:
+        prior_profile = (prior_binding.profile or "").strip()
+    if prior_profile and prior_profile != profile and not plan.is_material:
+        from app.services.camera_trust_lifecycle import MaterialChangePlan
+
+        plan = MaterialChangePlan(
+            reasons=list(plan.reasons) + ["usb_profile"],
+            rotate_revision=True,
+            revoke_trust=True,
+            unbind_runtime=True,
+            mark_binding_stale=True,
+        )
     trust_meta = apply_material_trust_invalidation(
         db, row=row, state=state, plan=plan, actor=user.username
     )
+
+    # Preserve revision for exact same verified USB identity + non-material rebind
+    preferred_rev: str | None = None
+    if (
+        not plan.is_material
+        and (row.usb_stable_id or "") == dev.stable_id
+        and (row.config_revision or "").strip()
+    ):
+        preferred_rev = row.config_revision
 
     # Clear RTSP credential inheritance — USB must not carry EZVIZ HMAC subject
     row.source_type = "USB_UVC"
     row.usb_stable_id = dev.stable_id
     row.usb_friendly_name = (dev.friendly_name or "")[:128]
-    row.usb_index_hint = int(dev.index_hint)
+    row.usb_index_hint = int(dev.index_hint) if dev.index_hint is not None else None
     # Do not wipe secret_ref (audit), but LIVE USB path does not use RTSP credentials
     row.mock_mode = False
     row.enabled = True
@@ -775,17 +857,20 @@ def configure_live_usb_gateway(
     gw = LiveUsbUvcGateway(
         camera_id=str(camera_db_id),
         stable_id=dev.stable_id,
-        index=int(dev.index_hint),
+        index=int(dev.index_hint) if dev.index_hint is not None else None,
+        open_target=dev.open_target or "",
         friendly_name=dev.friendly_name,
         backend=dev.backend or "dshow",
         open_capture=open_fn,
+        config_revision=preferred_rev,
     )
     bound = state.camera_registry.bind(
         camera_db_id,
         gw,
         provenance=StreamProvenance.CAMERA_LIVE,
-        profile=str(body.get("profile") or "USB_MAIN"),
+        profile=profile,
         stream_fingerprint=fp,
+        preferred_revision=preferred_rev,
     )
     _clear_face_detect_cache(state, camera_db_id)
     bound.gateway.start()
@@ -806,7 +891,11 @@ def configure_live_usb_gateway(
     if binding is None:
         binding = CameraLiveBinding(camera_id=camera_db_id)
         db.add(binding)
-    elif binding.config_revision and binding.config_revision != bound.config_revision:
+    elif (
+        plan.is_material
+        and binding.config_revision
+        and binding.config_revision != bound.config_revision
+    ):
         from app.services.camera_trust_lifecycle import revoke_camera_physical_trust
 
         revoke_camera_physical_trust(
@@ -819,7 +908,7 @@ def configure_live_usb_gateway(
     binding.port = 0
     binding.path = (dev.stable_id[:48] if dev.stable_id else "")
     binding.usb_stable_id = dev.stable_id
-    binding.profile = str(body.get("profile") or "USB_MAIN")
+    binding.profile = profile
     binding.resolved_ips_json = "[]"
     binding.config_revision = bound.config_revision
     binding.enabled = True
@@ -838,6 +927,8 @@ def configure_live_usb_gateway(
             reason=(
                 f"source_type=USB_UVC; stable_id_short={(dev.stable_id[:12]+'…')}; "
                 f"rev={bound.config_revision}; material={plan.is_material}; "
+                f"rev_preserved={preferred_rev is not None and preferred_rev == bound.config_revision}; "
+                f"mapping_verified={bool(getattr(dev, 'mapping_verified', False))}; "
                 f"no_rtsp_hmac_inherit=true; secrets_redacted=true"
             ),
             timestamp=utc_now(),
@@ -848,10 +939,15 @@ def configure_live_usb_gateway(
         "camera_id": camera_db_id,
         "source_type": "USB_UVC",
         "config_revision": bound.config_revision,
+        "revision_preserved": bool(
+            preferred_rev is not None and preferred_rev == bound.config_revision
+        ),
         "connection_status": "CONFIG_SAVED",
         "live_verified": False,
         "friendly_name": dev.friendly_name,
         "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
+        "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
+        "open_by_name": bool(dev.index_hint is None and (dev.open_target or "").strip()),
         "transport": "USB_UVC",
         "camera_lab_pass": False,
         "face_pilot_pass": False,

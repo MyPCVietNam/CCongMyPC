@@ -1,0 +1,13 @@
+{
+  "pr": "https://github.com/MyPCVietNam/CCongMyPC/pull/25",
+  "base": "cursor/p02-usb-uvc-gateway-83a8",
+  "baseline": "5ee89bd61df0e4ef79c6e69f3365659763574474",
+  "feature_commit": "49505c639709cab5f4eb43272cdd19f7c823bfa5",
+  "packaging_freeze_source_tree": "d899eb7eb965dd435f2b779e94dfb1d038ec11ee",
+  "zip_introducing_commit": "0510528dc6e56c67145432a184934b4080168cbe",
+  "remote_pr_tip": "b6b9a0a5842009f1bdba792ceb87248e0809b4c7",
+  "complete_zip_sha256": "cf05e215d3089ccd4411320eed28e50f82f2d704b020dad4003706c19c344b10",
+  "complete_zip_bytes": 3806667,
+  "complete_raw_url": "https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/0510528dc6e56c67145432a184934b4080168cbe/MyPC.Attendance/audit/handoffs/P02-USB-HF1-20261106/MYPC-P02-USB-HF1-COMPLETE-AUDIT.zip",
+  "verify_ok_http_sha256": true
+}

@@ -26,7 +26,7 @@ from app.vision.camera.usb_device import usb_stream_fingerprint
 
 logger = logging.getLogger(__name__)
 
-OpenCaptureFn = Callable[[int, str], Any]  # (index, backend) -> VideoCapture-like
+OpenCaptureFn = Callable[[int | str, str], Any]  # (index|dshow-name, backend) -> VideoCapture-like
 
 MODE_PREFS: tuple[tuple[str, int, int, float], ...] = (
     ("MJPG", 1920, 1080, 30.0),
@@ -36,11 +36,14 @@ MODE_PREFS: tuple[tuple[str, int, int, float], ...] = (
 )
 
 
-def _default_open_capture(index: int, backend: str):
+def _default_open_capture(target: int | str, backend: str):
     import cv2
 
     api = cv2.CAP_DSHOW if backend == "dshow" else cv2.CAP_MSMF
-    return cv2.VideoCapture(int(index), api)
+    # DirectShow supports "video=Friendly Name" — preferred when index is ephemeral
+    if isinstance(target, str):
+        return cv2.VideoCapture(target, api)
+    return cv2.VideoCapture(int(target), api)
 
 
 def _fourcc_int(code: str) -> int:
@@ -66,7 +69,8 @@ class LiveUsbUvcGateway(CameraGateway):
         *,
         camera_id: str,
         stable_id: str,
-        index: int,
+        index: int | None = None,
+        open_target: str = "",
         friendly_name: str = "",
         backend: str = "dshow",
         allow_msmf_fallback: bool = True,
@@ -79,7 +83,8 @@ class LiveUsbUvcGateway(CameraGateway):
         self.camera_id = str(camera_id)
         self.stable_id = stable_id
         self.friendly_name = (friendly_name or "")[:128]
-        self._index = int(index)
+        self._index = int(index) if index is not None else None
+        self._open_target = (open_target or "").strip()
         self._backend = (backend or "dshow").lower()
         self._allow_msmf = bool(allow_msmf_fallback)
         self._stale_after = float(stale_after_s)
@@ -218,9 +223,19 @@ class LiveUsbUvcGateway(CameraGateway):
                     "config_revision": self.config_revision,
                     "stream_fingerprint": self.stream_fingerprint,
                     "index_hint_not_identity": True,
+                    "open_by_name": bool(self._index is None and self._open_target),
                     "frames_ok": int(self._frames_ok),
                 },
             )
+
+    def _capture_target(self) -> int | str:
+        if self._index is not None:
+            return int(self._index)
+        if self._open_target:
+            return self._open_target
+        if self.friendly_name:
+            return f"video={self.friendly_name}"
+        raise RuntimeError("USB_INDEX_UNKNOWN")
 
     def _negotiate(self, cap) -> None:
         import cv2
@@ -263,9 +278,10 @@ class LiveUsbUvcGateway(CameraGateway):
         if self._allow_msmf and "msmf" not in backends:
             backends.append("msmf")
         last_err = ""
+        target = self._capture_target()
         for be in backends:
             try:
-                cap = self._open_capture(self._index, be)
+                cap = self._open_capture(target, be)
                 if cap is not None and getattr(cap, "isOpened", lambda: False)():
                     self._backend = be
                     self._negotiate(cap)
@@ -311,8 +327,15 @@ class LiveUsbUvcGateway(CameraGateway):
                 )
                 self._latest_good = None
             raise
+        # Re-verify same stable_id — never silently switch device
+        if getattr(dev, "stable_id", None) and dev.stable_id != self.stable_id:
+            raise ValueError("USB_IDENTITY_MISMATCH")
+        if getattr(dev, "ambiguous", False):
+            raise ValueError("USB_DEVICE_AMBIGUOUS")
         if dev.index_hint is not None:
             self._index = int(dev.index_hint)
+        if getattr(dev, "open_target", ""):
+            self._open_target = str(dev.open_target)
         if dev.friendly_name:
             self.friendly_name = dev.friendly_name[:128]
 
@@ -388,7 +411,8 @@ class LiveUsbUvcGateway(CameraGateway):
 
 def diagnose_usb_modes(
     *,
-    index: int,
+    index: int | None = None,
+    open_target: str = "",
     backend: str = "dshow",
     open_capture: OpenCaptureFn | None = None,
     mode_prefs: tuple[tuple[str, int, int, float], ...] | None = None,
@@ -396,11 +420,22 @@ def diagnose_usb_modes(
     """Owner diagnostic: try modes and report *actual* WxH/FOURCC (not requested)."""
     open_fn = open_capture or _default_open_capture
     prefs = mode_prefs or MODE_PREFS
+    if index is not None:
+        target: int | str = int(index)
+    elif open_target:
+        target = open_target
+    else:
+        return [
+            {
+                "opened": False,
+                "note_vi": "Thiếu index hoặc open_target — không đo được.",
+            }
+        ]
     results: list[dict[str, Any]] = []
     for fourcc, w, h, fps in prefs:
         cap = None
         try:
-            cap = open_fn(int(index), backend)
+            cap = open_fn(target, backend)
             if cap is None or not getattr(cap, "isOpened", lambda: False)():
                 results.append(
                     {

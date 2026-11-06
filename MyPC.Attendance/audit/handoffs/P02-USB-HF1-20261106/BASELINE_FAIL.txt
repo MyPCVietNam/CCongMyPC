@@ -1,0 +1,1 @@
+PR24 RED: USB_INDEX_UNKNOWN on PnP without index; revision rotate on same-USB rebind. See PR24_REPRO_RED_OUTPUT.txt

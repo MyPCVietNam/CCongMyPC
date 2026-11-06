@@ -1,0 +1,3 @@
+- packaging_freeze = source tree used to build FULL/CHANGED ZIPs
+- zip_introducing = commit that adds the four ZIP binaries
+- remote_pr_tip = branch tip after PR metadata sidecar

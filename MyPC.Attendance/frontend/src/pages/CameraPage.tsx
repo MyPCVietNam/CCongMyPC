@@ -53,6 +53,9 @@ type UsbDeviceRow = {
   friendly_name: string;
   index_hint?: number | null;
   ambiguous?: boolean;
+  mapping_verified?: boolean;
+  trusted_live_eligible?: boolean;
+  open_target?: string;
   note_vi?: string;
 };
 
@@ -608,6 +611,13 @@ export function CameraPage() {
         modes?: Array<Record<string, unknown>>;
         message_vi?: string;
         claims_4k?: boolean;
+        mapping_verified?: boolean;
+        trusted_live_eligible?: boolean;
+        ambiguous?: boolean;
+        index_hint?: number | null;
+        open_by_name?: boolean;
+        stable_id_short?: string;
+        friendly_name?: string;
       }>("/api/v1/cameras/usb/diagnose", {
         method: "POST",
         body: JSON.stringify({ stable_id: form.usbStableId }),
@@ -618,7 +628,14 @@ export function CameraPage() {
           `fourcc=${m.actual_fourcc || "?"} frame_ok=${m.frame_ok ?? "?"}`
       );
       setUsbDiagMsg(
-        `${r.message_vi || ""}\nclaims_4k=${String(!!r.claims_4k)}\n${lines.join("\n")}`
+        [
+          r.message_vi || "",
+          `thiết bị=${r.friendly_name || "?"} · id=${r.stable_id_short || "?"}`,
+          `mapping_verified=${String(!!r.mapping_verified)} · trusted_live_eligible=${String(!!r.trusted_live_eligible)}`,
+          `ambiguous=${String(!!r.ambiguous)} · index_hint=${r.index_hint ?? "n/a"} · open_by_name=${String(!!r.open_by_name)}`,
+          `claims_4k=${String(!!r.claims_4k)}`,
+          ...lines,
+        ].join("\n")
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi chẩn đoán USB");
@@ -1345,14 +1362,36 @@ export function CameraPage() {
                 >
                   <option value="">— Chọn thiết bị —</option>
                   {usbDevices.map((d) => (
-                    <option key={d.stable_id} value={d.stable_id} disabled={!!d.ambiguous}>
+                    <option
+                      key={d.stable_id}
+                      value={d.stable_id}
+                      disabled={!!d.ambiguous || d.trusted_live_eligible === false}
+                    >
                       {d.friendly_name}
                       {d.stable_id_short ? ` (${d.stable_id_short})` : ""}
-                      {d.ambiguous ? " — không ổn định" : ""}
+                      {d.ambiguous
+                        ? " — không ổn định"
+                        : d.trusted_live_eligible
+                          ? " — LIVE OK"
+                          : " — chưa liên kết capture"}
                     </option>
                   ))}
                 </select>
               </label>
+              {form.usbStableId ? (
+                <p className="text-xs text-muted">
+                  {(() => {
+                    const d = usbDevices.find((x) => x.stable_id === form.usbStableId);
+                    if (!d) return "Đã chọn stable_id — bấm Liệt kê USB nếu danh sách trống.";
+                    return (
+                      `Trạng thái: mapping_verified=${String(!!d.mapping_verified)} · ` +
+                      `trusted_live=${String(!!d.trusted_live_eligible)} · ` +
+                      `index_hint=${d.index_hint ?? "n/a (mở bằng tên)"}` +
+                      (d.note_vi ? ` — ${d.note_vi}` : "")
+                    );
+                  })()}
+                </p>
+              ) : null}
               {selectedCam?.usb_friendly_name ? (
                 <p className="text-xs text-muted">
                   Đã gắn: {selectedCam.usb_friendly_name}

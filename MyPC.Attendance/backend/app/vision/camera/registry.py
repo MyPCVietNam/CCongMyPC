@@ -67,8 +67,26 @@ class CameraSourceRegistry:
         provenance: StreamProvenance,
         profile: str = "MAIN",
         stream_fingerprint: str | None = None,
+        preferred_revision: str | None = None,
     ) -> BoundSource:
+        """Bind gateway. ``preferred_revision`` preserves trust subject on same-device USB rebind.
+
+        RTSP callers should omit preferred_revision (always rotate on fresh lease) unless they
+        intentionally pass a revision. USB same-identity rebind passes the persisted revision.
+        """
         with self._lock:
+            # Capture prior lease revision for this fingerprint before unbind (same-device rebind)
+            prior_fp = stream_fingerprint or ""
+            if isinstance(gateway, LiveUsbUvcGateway):
+                prior_fp = prior_fp or gateway.stream_fingerprint
+            elif isinstance(gateway, LiveRTSPGateway):
+                prior_fp = prior_fp or gateway.stream_fingerprint or physical_stream_fingerprint(
+                    gateway._uri
+                )
+            prior_lease_rev = ""
+            if prior_fp and prior_fp in self._leases:
+                prior_lease_rev = self._leases[prior_fp].config_revision or ""
+
             # Drop previous binding for this camera id
             self._unbind_locked(camera_db_id, stop_if_unshared=True)
 
@@ -77,6 +95,12 @@ class CameraSourceRegistry:
                 fp = fp or gateway.stream_fingerprint or physical_stream_fingerprint(gateway._uri)
             elif isinstance(gateway, LiveUsbUvcGateway):
                 fp = fp or gateway.stream_fingerprint
+
+            def _pick_rev(*candidates: str | None) -> str:
+                for c in candidates:
+                    if c and str(c).strip():
+                        return str(c).strip()
+                return str(uuid.uuid4())
 
             if _is_leaseable_live(gateway) and fp:
                 # Reuse existing decode/capture pipeline for same physical stream/device
@@ -90,9 +114,14 @@ class CameraSourceRegistry:
                     # Retarget displayed camera_id on shared gateway for frame stamps
                     gateway.camera_id = str(camera_db_id)
                     lease.holders.add(camera_db_id)
-                    rev = lease.config_revision or str(uuid.uuid4())
+                    rev = _pick_rev(lease.config_revision, preferred_revision, prior_lease_rev)
+                    lease.config_revision = rev
                 else:
-                    rev = str(uuid.uuid4())
+                    # Fresh lease: preserve preferred/prior for USB same-identity; else rotate
+                    if isinstance(gateway, LiveUsbUvcGateway):
+                        rev = _pick_rev(preferred_revision, prior_lease_rev)
+                    else:
+                        rev = _pick_rev(None)  # RTSP: always new UUID on fresh lease
                     if hasattr(gateway, "config_revision"):
                         gateway.config_revision = rev
                     self._leases[fp] = _StreamLease(
@@ -102,7 +131,9 @@ class CameraSourceRegistry:
                         config_revision=rev,
                     )
             else:
-                rev = str(uuid.uuid4())
+                rev = _pick_rev(
+                    preferred_revision if isinstance(gateway, LiveUsbUvcGateway) else None
+                )
                 if hasattr(gateway, "config_revision"):
                     gateway.config_revision = rev
                 if hasattr(gateway, "_latest"):
