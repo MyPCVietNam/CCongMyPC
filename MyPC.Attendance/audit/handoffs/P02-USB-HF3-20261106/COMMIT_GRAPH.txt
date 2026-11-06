@@ -1,1 +1,4 @@
+058481f fix(usb): P02-USB-HF3 strict DevicePath identity and Start health/PID guards
+bab8127 docs(audit): record P02-USB-HF3 verified COMPLETE URL and pin
+91a7c31 docs(audit): package P02-USB-HF3 COMPLETE-AUDIT four ZIPs
 53bf591 fix(usb): P02-USB-HF3 native DirectShow COM enum and DevicePath binding

@@ -236,13 +236,49 @@ switch ($Mode) {
     if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare first" }
     $backend = Find-BackendDir $srcDir
     New-Item -ItemType Directory -Force -Path (Split-Path $outLog) | Out-Null
-    if (Test-Path $pidFile) {
-      $old = Get-Content $pidFile -ErrorAction SilentlyContinue
-      if ($old) {
-        try { Stop-Process -Id ([int]$old) -Force -ErrorAction SilentlyContinue } catch {}
+
+    # Refuse if 18878 already owned by an unrelated listener
+    $busy = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if ($busy.Count -gt 0) {
+      $owners = @($busy | ForEach-Object { $_.OwningProcess } | Select-Object -Unique)
+      $ownedByUs = $false
+      if ((Test-Path $pidFile) -and $owners.Count -eq 1) {
+        $filePid = 0
+        try { $filePid = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+        if ($filePid -gt 0 -and $owners[0] -eq $filePid) {
+          $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $filePid) -ErrorAction SilentlyContinue
+          $cmd = [string]($procMatch.CommandLine)
+          if ($cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains("$Port")) {
+            $ownedByUs = $true
+            Write-Log "Port $Port already owned by our previous uvicorn pid=$filePid — restarting it"
+            try { Stop-Process -Id $filePid -Force -ErrorAction Stop } catch {
+              throw "Cannot stop our previous uvicorn pid=$filePid safely"
+            }
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+          }
+        }
+      }
+      if (-not $ownedByUs) {
+        throw ("Port 18878 already in use by unrelated process(es): {0}. Refusing Start." -f ($owners -join ','))
+      }
+    } elseif (Test-Path $pidFile) {
+      # Stale pid file with free port — never Stop-Process an unrelated reused PID
+      $stale = 0
+      try { $stale = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+      if ($stale -gt 0) {
+        $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $stale) -ErrorAction SilentlyContinue
+        $cmd = [string]($procMatch.CommandLine)
+        if ($procMatch -and $cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains((Join-Path $venvDir "Scripts"))) {
+          Write-Log "Stopping verified stale candidate uvicorn pid=$stale"
+          try { Stop-Process -Id $stale -Force -ErrorAction SilentlyContinue } catch {}
+        } else {
+          Write-Log ("Ignoring stale pid file entry {0} (not our uvicorn) — not killing" -f $stale)
+        }
       }
       Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
+
     $env:MYPC_DATA_DIR = $dataDir
     $env:DATA_DIR = $dataDir
     $env:MYPC_MODELS_DIR = $modelsDir
@@ -263,27 +299,58 @@ switch ($Mode) {
     $ok = $false
     for ($i = 0; $i -lt 40; $i++) {
       Start-Sleep -Seconds 1
+      if ($proc.HasExited) {
+        Write-Log ("uvicorn exited early code={0}" -f $proc.ExitCode)
+        break
+      }
       try {
         $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/health" -UseBasicParsing -TimeoutSec 2
-        if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500) {
-          Write-Log ("HEALTH status={0}" -f $r.StatusCode)
-          $ok = $true
-          break
+        # Only HTTP 200 + documented health payload counts as success (not any <500)
+        if ($r.StatusCode -eq 200) {
+          $body = [string]$r.Content
+          if ($body -match '"status"\s*:\s*"(ok|degraded)"' -and $body -match '"startup_phase"\s*:\s*"(READY|FAIL)"') {
+            # Confirm listener PID is still our process
+            $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+            $ownerOk = $false
+            foreach ($l in $listeners) {
+              if ([int]$l.OwningProcess -eq [int]$proc.Id) { $ownerOk = $true; break }
+            }
+            if (-not $ownerOk) {
+              Write-Log "HEALTH 200 but listening PID is not our uvicorn — abort"
+              try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+              Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+              throw "Port $Port health responded from unrelated process"
+            }
+            Write-Log ("HEALTH status=200 payload_ok owner_pid={0}" -f $proc.Id)
+            $ok = $true
+            break
+          }
         }
       } catch {}
     }
     if (-not $ok) {
       Write-Log "HEALTH failed — see $errLog"
+      if (-not $proc.HasExited) {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+      }
+      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
       throw "Backend did not become healthy on 127.0.0.1:$Port"
     }
     Write-Log "Start OK — open http://127.0.0.1:$Port"
   }
   "Stop" {
     if (Test-Path $pidFile) {
-      $old = Get-Content $pidFile -ErrorAction SilentlyContinue
-      if ($old) {
-        try { Stop-Process -Id ([int]$old) -Force -ErrorAction SilentlyContinue } catch {}
-        Write-Log "Stopped pid=$old"
+      $old = 0
+      try { $old = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+      if ($old -gt 0) {
+        $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $old) -ErrorAction SilentlyContinue
+        $cmd = [string]($procMatch.CommandLine)
+        if ($procMatch -and $cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app")) {
+          try { Stop-Process -Id $old -Force -ErrorAction SilentlyContinue } catch {}
+          Write-Log "Stopped verified uvicorn pid=$old"
+        } else {
+          Write-Log ("Refusing to kill pid={0} — not our uvicorn command line" -f $old)
+        }
       }
       Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     } else {
