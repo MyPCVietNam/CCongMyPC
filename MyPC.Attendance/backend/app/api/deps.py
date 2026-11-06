@@ -60,6 +60,7 @@ class AppState:
     camera_gateway: Any = None  # legacy singleton pointer
     camera_registry: Any = None  # CameraSourceRegistry — per-camera LIVE/REPLAY/MOCK
     face_detect_preview: Any = None  # LiveFaceDetectPreviewService — shared AI overlay cache
+    usb_open_capture: Any = None  # P02-USB test injection — never used in production paths
     alembic_ok: bool = True
     alembic_error: str | None = None
 

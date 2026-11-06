@@ -1,4 +1,4 @@
-"""Camera gateway package — Live RTSP / recorded / mock with distinct provenance."""
+"""Camera gateway package — Live RTSP / USB UVC / recorded / mock with distinct provenance."""
 
 from app.vision.camera.gateway import (
     AuthorizedRecordedVideoGateway,
@@ -8,12 +8,14 @@ from app.vision.camera.gateway import (
     MockFrameGateway,
     StreamProvenance,
 )
+from app.vision.camera.usb_uvc_gateway import LiveUsbUvcGateway
 
 __all__ = [
     "AuthorizedRecordedVideoGateway",
     "CameraFrame",
     "CameraGateway",
     "LiveRTSPGateway",
+    "LiveUsbUvcGateway",
     "MockFrameGateway",
     "StreamProvenance",
 ]

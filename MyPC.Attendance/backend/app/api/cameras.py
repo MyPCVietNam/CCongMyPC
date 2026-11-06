@@ -53,6 +53,7 @@ class CameraIn(BaseModel):
     username: str = ""
     password: str = ""
     credential_action: str = "keep"  # keep|replace|remove
+    source_type: str = "RTSP"  # RTSP | USB_UVC
 
 
 class CameraUpdate(BaseModel):
@@ -66,6 +67,8 @@ class CameraUpdate(BaseModel):
     username: str = ""
     password: str = ""
     credential_action: str = "keep"
+    source_type: str | None = None
+    usb_stable_id: str | None = None
 
 
 class RegionIn(BaseModel):
@@ -211,6 +214,15 @@ def create_camera(
     now = SystemClock().now_utc()
     import uuid as _uuid
 
+    st = (body.source_type or "RTSP").strip().upper()
+    if st not in {"RTSP", "USB_UVC"}:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_SOURCE_TYPE",
+                "message_vi": "source_type phải là RTSP hoặc USB_UVC.",
+            },
+        )
     row = CameraDevice(
         name=body.name,
         host=host,
@@ -221,9 +233,10 @@ def create_camera(
         enabled=body.enabled,
         created_at=now,
         last_health_status="CHUA_CAU_HINH" if not host else "CHO_KIEM_TRA",
-        connection_status="CONFIG_SAVED" if (host or rtsp) else "UNKNOWN",
+        connection_status="CONFIG_SAVED" if (host or rtsp or st == "USB_UVC") else "UNKNOWN",
         username_hint=(body.username or "").strip(),
         lifecycle_id=_uuid.uuid4().hex,
+        source_type=st,
     )
     db.add(row)
     db.flush()
@@ -575,6 +588,283 @@ def configure_live_gateway(
     }
 
 
+@router.get("/usb/enumerate")
+def enumerate_usb_devices(
+    _: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """List Windows USB UVC candidates — hashed stable_id only; no auto-start."""
+    from app.vision.camera.usb_device import get_usb_enumerator
+
+    devices = [d.to_public_dict() for d in get_usb_enumerator().list_devices()]
+    return {
+        "devices": devices,
+        "auto_start": False,
+        "message_vi": (
+            "Chọn rõ thiết bị theo tên hiển thị (vd. UGREEN). "
+            "stable_id đã hash — không dùng chỉ số OpenCV làm định danh bền. "
+            "Không tự khởi động camera từ danh sách."
+        ),
+        "win_compat_vi": (
+            "Win10/11: ưu tiên WMI PnPDeviceID (hashed). "
+            "Nếu WMI không có → probe chỉ số OpenCV (ambiguous=true, bắt buộc chọn lại sau cắm/rút)."
+        ),
+    }
+
+
+@router.post("/usb/diagnose", dependencies=[Depends(require_csrf)])
+def diagnose_usb_device(
+    body: dict[str, Any],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """Measure actual capture modes before bind — never treat set() as verified."""
+    from app.vision.camera.usb_device import resolve_device
+    from app.vision.camera.usb_uvc_gateway import diagnose_usb_modes
+
+    stable_id = str(body.get("stable_id") or "").strip()
+    if not stable_id:
+        raise HTTPException(status_code=422, detail="Thiếu stable_id (server-side, không spoof client-only).")
+    # Reject client-supplied index as identity
+    if body.get("index") is not None and not stable_id:
+        raise HTTPException(status_code=422, detail="Chỉ số OpenCV không phải định danh.")
+    try:
+        dev = resolve_device(stable_id=stable_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc), "message_vi": f"Không khớp thiết bị USB: {exc}"},
+        ) from exc
+    if dev.ambiguous and body.get("allow_ambiguous") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_IDENTITY_UNSTABLE",
+                "message_vi": (
+                    "Định danh USB chưa ổn định (chỉ có index). "
+                    "Cần PnP/WMI hoặc xác nhận tường minh allow_ambiguous trên máy owner."
+                ),
+            },
+        )
+    if dev.index_hint is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_INDEX_UNKNOWN",
+                "message_vi": "Không xác định được index mở tạm thời cho chẩn đoán.",
+            },
+        )
+    open_fn = getattr(state, "usb_open_capture", None)
+    modes = diagnose_usb_modes(
+        index=int(dev.index_hint),
+        backend=dev.backend or "dshow",
+        open_capture=open_fn,
+    )
+    return {
+        "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
+        "friendly_name": dev.friendly_name,
+        "modes": modes,
+        "claims_4k": False,
+        "message_vi": (
+            "Kích thước/FPS bên dưới là đo thực tế sau read() — không phải giá trị cap.set() yêu cầu. "
+            "Tên sản phẩm 4K ≠ bằng chứng capture 4K."
+        ),
+        "operator": user.username,
+        "attendance_written": False,
+        "face_pilot_pass": False,
+    }
+
+
+@router.post("/gateway/live/configure-usb", dependencies=[Depends(require_csrf)])
+def configure_live_usb_gateway(
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    user: Annotated[User, Depends(require_permission(CAMERA_MANAGE))],
+) -> dict:
+    """Bind LiveUsbUvcGateway — CAMERA_LIVE provenance, distinct USB trust subject (no RTSP HMAC inherit)."""
+    from app.models.entities import CameraLiveBinding
+    from app.services.camera_trust_lifecycle import (
+        apply_material_trust_invalidation,
+        classify_usb_bind_change,
+    )
+    from app.vision.camera.gateway import StreamProvenance
+    from app.vision.camera.usb_device import resolve_device, usb_stream_fingerprint
+    from app.vision.camera.usb_uvc_gateway import LiveUsbUvcGateway
+
+    camera_db_id = body.get("camera_id")
+    if camera_db_id is None:
+        raise HTTPException(status_code=422, detail="Thiếu camera_id (DB)")
+    try:
+        camera_db_id = int(camera_db_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="camera_id không hợp lệ") from exc
+    row = db.get(CameraDevice, camera_db_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy camera")
+    if row.archived:
+        raise HTTPException(status_code=409, detail="Camera đã lưu trữ — không gắn LIVE USB.")
+    # Server resolves identity — never trust a client-only index or spoofed raw path
+    stable_id = str(body.get("stable_id") or "").strip()
+    if not stable_id.startswith("uvc:"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "USB_STABLE_ID_REQUIRED",
+                "message_vi": "Cần stable_id hashed (uvc:…) từ /usb/enumerate — không nhận index thô.",
+            },
+        )
+    try:
+        dev = resolve_device(stable_id=stable_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc), "message_vi": f"Thiết bị USB không khớp: {exc}"},
+        ) from exc
+    if dev.ambiguous and body.get("allow_ambiguous") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_IDENTITY_UNSTABLE",
+                "message_vi": "Định danh USB ambiguous — từ chối bind (fail-closed).",
+            },
+        )
+    if dev.index_hint is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_INDEX_UNKNOWN",
+                "message_vi": "Không có index mở được sau khi khớp stable_id.",
+            },
+        )
+
+    plan = classify_usb_bind_change(row=row, stable_id=dev.stable_id, source_type="USB_UVC")
+    trust_meta = apply_material_trust_invalidation(
+        db, row=row, state=state, plan=plan, actor=user.username
+    )
+
+    # Clear RTSP credential inheritance — USB must not carry EZVIZ HMAC subject
+    row.source_type = "USB_UVC"
+    row.usb_stable_id = dev.stable_id
+    row.usb_friendly_name = (dev.friendly_name or "")[:128]
+    row.usb_index_hint = int(dev.index_hint)
+    # Do not wipe secret_ref (audit), but LIVE USB path does not use RTSP credentials
+    row.mock_mode = False
+    row.enabled = True
+
+    if state.camera_registry is None:
+        from app.vision.camera.registry import CameraSourceRegistry
+
+        state.camera_registry = CameraSourceRegistry()
+
+    fp = usb_stream_fingerprint(dev.stable_id)
+    holders = state.camera_registry.lease_holders(fp)
+    if holders and camera_db_id not in holders:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USB_DEVICE_IN_USE",
+                "message_vi": (
+                    f"Thiết bị USB đang được camera #{holders[0]} capture. "
+                    "Một vòng decode/capture cho mỗi stable device — nhiều viewer dùng chung registry."
+                ),
+                "holders": holders,
+            },
+        )
+
+    open_fn = getattr(state, "usb_open_capture", None)
+    gw = LiveUsbUvcGateway(
+        camera_id=str(camera_db_id),
+        stable_id=dev.stable_id,
+        index=int(dev.index_hint),
+        friendly_name=dev.friendly_name,
+        backend=dev.backend or "dshow",
+        open_capture=open_fn,
+    )
+    bound = state.camera_registry.bind(
+        camera_db_id,
+        gw,
+        provenance=StreamProvenance.CAMERA_LIVE,
+        profile=str(body.get("profile") or "USB_MAIN"),
+        stream_fingerprint=fp,
+    )
+    _clear_face_detect_cache(state, camera_db_id)
+    bound.gateway.start()
+    state.camera_gateway = bound.gateway
+
+    from app.services.secret_fs_outbox import register_runtime_compensate
+
+    def _undo_usb_bind() -> None:
+        if state.camera_registry is not None:
+            state.camera_registry.unbind(camera_db_id)
+        if state.camera_gateway is bound.gateway:
+            state.camera_gateway = None
+
+    register_runtime_compensate(db, _undo_usb_bind)
+
+    binding = db.scalar(select(CameraLiveBinding).where(CameraLiveBinding.camera_id == camera_db_id))
+    now = SystemClock().now_utc()
+    if binding is None:
+        binding = CameraLiveBinding(camera_id=camera_db_id)
+        db.add(binding)
+    elif binding.config_revision and binding.config_revision != bound.config_revision:
+        from app.services.camera_trust_lifecycle import revoke_camera_physical_trust
+
+        revoke_camera_physical_trust(
+            db,
+            camera_id=camera_db_id,
+            reason="CAMERA_USB_CONFIG_REVISION_CHANGED",
+        )
+    binding.scheme = "uvc"
+    binding.host = ""
+    binding.port = 0
+    binding.path = (dev.stable_id[:48] if dev.stable_id else "")
+    binding.usb_stable_id = dev.stable_id
+    binding.profile = str(body.get("profile") or "USB_MAIN")
+    binding.resolved_ips_json = "[]"
+    binding.config_revision = bound.config_revision
+    binding.enabled = True
+    binding.updated_at = now
+    row.config_revision = bound.config_revision
+    row.connection_status = "CONFIG_SAVED"
+    row.last_health_status = "CONFIG_SAVED"
+    row.last_health_at = now
+
+    db.add(
+        AuditLog(
+            actor=user.username,
+            action="CAMERA_USB_CONFIGURE",
+            entity_type="camera",
+            entity_id=str(camera_db_id),
+            reason=(
+                f"source_type=USB_UVC; stable_id_short={(dev.stable_id[:12]+'…')}; "
+                f"rev={bound.config_revision}; material={plan.is_material}; "
+                f"no_rtsp_hmac_inherit=true; secrets_redacted=true"
+            ),
+            timestamp=utc_now(),
+        )
+    )
+    return {
+        "ok": True,
+        "camera_id": camera_db_id,
+        "source_type": "USB_UVC",
+        "config_revision": bound.config_revision,
+        "connection_status": "CONFIG_SAVED",
+        "live_verified": False,
+        "friendly_name": dev.friendly_name,
+        "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
+        "transport": "USB_UVC",
+        "camera_lab_pass": False,
+        "face_pilot_pass": False,
+        "attendance_written": False,
+        "trust_lifecycle": trust_meta,
+        "message_vi": (
+            "Đã gắn USB UVC LIVE (CONFIG_SAVED). Chưa CAMERA_LAB_PASS. "
+            "HMAC CAMERA_LAB/RTSP EZVIZ trước đó không được thừa kế — cần đo/ký lại trên USB nếu cần."
+        ),
+        "operator": user.username,
+    }
+
+
 @router.post("/{camera_id}/gateway/stop", dependencies=[Depends(require_csrf)])
 def stop_live_gateway(
     camera_id: int,
@@ -783,6 +1073,19 @@ def update_camera(
         merge_effective_credential_change,
     )
 
+    proposed_source = None
+    if body.source_type is not None:
+        st = (body.source_type or "").strip().upper()
+        if st not in {"RTSP", "USB_UVC"}:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_SOURCE_TYPE",
+                    "message_vi": "source_type phải là RTSP hoặc USB_UVC.",
+                },
+            )
+        proposed_source = st
+
     plan = classify_camera_update(
         row=row,
         proposed_host=proposed_host,
@@ -792,6 +1095,8 @@ def update_camera(
         proposed_mock=body.mock_mode,
         proposed_enabled=body.enabled,
         credential_action=action,
+        proposed_source_type=proposed_source,
+        proposed_usb_stable_id=body.usb_stable_id,
     )
 
     if proposed_host is not None:
@@ -806,6 +1111,10 @@ def update_camera(
         row.firmware = body.firmware
     if body.mock_mode is not None:
         row.mock_mode = body.mock_mode
+    if proposed_source is not None:
+        row.source_type = proposed_source
+    if body.usb_stable_id is not None:
+        row.usb_stable_id = (body.usb_stable_id or "").strip()
     if body.enabled is not None:
         row.enabled = body.enabled
         if not body.enabled and state.camera_registry is not None:
@@ -2924,12 +3233,17 @@ def _cam_out(r: CameraDevice, state: AppState | None = None, *, detail: bool = F
     has_secret = bool(r.secret_ref) and (
         state.secrets.has_secret(r.secret_ref) if state is not None and r.secret_ref else bool(r.secret_ref)
     )
+    usb_sid = getattr(r, "usb_stable_id", "") or ""
     out = {
         "id": r.id,
         "name": r.name,
         "host": r.host,
         "model": r.model,
         "firmware": r.firmware,
+        "source_type": (getattr(r, "source_type", None) or "RTSP").upper(),
+        "usb_stable_id_short": (usb_sid[:12] + "…") if len(usb_sid) > 12 else usb_sid,
+        "usb_friendly_name": getattr(r, "usb_friendly_name", "") or "",
+        "usb_index_hint": getattr(r, "usb_index_hint", None),
         "has_rtsp_override": bool(r.rtsp_url_override),
         "rtsp_uri_safe": safe_uri,  # editable, no userinfo — never password
         "rtsp_override_redacted": redact_url(r.rtsp_url_override),
