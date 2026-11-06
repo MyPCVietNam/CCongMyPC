@@ -152,6 +152,9 @@ def main() -> int:
         "COMMIT_GRAPH.txt",
         "SCANNER_REPORT.txt",
         "README.md",
+        "IDENTITY_BOUNDARY_REPRO_RED.txt",
+        "IDENTITY_BOUNDARY_REPRO_GREEN.txt",
+        "INDEPENDENT_REPRO_test_p02_usb_hf3_identity_boundary.py",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -242,6 +245,9 @@ def main() -> int:
         "COMMIT_GRAPH.txt",
         "SCANNER_REPORT.txt",
         "BASELINE_FAIL.txt",
+        "IDENTITY_BOUNDARY_REPRO_RED.txt",
+        "IDENTITY_BOUNDARY_REPRO_GREEN.txt",
+        "INDEPENDENT_REPRO_test_p02_usb_hf3_identity_boundary.py",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

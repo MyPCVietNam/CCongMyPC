@@ -79,17 +79,21 @@ def get_last_dshow_enum_result() -> DshowEnumResult | None:
 
 
 def fingerprint_device_path(device_path: str) -> str:
-    key = normalize_capture_instance_key(device_path)
-    if not key:
+    """Fingerprint the *canonical video-function identity*, not a loose path substring."""
+    parsed = parse_usb_video_function_id(device_path)
+    if parsed is None:
         return ""
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return hashlib.sha256(parsed.encode("utf-8")).hexdigest()
 
 
 def normalize_capture_instance_key(raw: str) -> str:
-    """Normalize DirectShow DevicePath or WMI PNPDeviceID for identity compare.
+    """Canonicalize DirectShow DevicePath or WMI PNPDeviceID (separators only).
 
     DevicePath example (shape only): ``\\\\?\\usb#vid_xxxx&pid_yyyy&mi_00#inst#{guid}\\global``
     PnP example: ``USB\\VID_XXXX&PID_YYYY&MI_00\\inst``
+
+    This does **not** by itself prove identity — use ``parse_usb_video_function_id`` /
+    ``capture_instances_match`` which require VID+PID+MI+full instance equality.
     """
     s = (raw or "").strip().lower()
     if not s:
@@ -108,31 +112,54 @@ def normalize_capture_instance_key(raw: str) -> str:
     return s
 
 
-def capture_instances_match(a: str, b: str) -> bool:
-    """True when DevicePath and PnPDeviceID refer to the same USB video function."""
-    na = normalize_capture_instance_key(a)
-    nb = normalize_capture_instance_key(b)
-    if not na or not nb:
-        return False
-    if na == nb:
-        return True
-    # Containment after normalizing separators (DevicePath often wraps PnP instance)
-    if na in nb or nb in na:
-        return True
-    # Compare vid/pid + trailing instance token
-    def parts(n: str) -> tuple[str, str, str]:
-        m = re.search(r"vid_([0-9a-f]{4}).*?pid_([0-9a-f]{4})", n)
-        vid = m.group(1) if m else ""
-        pid = m.group(2) if m else ""
-        # last path segment as instance id
-        inst = n.split("\\")[-1] if "\\" in n else n
-        return vid, pid, inst
+# usb\vid_vvvv&pid_pppp&mi_ii\<complete-instance-token>
+_USB_VIDEO_FN_RE = re.compile(
+    r"^(?:usb\\)?vid_([0-9a-f]{4})&pid_([0-9a-f]{4})&mi_([0-9a-f]{2})\\(.+)$",
+    re.IGNORECASE,
+)
 
-    va, pa, ia = parts(na)
-    vb, pb, ib = parts(nb)
-    if va and pa and va == vb and pa == pb and ia and ia == ib:
-        return True
-    return False
+
+def parse_usb_video_function_id(raw: str) -> str | None:
+    """Return canonical ``vid|pid|mi|instance`` for one USB video *function*.
+
+    Fail closed (None) when VID/PID/MI/instance cannot all be parsed. Distinct
+    composite interfaces (MI_00 vs MI_01) and distinct instance tokens never collide.
+    Prefix / containment between instance tokens is rejected by exact equality.
+    """
+    key = normalize_capture_instance_key(raw)
+    if not key:
+        return None
+    m = _USB_VIDEO_FN_RE.match(key)
+    if not m:
+        return None
+    vid, pid, mi, inst = (
+        m.group(1).lower(),
+        m.group(2).lower(),
+        m.group(3).lower(),
+        m.group(4).lower(),
+    )
+    if not vid or not pid or not mi or not inst:
+        return None
+    # Reject empty / relative / path-injection instance tokens
+    if "\\" in inst or "/" in inst or ".." in inst:
+        return None
+    return f"vid={vid}|pid={pid}|mi={mi}|inst={inst}"
+
+
+def capture_instances_match(a: str, b: str) -> bool:
+    """True only when both sides parse to the *same* USB video function identity.
+
+    Requires exact equality of VID, PID, MI (interface), and the complete instance
+    token after canonical normalization. Deliberately does **not**:
+    - use substring / prefix containment (``na in nb``)
+    - match on VID/PID + trailing token while ignoring MI
+    - infer parent/container relationships without an explicit proven MI+instance
+    """
+    pa = parse_usb_video_function_id(a)
+    pb = parse_usb_video_function_id(b)
+    if pa is None or pb is None:
+        return False
+    return pa == pb
 
 
 def _build_com_interfaces() -> tuple[Any, Any, Any, Any]:
@@ -278,127 +305,144 @@ def enumerate_video_capture_monikers() -> DshowEnumResult:
 
     ICreateDevEnum, _IEnumMoniker, IMoniker, IPropertyBag = _build_com_interfaces()
 
-    # Ensure we never accidentally go through ProgID Dispatch
+    # Balance ONLY the CoInitialize call introduced here (MSDN: every successful
+    # CoInitialize/S_FALSE needs a matching CoUninitialize). Do not uninit on
+    # RPC_E_CHANGED_MODE / failed init — that apartment was not opened by us.
+    pythoncom = None
+    need_couninit = False
     try:
-        import pythoncom  # type: ignore
+        import pythoncom as _pythoncom  # type: ignore
 
+        pythoncom = _pythoncom
         pythoncom.CoInitialize()
+        need_couninit = True
     except Exception:
-        pass
+        need_couninit = False
 
+    result: DshowEnumResult
     try:
-        devenum = CoCreateInstance(
-            GUID(CLSID_SystemDeviceEnum),
-            interface=ICreateDevEnum,
-            clsctx=CLSCTX_INPROC_SERVER,
-        )
-    except Exception as exc:  # noqa: BLE001
-        hr = getattr(exc, "hresult", None) or getattr(exc, "args", [None])[0]
         try:
-            hr_i = int(hr) if hr is not None else None
-        except Exception:
-            hr_i = None
-        logger.info(
-            "dshow_cocreate_failed err=%s hr=%s",
-            type(exc).__name__,
-            hr_i,
-        )
+            devenum = CoCreateInstance(
+                GUID(CLSID_SystemDeviceEnum),
+                interface=ICreateDevEnum,
+                clsctx=CLSCTX_INPROC_SERVER,
+            )
+        except Exception as exc:  # noqa: BLE001
+            hr = getattr(exc, "hresult", None) or getattr(exc, "args", [None])[0]
+            try:
+                hr_i = int(hr) if hr is not None else None
+            except Exception:
+                hr_i = None
+            logger.info(
+                "dshow_cocreate_failed err=%s hr=%s",
+                type(exc).__name__,
+                hr_i,
+            )
+            result = DshowEnumResult(
+                monikers=[],
+                blocker_code=BLOCKER_COCREATE_FAILED,
+                hresult=hr_i,
+                detail_vi=(
+                    "CoCreateInstance(CLSID_SystemDeviceEnum, ICreateDevEnum) thất bại — "
+                    "không dùng Dispatch ProgID."
+                ),
+            )
+            _last_enum_result = result
+            return result
+
+        out: list[DshowVideoMoniker] = []
+        enum_mon = None
+        try:
+            # CreateClassEnumerator returns S_FALSE when category empty (not an exception)
+            enum_mon = devenum.CreateClassEnumerator(
+                GUID(CLSID_VideoInputDeviceCategory), 0
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("dshow_class_enum_failed err=%s", type(exc).__name__)
+            result = DshowEnumResult(
+                monikers=[],
+                blocker_code=BLOCKER_CLASS_ENUM_FAILED,
+                detail_vi="CreateClassEnumerator(VideoInputDeviceCategory) thất bại.",
+            )
+            _last_enum_result = result
+            return result
+
+        if enum_mon is None:
+            result = DshowEnumResult(
+                monikers=[],
+                blocker_code=BLOCKER_CLASS_ENUM_EMPTY,
+                detail_vi="VideoInputDeviceCategory trống (S_FALSE) — không giả thành công.",
+            )
+            _last_enum_result = result
+            return result
+
+        idx = 0
+        try:
+            while idx <= 64:
+                try:
+                    moniker, fetched = enum_mon.Next(1)
+                except ValueError:
+                    break
+                except Exception:
+                    break
+                if not fetched or moniker is None:
+                    break
+                friendly = ""
+                device_path = ""
+                try:
+                    storage = moniker.BindToStorage(None, None, IPropertyBag._iid_)
+                    prop = storage.QueryInterface(IPropertyBag)
+                    try:
+                        friendly = _read_propbag_str(prop, "FriendlyName")[:128]
+                    except Exception:
+                        friendly = ""
+                    try:
+                        device_path = _read_propbag_str(prop, "DevicePath")
+                    except Exception:
+                        device_path = ""
+                except Exception as exc:  # noqa: BLE001
+                    logger.info(
+                        "dshow_moniker_props_failed ordinal=%s err=%s",
+                        idx,
+                        type(exc).__name__,
+                    )
+                fp = fingerprint_device_path(device_path) if device_path else ""
+                out.append(
+                    DshowVideoMoniker(
+                        ordinal=idx,
+                        friendly_name=friendly or f"video_input_{idx}",
+                        device_path=device_path,
+                        device_path_fingerprint=fp,
+                    )
+                )
+                idx += 1
+        finally:
+            try:
+                del enum_mon
+            except Exception:
+                pass
+            try:
+                del devenum
+            except Exception:
+                pass
+
         result = DshowEnumResult(
-            monikers=[],
-            blocker_code=BLOCKER_COCREATE_FAILED,
-            hresult=hr_i,
+            monikers=out,
+            blocker_code=BLOCKER_NONE if out else BLOCKER_CLASS_ENUM_EMPTY,
             detail_vi=(
-                "CoCreateInstance(CLSID_SystemDeviceEnum, ICreateDevEnum) thất bại — "
-                "không dùng Dispatch ProgID."
+                f"Đã liệt kê {len(out)} video moniker (VideoInputDeviceCategory)."
+                if out
+                else "Không có video capture moniker."
             ),
         )
         _last_enum_result = result
         return result
-
-    out: list[DshowVideoMoniker] = []
-    try:
-        # CreateClassEnumerator returns S_FALSE when category empty (not an exception)
-        enum_mon = devenum.CreateClassEnumerator(GUID(CLSID_VideoInputDeviceCategory), 0)
-    except Exception as exc:  # noqa: BLE001
-        logger.info("dshow_class_enum_failed err=%s", type(exc).__name__)
-        result = DshowEnumResult(
-            monikers=[],
-            blocker_code=BLOCKER_CLASS_ENUM_FAILED,
-            detail_vi="CreateClassEnumerator(VideoInputDeviceCategory) thất bại.",
-        )
-        _last_enum_result = result
-        return result
-
-    if enum_mon is None:
-        result = DshowEnumResult(
-            monikers=[],
-            blocker_code=BLOCKER_CLASS_ENUM_EMPTY,
-            detail_vi="VideoInputDeviceCategory trống (S_FALSE) — không giả thành công.",
-        )
-        _last_enum_result = result
-        return result
-
-    idx = 0
-    try:
-        while idx <= 64:
-            try:
-                moniker, fetched = enum_mon.Next(1)
-            except ValueError:
-                # comtypes may raise ValueError on S_FALSE end-of-enum
-                break
-            except Exception:
-                break
-            if not fetched:
-                break
-            if moniker is None:
-                break
-            friendly = ""
-            device_path = ""
-            try:
-                # BindToStorage(..., IID_IPropertyBag)
-                storage = moniker.BindToStorage(None, None, IPropertyBag._iid_)
-                prop = storage.QueryInterface(IPropertyBag)
-                try:
-                    friendly = _read_propbag_str(prop, "FriendlyName")[:128]
-                except Exception:
-                    friendly = ""
-                try:
-                    device_path = _read_propbag_str(prop, "DevicePath")
-                except Exception:
-                    device_path = ""
-            except Exception as exc:  # noqa: BLE001
-                logger.info("dshow_moniker_props_failed ordinal=%s err=%s", idx, type(exc).__name__)
-            fp = fingerprint_device_path(device_path) if device_path else ""
-            out.append(
-                DshowVideoMoniker(
-                    ordinal=idx,
-                    friendly_name=friendly or f"video_input_{idx}",
-                    device_path=device_path,
-                    device_path_fingerprint=fp,
-                )
-            )
-            idx += 1
     finally:
-        try:
-            del enum_mon
-        except Exception:
-            pass
-        try:
-            del devenum
-        except Exception:
-            pass
-
-    result = DshowEnumResult(
-        monikers=out,
-        blocker_code=BLOCKER_NONE if out else BLOCKER_CLASS_ENUM_EMPTY,
-        detail_vi=(
-            f"Đã liệt kê {len(out)} video moniker (VideoInputDeviceCategory)."
-            if out
-            else "Không có video capture moniker."
-        ),
-    )
-    _last_enum_result = result
-    return result
+        if need_couninit and pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
 
 def assert_progid_dispatch_forbidden() -> None:

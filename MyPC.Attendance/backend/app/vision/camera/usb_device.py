@@ -328,8 +328,26 @@ class DirectShowEnumerator:
                     path_counts.get(d.device_path_fingerprint, 0) + 1
                 )
 
-        out = []
+        # Pre-compute strict DevicePath↔PnP matches; require 1:1 bijection
+        # (one WMI video function ↔ one DirectShow moniker).
+        provisional: list[tuple[UsbDeviceInfo, list[_DshowNamed]]] = []
+        moniker_claim_counts: dict[str, int] = {}
         for w in wmi_devs:
+            pnp_raw = getattr(w, "_pnp_raw", "") or ""
+            matches = [
+                d
+                for d in dshow
+                if d.device_path
+                and pnp_raw
+                and capture_instances_match(d.device_path, pnp_raw)
+            ]
+            provisional.append((w, matches))
+            for m in matches:
+                fp = m.device_path_fingerprint or f"ord:{m.index}"
+                moniker_claim_counts[fp] = moniker_claim_counts.get(fp, 0) + 1
+
+        out = []
+        for w, matches in provisional:
             key = _norm_name(w.friendly_name)
             if wmi_name_counts.get(key, 0) > 1:
                 out.append(
@@ -350,13 +368,6 @@ class DirectShowEnumerator:
                 continue
 
             pnp_raw = getattr(w, "_pnp_raw", "") or ""
-            matches = [
-                d
-                for d in dshow
-                if d.device_path
-                and pnp_raw
-                and capture_instances_match(d.device_path, pnp_raw)
-            ]
             # Missing DevicePath on all candidates that might name-match → unverified
             if not pnp_raw:
                 out.append(
@@ -407,6 +418,24 @@ class DirectShowEnumerator:
                 continue
 
             m = matches[0]
+            claim_key = m.device_path_fingerprint or f"ord:{m.index}"
+            if moniker_claim_counts.get(claim_key, 0) > 1:
+                out.append(
+                    replace(
+                        w,
+                        ambiguous=True,
+                        mapping_verified=False,
+                        capture_mapping_verified=False,
+                        index_hint=None,
+                        device_path_fingerprint="",
+                        pnp_id_found=True,
+                        note_vi=(
+                            "Nhiều PnP video khớp cùng một DirectShow DevicePath — "
+                            "không 1:1; CAPTURE_MAPPING_UNVERIFIED."
+                        ),
+                    )
+                )
+                continue
             if not m.device_path_fingerprint:
                 out.append(
                     replace(

@@ -26,6 +26,11 @@ def test_hf3_script_modes_and_port():
     assert "face_recognition_sface_2021dec.onnx" in text
     assert "PIN_MATCH" in text
     assert "Get-ManifestPinMap" in text or "models" in text
+    # Start must require HTTP 200 + documented health payload, not any <500
+    assert 'StatusCode -eq 200' in text
+    assert "startup_phase" in text
+    assert "unrelated process" in text.lower() or "Refusing Start" in text
+    assert "not our uvicorn" in text
 
 
 def test_hf3_readonly_diag_redacted_keys():
