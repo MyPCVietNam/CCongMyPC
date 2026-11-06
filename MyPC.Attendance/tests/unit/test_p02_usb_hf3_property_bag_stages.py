@@ -174,6 +174,42 @@ def test_redacted_diagnostics_never_include_raw_paths():
     assert "\\\\?\\" not in blob
 
 
+def test_safe_release_does_not_manual_release_owned_pointer():
+    """Regression: comtypes finalizer owns Release — manual call double-frees."""
+    import gc
+
+    calls: list[str] = []
+
+    class ManagedPointer:
+        def Release(self):
+            calls.append("release")
+
+        def __del__(self):
+            self.Release()
+
+    ptr = ManagedPointer()
+    warnings: list[str] = []
+    dce._safe_release(ptr, warnings)
+    ptr = None
+    gc.collect()
+    assert calls == ["release"]
+    assert warnings == []
+
+
+def test_enumerate_finalizes_release_warnings_after_root_cleanup_source():
+    """Source-order contract: warning count must not freeze before root drops."""
+    import inspect
+
+    text = inspect.getsource(dce._enumerate_on_com_thread)
+    metric_pos = text.find("com_release_warning_count=len(release_warnings)")
+    root_cleanup_pos = text.find("_safe_release(bind_ctx, release_warnings)")
+    assert root_cleanup_pos >= 0
+    assert metric_pos < 0 or metric_pos > root_cleanup_pos
+    # Telemetry must still be assigned from release_warnings after cleanup.
+    assert "com_release_warning_count" in text[root_cleanup_pos:]
+    assert "len(release_warnings)" in text[root_cleanup_pos:]
+
+
 def test_com_release_warning_counter_exported():
     def hook():
         return DshowEnumResult(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +33,20 @@ def test_hf3_script_modes_and_port():
     assert "startup_phase" in text
     assert "unrelated process" in text.lower() or "Refusing Start" in text
     assert "not our uvicorn" in text
+
+
+def test_hf3_update_uses_leaf_rename_and_rollback():
+    """PS 5.1 Rename-Item -NewName must be a leaf; Update must validate then rollback."""
+    text = PS1.read_text(encoding="utf-8-sig")
+    assert not re.search(r"Rename-Item\s+\$srcDir\s+\$backup\b", text)
+    assert not re.search(r"Rename-Item\s+\$stageSrc\s+\$srcDir\b", text)
+    assert "Rename-Item -LiteralPath $srcDir -NewName $backupLeaf" in text
+    assert "Rename-Item -LiteralPath $stageSrc -NewName $srcLeaf" in text
+    assert "Split-Path -Path $srcDir -Leaf" in text
+    assert "staged backend" in text.lower() or "Find-BackendDir $stageSrc" in text
+    assert "rollback" in text.lower()
+    assert "Port 18878 in use" in text or "before Update" in text
+    assert "DataDir" in text and "venv" in text
 
 
 def test_hf3_readonly_diag_redacted_keys():

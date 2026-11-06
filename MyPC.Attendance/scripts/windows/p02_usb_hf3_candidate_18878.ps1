@@ -220,6 +220,7 @@ switch ($Mode) {
   "Update" {
     # Source-only refresh for an already-prepared HF3 candidate.
     # NEVER wipe DataDir, models/weights, or venv. NEVER touch 18876/18877.
+    # PowerShell 5.1: Rename-Item -NewName must be a leaf name (same parent), not a path.
     if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {
       throw "Update requires -FullSourceZip pointing to FULL-SOURCE ZIP"
     }
@@ -227,26 +228,100 @@ switch ($Mode) {
     $venvPy = Join-Path $venvDir "Scripts\python.exe"
     if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare once before Update" }
     if (-not (Test-Path $dataDir)) { throw "DataDir missing — run Prepare first (Update will not create secrets)" }
+
+    # Refuse Update while 18878 is listening unless it is our verified candidate uvicorn.
+    $busy = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if ($busy.Count -gt 0) {
+      $owners = @($busy | ForEach-Object { $_.OwningProcess } | Select-Object -Unique)
+      $stoppedOwn = $false
+      if ((Test-Path $pidFile) -and $owners.Count -eq 1) {
+        $filePid = 0
+        try { $filePid = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+        if ($filePid -gt 0 -and $owners[0] -eq $filePid) {
+          $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $filePid) -ErrorAction SilentlyContinue
+          $cmd = [string]($procMatch.CommandLine)
+          if ($cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains("$Port")) {
+            Write-Log "Update: stopping verified own uvicorn pid=$filePid before source swap"
+            try { Stop-Process -Id $filePid -Force -ErrorAction Stop } catch {
+              throw "Cannot stop our uvicorn pid=$filePid safely before Update"
+            }
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            $stoppedOwn = $true
+          }
+        }
+      }
+      if (-not $stoppedOwn) {
+        throw ("Port 18878 in use by process(es): {0}. Stop the candidate (or unrelated listener) before Update." -f ($owners -join ','))
+      }
+    }
+
     $got = Get-Sha256Lower $FullSourceZip
     if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
       throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
     }
-    Write-Log "Update SHA256 PIN_MATCH — refreshing src only (DataDir/models/venv preserved)"
+    Write-Log "Update SHA256 PIN_MATCH — staging source (DataDir/models/venv preserved)"
+
     $stageSrc = Join-Path $CandidateRoot "src-update-staging"
     if (Test-Path $stageSrc) { Remove-Item -Recurse -Force $stageSrc }
     New-Item -ItemType Directory -Force -Path $stageSrc | Out-Null
     Expand-Archive -Path $FullSourceZip -DestinationPath $stageSrc -Force
-    # Atomic-ish replace of src tree
-    $backup = Join-Path $CandidateRoot ("src-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-    if (Test-Path $srcDir) { Rename-Item $srcDir $backup }
-    Rename-Item $stageSrc $srcDir
-    $backend = Find-BackendDir $srcDir
-    $reqWin = Join-Path $backend "requirements-windows.txt"
-    if (Test-Path $reqWin) {
-      Invoke-VenvPip $venvPy @("install", "-r", $reqWin)
-      Write-Log "Update reinstalled requirements-windows.txt into existing venv"
+
+    # Validate staged backend layout BEFORE touching live src.
+    $stagedBackend = $null
+    try { $stagedBackend = Find-BackendDir $stageSrc } catch {
+      Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+      throw ("Update refused: staged ZIP missing backend app/main.py ({0})" -f $_.Exception.Message)
     }
-    Write-Log ("Update OK — src refreshed; backup={0}; DataDir untouched" -f $backup)
+    if (-not (Test-Path (Join-Path $stagedBackend "app\main.py"))) {
+      Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+      throw "Update refused: staged backend layout invalid"
+    }
+    Write-Log ("Update staged backend OK: {0}" -f $stagedBackend)
+
+    $backupLeaf = "src-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+    $backup = Join-Path $CandidateRoot $backupLeaf
+    $srcLeaf = Split-Path -Path $srcDir -Leaf
+    $promoted = $false
+    try {
+      if (Test-Path $srcDir) {
+        # Same-parent leaf rename — NewName must NOT be an absolute path (PS 5.1).
+        Rename-Item -LiteralPath $srcDir -NewName $backupLeaf
+      }
+      Rename-Item -LiteralPath $stageSrc -NewName $srcLeaf
+      $promoted = $true
+
+      $backend = Find-BackendDir $srcDir
+      $reqWin = Join-Path $backend "requirements-windows.txt"
+      if (Test-Path $reqWin) {
+        Invoke-VenvPip $venvPy @("install", "-r", $reqWin)
+        Write-Log "Update reinstalled requirements-windows.txt into existing venv"
+      }
+      Write-Log ("Update OK — src refreshed; backup={0}; DataDir untouched" -f $backup)
+    } catch {
+      Write-Log ("Update FAILED — attempting rollback: {0}" -f $_.Exception.Message)
+      if ($promoted) {
+        if (Test-Path $srcDir) {
+          $failedLeaf = "src-update-failed-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+          try { Rename-Item -LiteralPath $srcDir -NewName $failedLeaf } catch {
+            Remove-Item -Recurse -Force $srcDir -ErrorAction SilentlyContinue
+          }
+        }
+        if (Test-Path $backup) {
+          Rename-Item -LiteralPath $backup -NewName $srcLeaf
+          Write-Log "Update rollback restored previous src from backup"
+        }
+      } else {
+        if (Test-Path $stageSrc) {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+        }
+        if ((Test-Path $backup) -and -not (Test-Path $srcDir)) {
+          Rename-Item -LiteralPath $backup -NewName $srcLeaf
+          Write-Log "Update rollback restored src after failed promotion"
+        }
+      }
+      throw
+    }
   }
   "Preflight" {
     Write-Log "Preflight port=$Port candidate=$CandidateRoot"

@@ -187,21 +187,25 @@ def _exc_meta(exc: BaseException) -> tuple[str, int | None]:
 
 
 def _safe_release(obj: Any, warnings: list[str]) -> None:
-    """Release a COM pointer explicitly; record sanitized warning on failure."""
+    """Prepare to drop a comtypes-owned COM pointer (exactly-once Release).
+
+    comtypes 1.4.17 ``_compointer_base.__del__`` already calls ``Release()``.
+    Manually invoking ``Release()`` and then letting the finalizer run again
+    double-decrements the COM refcount (owner-Windows ``Win32 exception
+    occurred releasing IUnknown``). Do **not** call ``Release()`` here.
+
+    Caller MUST assign the owning variable to ``None`` immediately after this
+    returns so the finalizer runs while the STA apartment is still alive and
+    **before** ``CoUninitialize``. No COM pointers may escape the worker thread.
+    """
     if obj is None:
         return
+    # Intentionally do not call obj.Release(). Validate the wrapper is still
+    # reachable; any access error is recorded as a sanitized class name only.
     try:
-        # comtypes pointers expose Release(); calling it avoids delayed GC after CoUninit
-        release = getattr(obj, "Release", None)
-        if callable(release):
-            release()
+        getattr(obj, "Release", None)
     except Exception as exc:  # noqa: BLE001
         warnings.append(type(exc).__name__)
-    try:
-        # Drop Python ref so GC won't double-Release after apartment teardown
-        del obj
-    except Exception:
-        pass
 
 
 def _build_com_interfaces() -> tuple[Any, Any, Any, Any, Any]:
@@ -378,6 +382,9 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
     first_blocker = BLOCKER_NONE
     first_exc = ""
     first_hr: int | None = None
+    # Result is assembled in ``pending`` and finalized AFTER root COM cleanup so
+    # ``com_release_warning_count`` includes bind_ctx/enum/devenum/CoUninitialize.
+    pending: DshowEnumResult | None = None
 
     try:
         try:
@@ -388,7 +395,7 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
             )
         except Exception as exc:  # noqa: BLE001
             cls, hr = _exc_meta(exc)
-            return DshowEnumResult(
+            pending = DshowEnumResult(
                 monikers=[],
                 blocker_code=BLOCKER_COCREATE_FAILED,
                 hresult=hr,
@@ -400,6 +407,7 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
                 first_exception_class=cls,
                 stage_notes=[f"cocreate:{cls}"],
             )
+            return pending
 
         try:
             enum_mon = devenum.CreateClassEnumerator(
@@ -407,7 +415,7 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
             )
         except Exception as exc:  # noqa: BLE001
             cls, hr = _exc_meta(exc)
-            return DshowEnumResult(
+            pending = DshowEnumResult(
                 monikers=[],
                 blocker_code=BLOCKER_CLASS_ENUM_FAILED,
                 hresult=hr,
@@ -416,15 +424,17 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
                 first_exception_class=cls,
                 stage_notes=[f"class_enum:{cls}"],
             )
+            return pending
 
         if enum_mon is None:
-            return DshowEnumResult(
+            pending = DshowEnumResult(
                 monikers=[],
                 blocker_code=BLOCKER_CLASS_ENUM_EMPTY,
                 detail_vi="VideoInputDeviceCategory trống (S_FALSE).",
                 first_blocker_code=BLOCKER_CLASS_ENUM_EMPTY,
                 stage_notes=["class_enum:empty"],
             )
+            return pending
 
         stage_notes.append("DSHOW_ENUM_OK")
         bind_ctx = _create_bind_ctx(IBindCtx, release_warnings)
@@ -536,7 +546,8 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
                 )
                 idx += 1
             finally:
-                # Reverse-order release: prop → storage → moniker (before next / CoUninit)
+                # Reverse-order drop: prop → storage → moniker (before next / CoUninit).
+                # comtypes finalizer performs the single Release — no manual Release().
                 _safe_release(prop, release_warnings)
                 prop = None
                 _safe_release(storage, release_warnings)
@@ -564,7 +575,8 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
             f"DSHOW_ENUM_OK monikers={len(out)} bag_ok={bag_n} "
             f"name_ok={name_n} path_ok={path_n} canon_ok={canon_n}."
         )
-        return DshowEnumResult(
+        # Warning count filled in ``finally`` after root pointer drops + CoUninitialize.
+        pending = DshowEnumResult(
             monikers=out,
             blocker_code=agg_blocker,
             hresult=first_hr,
@@ -576,21 +588,39 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
             device_path_canonical_ok_count=canon_n,
             first_blocker_code=first_blocker or agg_blocker,
             first_exception_class=first_exc,
-            com_release_warning_count=len(release_warnings),
-            stage_notes=stage_notes + ([f"release_warn:{x}" for x in release_warnings[:5]]),
+            com_release_warning_count=0,
+            stage_notes=list(stage_notes),
         )
+        return pending
     finally:
+        # Force finalizers to run while the apartment is still alive.
+        import gc
+
         _safe_release(bind_ctx, release_warnings)
         bind_ctx = None
         _safe_release(enum_mon, release_warnings)
         enum_mon = None
         _safe_release(devenum, release_warnings)
         devenum = None
+        try:
+            gc.collect()
+        except Exception:  # noqa: BLE001
+            pass
         if need_uninit:
             try:
                 CoUninitialize()
             except Exception as exc:  # noqa: BLE001
                 release_warnings.append(type(exc).__name__)
+        # Finalize telemetry AFTER root cleanup so zero warnings means genuine success.
+        if pending is not None:
+            # Exact assignment after bind_ctx/enum/devenum drops + CoUninitialize.
+            pending.com_release_warning_count=len(release_warnings)
+            if release_warnings:
+                pending.stage_notes = list(pending.stage_notes) + [
+                    f"release_warn:{x}" for x in release_warnings[:5]
+                ]
+            else:
+                pending.stage_notes = list(pending.stage_notes)
 
 
 def enumerate_video_capture_monikers() -> DshowEnumResult:
