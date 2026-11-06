@@ -12,5 +12,8 @@
 | A8 | HF3 script contract + model pin map; Start requires HTTP 200 | CI PASS |
 | A9 | RTSP / FACE_PILOT gates unchanged | CI PASS |
 | A10 | Independent identity-boundary (prefix / MI / wrong instance) | CI PASS (was 3/4 RED) |
+| A11 | COM exactly-once release (no manual Release + finalizer) | CI PASS (repro was RED) |
+| A12 | COM_RELEASE_WARNING_COUNT finalized after root cleanup | CI PASS (repro was RED) |
+| A13 | Update leaf Rename-Item + rollback fake-directory | CI PASS (repro was RED) |
 | G-PHYS | USB_WINDOWS_PHYSICAL | **BLOCKED** until owner Diagnose |
 | G-SOAK / LAB / FP / INST / PROD | physical/release | **BLOCKED** |

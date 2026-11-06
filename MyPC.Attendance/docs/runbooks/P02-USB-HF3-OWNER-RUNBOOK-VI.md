@@ -6,11 +6,15 @@
 
 **Identity patch (PR #27):** khớp DevicePath↔PnP chỉ khi bằng nhau tuyệt đối VID+PID+MI+toàn bộ instance token — không dùng substring / bỏ qua MI.
 
-## Root cause đã sửa
-
-`Dispatch('SystemDeviceEnum')` → `CO_E_CLASSSTRING` (0x800401F3).  
+**ProgID:** `Dispatch('SystemDeviceEnum')` → `CO_E_CLASSSTRING` (0x800401F3).  
 Đúng: `CoCreateInstance(CLSID_SystemDeviceEnum, IID_ICreateDevEnum)` rồi
 `CreateClassEnumerator(CLSID_VideoInputDeviceCategory)` và đọc **DevicePath**.
+
+**COM release (PR #27 corrective):** không gọi thủ công `Release()` trên pointer do comtypes sở hữu
+(finalizer gọi đúng một lần); gán `COM_RELEASE_WARNING_COUNT` **sau** cleanup/`CoUninitialize`.
+
+**Update PS 5.1:** `Rename-Item -NewName` chỉ nhận leaf cùng thư mục cha; validate ZIP/layout trước
+khi đổi `src`; rollback nếu promote/pip lỗi; từ chối khi cổng 18878 bị process lạ giữ.
 
 ## Ứng viên HF3
 
