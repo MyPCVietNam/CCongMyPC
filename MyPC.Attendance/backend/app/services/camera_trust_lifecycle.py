@@ -27,9 +27,11 @@ MATERIAL_DEVICE_FIELDS = frozenset(
         "firmware",
         "mock_mode",  # LIVE↔MOCK transition
         "credential",  # replace/remove
+        "source_type",  # RTSP ↔ USB_UVC
+        "usb_stable_id",  # different physical USB device
     }
 )
-HARMLESS_DEVICE_FIELDS = frozenset({"name"})
+HARMLESS_DEVICE_FIELDS = frozenset({"name", "usb_friendly_name", "usb_index_hint"})
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ def classify_camera_update(
     proposed_mock: bool | None,
     proposed_enabled: bool | None,
     credential_action: str,
+    proposed_source_type: str | None = None,
+    proposed_usb_stable_id: str | None = None,
 ) -> MaterialChangePlan:
     """Compare proposed PATCH against current row (before mutation).
 
@@ -82,6 +86,16 @@ def classify_camera_update(
         reasons.append("firmware")
     if proposed_mock is not None and bool(proposed_mock) != bool(row.mock_mode):
         reasons.append("mock_mode")
+    if proposed_source_type is not None:
+        cur_st = _norm(getattr(row, "source_type", None) or "RTSP").upper()
+        new_st = _norm(proposed_source_type).upper()
+        if new_st and new_st != cur_st:
+            reasons.append("source_type")
+    if proposed_usb_stable_id is not None:
+        cur_usb = _norm(getattr(row, "usb_stable_id", None) or "")
+        new_usb = _norm(proposed_usb_stable_id)
+        if new_usb != cur_usb:
+            reasons.append("usb_stable_id")
     action = (credential_action or "keep").strip().lower()
     if action in {"replace", "remove"}:
         reasons.append("credential")
@@ -98,6 +112,34 @@ def classify_camera_update(
         unbind_runtime=True,
         mark_binding_stale=True,
     )
+
+
+def classify_usb_bind_change(
+    *,
+    row: CameraDevice,
+    stable_id: str,
+    source_type: str = "USB_UVC",
+) -> MaterialChangePlan:
+    """Material when switching to/from USB or binding a different USB stable_id."""
+    reasons: list[str] = []
+    cur_st = _norm(getattr(row, "source_type", None) or "RTSP").upper()
+    new_st = _norm(source_type).upper() or "USB_UVC"
+    if cur_st != new_st:
+        reasons.append("source_type")
+    cur_usb = _norm(getattr(row, "usb_stable_id", None) or "")
+    new_usb = _norm(stable_id)
+    if new_usb != cur_usb:
+        reasons.append("usb_stable_id")
+    # RTSP credential/HMAC must never transfer — switching kinds always revokes
+    if "source_type" in reasons or "usb_stable_id" in reasons:
+        return MaterialChangePlan(
+            reasons=reasons,
+            rotate_revision=True,
+            revoke_trust=True,
+            unbind_runtime=True,
+            mark_binding_stale=True,
+        )
+    return MaterialChangePlan()
 
 
 def merge_effective_credential_change(
@@ -173,6 +215,17 @@ def mark_live_binding_stale(db: Session, *, camera_id: int, new_device_revision:
 
 def device_endpoint_identity(row: CameraDevice) -> dict[str, Any]:
     """Normalized source identity derived from CameraDevice (no secrets)."""
+    source_type = _norm(getattr(row, "source_type", None) or "RTSP").upper() or "RTSP"
+    usb_sid = _norm(getattr(row, "usb_stable_id", None) or "")
+    if source_type == "USB_UVC":
+        return {
+            "scheme": "uvc",
+            "host": "",
+            "port": 0,
+            "path": usb_sid[:24] if usb_sid else "",
+            "source_type": "USB_UVC",
+            "usb_stable_id": usb_sid,
+        }
     host = _norm_host(row.host)
     port = 554
     path = ""
@@ -187,16 +240,33 @@ def device_endpoint_identity(row: CameraDevice) -> dict[str, Any]:
         path = p.path or ""
         if p.scheme:
             scheme = p.scheme.lower()
-    return {"scheme": scheme, "host": host, "port": port, "path": path}
+    return {
+        "scheme": scheme,
+        "host": host,
+        "port": port,
+        "path": path,
+        "source_type": "RTSP",
+        "usb_stable_id": "",
+    }
 
 
 def binding_source_mismatch(row: CameraDevice, binding: CameraLiveBinding | None) -> str:
     """Return reason code if persisted LIVE binding disagrees with device source identity."""
     if binding is None:
         return ""
-    if not binding.enabled and not (binding.host or "").strip():
+    if not binding.enabled and not (binding.host or "").strip() and not (
+        getattr(binding, "usb_stable_id", "") or ""
+    ).strip():
         return ""
     ident = device_endpoint_identity(row)
+    if ident.get("source_type") == "USB_UVC":
+        b_usb = _norm(getattr(binding, "usb_stable_id", None) or "")
+        d_usb = _norm(ident.get("usb_stable_id") or "")
+        if b_usb and d_usb and b_usb != d_usb:
+            return "USB_STABLE_ID_MISMATCH"
+        if (binding.scheme or "").lower() not in {"", "uvc"} and d_usb:
+            return "SOURCE_TYPE_MISMATCH"
+        return ""
     b_host = _norm_host(binding.host)
     if b_host and ident["host"] and b_host != ident["host"]:
         return "SOURCE_IDENTITY_MISMATCH"
@@ -208,6 +278,9 @@ def binding_source_mismatch(row: CameraDevice, binding: CameraLiveBinding | None
         # Only when both sides have meaningful RTSP identity
         if b_host or d_path:
             return "SOURCE_IDENTITY_MISMATCH"
+    b_usb = _norm(getattr(binding, "usb_stable_id", None) or "")
+    if b_usb and ident.get("source_type") == "RTSP":
+        return "SOURCE_TYPE_MISMATCH"
     return ""
 
 

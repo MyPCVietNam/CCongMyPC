@@ -23,6 +23,9 @@ type Cam = {
   host: string;
   model: string;
   firmware?: string;
+  source_type?: "RTSP" | "USB_UVC" | string;
+  usb_stable_id_short?: string;
+  usb_friendly_name?: string;
   mock_mode: boolean;
   enabled?: boolean;
   archived?: boolean;
@@ -42,6 +45,15 @@ type Cam = {
     native_height?: number;
     fps_estimate?: number;
   } | null;
+};
+
+type UsbDeviceRow = {
+  stable_id: string;
+  stable_id_short?: string;
+  friendly_name: string;
+  index_hint?: number | null;
+  ambiguous?: boolean;
+  note_vi?: string;
 };
 
 type Preview = {
@@ -125,6 +137,8 @@ const emptyForm = () => ({
   password: "",
   rtsp_url_override: "",
   changePassword: false,
+  sourceKind: "RTSP" as "RTSP" | "USB_UVC",
+  usbStableId: "",
 });
 
 export function CameraPage() {
@@ -155,6 +169,8 @@ export function CameraPage() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [overlayBox, setOverlayBox] = useState({ w: 0, h: 0 });
+  const [usbDevices, setUsbDevices] = useState<UsbDeviceRow[]>([]);
+  const [usbDiagMsg, setUsbDiagMsg] = useState("");
   const selectGen = useRef(0);
   const liveHealthGen = useRef(0);
   const faceDetectGen = useRef(0);
@@ -189,6 +205,7 @@ export function CameraPage() {
   }
 
   function applyCamToForm(cam: Cam) {
+    const kind = (cam.source_type || "RTSP").toUpperCase() === "USB_UVC" ? "USB_UVC" : "RTSP";
     setForm({
       name: cam.name || "EZVIZ H8 Pro",
       host: cam.host || "",
@@ -197,6 +214,8 @@ export function CameraPage() {
       password: "",
       rtsp_url_override: cam.rtsp_uri_safe || "",
       changePassword: false,
+      sourceKind: kind,
+      usbStableId: "",
     });
   }
 
@@ -414,12 +433,14 @@ export function CameraPage() {
       if (mode === "new") {
         const payload: Record<string, unknown> = {
           name: form.name,
-          host: form.host,
+          host: form.sourceKind === "USB_UVC" ? "" : form.host,
           mock_mode: form.mock_mode,
-          rtsp_url_override: form.rtsp_url_override,
-          username: form.username,
-          password: form.password,
-          credential_action: form.password ? "replace" : "keep",
+          rtsp_url_override: form.sourceKind === "USB_UVC" ? "" : form.rtsp_url_override,
+          username: form.sourceKind === "USB_UVC" ? "" : form.username,
+          password: form.sourceKind === "USB_UVC" ? "" : form.password,
+          credential_action:
+            form.sourceKind === "USB_UVC" ? "keep" : form.password ? "replace" : "keep",
+          source_type: form.sourceKind,
         };
         const cam = await api<Cam>("/api/v1/cameras", {
           method: "POST",
@@ -435,9 +456,18 @@ export function CameraPage() {
           host: form.host,
           mock_mode: form.mock_mode,
           rtsp_url_override: form.rtsp_url_override,
-          username: form.username,
-          credential_action: form.changePassword ? "replace" : "keep",
-          password: form.changePassword ? form.password : "",
+          username: form.sourceKind === "USB_UVC" ? "" : form.username,
+          credential_action:
+            form.sourceKind === "USB_UVC"
+              ? "keep"
+              : form.changePassword
+                ? "replace"
+                : "keep",
+          password: form.sourceKind === "USB_UVC" ? "" : form.changePassword ? form.password : "",
+          source_type: form.sourceKind,
+          ...(form.sourceKind === "USB_UVC" && form.usbStableId
+            ? { usb_stable_id: form.usbStableId }
+            : {}),
         };
         const cam = await api<Cam>(`/api/v1/cameras/${selected}`, {
           method: "PATCH",
@@ -550,9 +580,88 @@ export function CameraPage() {
     }
   }
 
+  async function refreshUsbDevices() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api<{ devices: UsbDeviceRow[]; message_vi?: string }>(
+        "/api/v1/cameras/usb/enumerate"
+      );
+      setUsbDevices(r.devices || []);
+      setAnalyzeMsg(r.message_vi || `Tìm thấy ${r.devices?.length || 0} thiết bị USB.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi liệt kê USB");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function diagnoseUsb() {
+    if (!form.usbStableId) {
+      setError("Chọn thiết bị USB (stable_id) trước khi đo chế độ.");
+      return;
+    }
+    setBusy(true);
+    setUsbDiagMsg("");
+    try {
+      const r = await api<{
+        modes?: Array<Record<string, unknown>>;
+        message_vi?: string;
+        claims_4k?: boolean;
+      }>("/api/v1/cameras/usb/diagnose", {
+        method: "POST",
+        body: JSON.stringify({ stable_id: form.usbStableId }),
+      });
+      const lines = (r.modes || []).map(
+        (m) =>
+          `${m.requested}: opened=${m.opened} actual=${m.actual_width}x${m.actual_height} ` +
+          `fourcc=${m.actual_fourcc || "?"} frame_ok=${m.frame_ok ?? "?"}`
+      );
+      setUsbDiagMsg(
+        `${r.message_vi || ""}\nclaims_4k=${String(!!r.claims_4k)}\n${lines.join("\n")}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi chẩn đoán USB");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function configureLive() {
     if (selected == null) return;
     setError("");
+    if (form.sourceKind === "USB_UVC") {
+      if (!form.usbStableId.trim()) {
+        setError("Chọn thiết bị USB UVC (vd. UGREEN) — không dùng chỉ số OpenCV làm định danh.");
+        return;
+      }
+      setBusy(true);
+      try {
+        const res = await api<{
+          connection_status?: string;
+          message_vi?: string;
+          friendly_name?: string;
+        }>(`/api/v1/cameras/gateway/live/configure-usb`, {
+          method: "POST",
+          body: JSON.stringify({
+            camera_id: selected,
+            stable_id: form.usbStableId,
+            profile: "USB_MAIN",
+          }),
+        });
+        setAnalyzeMsg(
+          res.message_vi ||
+            `USB gắn — ${res.connection_status || "CONFIG_SAVED"} (${res.friendly_name || ""})`
+        );
+        await loadDetail(selected, selectGen.current);
+        setMjpegNonce((n) => n + 1);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Lỗi gắn USB LIVE");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (!form.rtsp_url_override.trim()) {
       setError("Cần URI RTSP (không nhúng mật khẩu vào URI).");
       return;
@@ -1073,7 +1182,7 @@ export function CameraPage() {
               onClick={configureLive}
               className="rounded-md bg-brand text-canvas font-medium px-4 py-2 text-sm disabled:opacity-50"
             >
-              Kết nối lại
+              {form.sourceKind === "USB_UVC" ? "Gắn USB LIVE" : "Kết nối lại"}
             </button>
             <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm">
               <input
@@ -1141,46 +1250,124 @@ export function CameraPage() {
         onToggle={(e) => setShowAdmin((e.target as HTMLDetailsElement).open)}
       >
         <summary className="cursor-pointer font-medium text-sm">
-          Điều khiển quản trị (RTSP, credential, ROI, lưu trữ/xóa)
+          Điều khiển quản trị (nguồn camera, RTSP/USB, credential, ROI, lưu trữ/xóa)
         </summary>
         <form onSubmit={saveCam} className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <Field label="Tên" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-          <Field label="IP LAN (IPv4)" value={form.host} onChange={(v) => setForm({ ...form, host: v })} />
-          <Field
-            label="URI RTSP (không nhúng mật khẩu)"
-            value={form.rtsp_url_override}
-            onChange={(v) => setForm({ ...form, rtsp_url_override: v })}
-            placeholder="rtsp://192.168.0.211:554/ch1/main"
-          />
-          <Field
-            label="Tài khoản camera"
-            value={form.username}
-            onChange={(v) => setForm({ ...form, username: v })}
-            autoComplete="off"
-          />
           <div className="text-sm space-y-1">
-            <span className="text-muted">Mật khẩu camera</span>
-            {mode === "edit" && selectedCam?.credential_saved && !form.changePassword ? (
-              <div className="rounded-md border border-line bg-canvas px-3 py-2 text-muted text-xs">
-                Đã lưu — ô trống = giữ nguyên.{" "}
+            <span className="text-muted">Loại nguồn</span>
+            <select
+              className="w-full rounded-md bg-canvas border border-line px-3 py-2"
+              value={form.sourceKind}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  sourceKind: e.target.value === "USB_UVC" ? "USB_UVC" : "RTSP",
+                })
+              }
+            >
+              <option value="RTSP">RTSP (LAN / EZVIZ)</option>
+              <option value="USB_UVC">USB (Windows UVC)</option>
+            </select>
+            <p className="text-xs text-muted">
+              USB không thừa kế HMAC CAMERA_LAB của EZVIZ. Đổi loại nguồn sẽ thu hồi trust vật lý.
+            </p>
+          </div>
+          {form.sourceKind === "RTSP" ? (
+            <>
+              <Field
+                label="IP LAN (IPv4)"
+                value={form.host}
+                onChange={(v) => setForm({ ...form, host: v })}
+              />
+              <Field
+                label="URI RTSP (không nhúng mật khẩu)"
+                value={form.rtsp_url_override}
+                onChange={(v) => setForm({ ...form, rtsp_url_override: v })}
+                placeholder="rtsp://192.168.0.211:554/ch1/main"
+              />
+              <Field
+                label="Tài khoản camera"
+                value={form.username}
+                onChange={(v) => setForm({ ...form, username: v })}
+                autoComplete="off"
+              />
+              <div className="text-sm space-y-1">
+                <span className="text-muted">Mật khẩu camera</span>
+                {mode === "edit" && selectedCam?.credential_saved && !form.changePassword ? (
+                  <div className="rounded-md border border-line bg-canvas px-3 py-2 text-muted text-xs">
+                    Đã lưu — ô trống = giữ nguyên.{" "}
+                    <button
+                      type="button"
+                      className="text-brand underline"
+                      onClick={() => setForm({ ...form, changePassword: true, password: "" })}
+                    >
+                      Đổi mật khẩu
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="password"
+                    className="w-full rounded-md bg-canvas border border-line px-3 py-2"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    autoComplete="new-password"
+                  />
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="sm:col-span-2 lg:col-span-2 text-sm space-y-2">
+              <div className="flex flex-wrap gap-2 items-end">
                 <button
                   type="button"
-                  className="text-brand underline"
-                  onClick={() => setForm({ ...form, changePassword: true, password: "" })}
+                  disabled={busy}
+                  onClick={refreshUsbDevices}
+                  className="rounded-md border border-line px-3 py-2 text-sm"
                 >
-                  Đổi mật khẩu
+                  Liệt kê USB
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !form.usbStableId}
+                  onClick={diagnoseUsb}
+                  className="rounded-md border border-line px-3 py-2 text-sm"
+                >
+                  Đo chế độ capture
                 </button>
               </div>
-            ) : (
-              <input
-                type="password"
-                className="w-full rounded-md bg-canvas border border-line px-3 py-2"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                autoComplete="new-password"
-              />
-            )}
-          </div>
+              <label className="block space-y-1">
+                <span className="text-muted">Thiết bị USB (chọn UGREEN tường minh)</span>
+                <select
+                  className="w-full rounded-md bg-canvas border border-line px-3 py-2"
+                  value={form.usbStableId}
+                  onChange={(e) => setForm({ ...form, usbStableId: e.target.value })}
+                >
+                  <option value="">— Chọn thiết bị —</option>
+                  {usbDevices.map((d) => (
+                    <option key={d.stable_id} value={d.stable_id} disabled={!!d.ambiguous}>
+                      {d.friendly_name}
+                      {d.stable_id_short ? ` (${d.stable_id_short})` : ""}
+                      {d.ambiguous ? " — không ổn định" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedCam?.usb_friendly_name ? (
+                <p className="text-xs text-muted">
+                  Đã gắn: {selectedCam.usb_friendly_name}
+                  {selectedCam.usb_stable_id_short
+                    ? ` · ${selectedCam.usb_stable_id_short}`
+                    : ""}
+                </p>
+              ) : null}
+              {usbDiagMsg ? (
+                <pre className="text-xs whitespace-pre-wrap rounded-md border border-line bg-canvas p-2 max-h-40 overflow-auto">
+                  {usbDiagMsg}
+                </pre>
+              ) : null}
+            </div>
+          )}
           <label className="text-sm flex items-end gap-2 pb-2">
             <input
               type="checkbox"

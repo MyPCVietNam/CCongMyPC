@@ -18,7 +18,7 @@ from app.core.settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
-ALEMBIC_HEAD = "20261103_0012"
+ALEMBIC_HEAD = "20261106_0013"
 
 
 def _alembic_config(settings: AppSettings):

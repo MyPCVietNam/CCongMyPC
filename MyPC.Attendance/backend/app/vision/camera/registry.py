@@ -17,6 +17,7 @@ from app.vision.camera.gateway import (
     StreamProvenance,
     physical_stream_fingerprint,
 )
+from app.vision.camera.usb_uvc_gateway import LiveUsbUvcGateway
 
 
 class FrameAccessError(RuntimeError):
@@ -39,13 +40,17 @@ class BoundSource:
 @dataclass
 class _StreamLease:
     fingerprint: str
-    gateway: LiveRTSPGateway
+    gateway: CameraGateway
     holders: set[int] = field(default_factory=set)
     config_revision: str = ""
 
 
+def _is_leaseable_live(gateway: CameraGateway) -> bool:
+    return isinstance(gateway, (LiveRTSPGateway, LiveUsbUvcGateway))
+
+
 class CameraSourceRegistry:
-    """Maps camera DB id → active gateway. One LiveRTSPGateway per unique physical stream."""
+    """Maps camera DB id → active gateway. One LIVE decode loop per physical stream/device."""
 
     def __init__(self) -> None:
         self._last_biometric_frame_ids: dict[int, str] = {}
@@ -70,7 +75,11 @@ class CameraSourceRegistry:
             fp = stream_fingerprint or ""
             if isinstance(gateway, LiveRTSPGateway):
                 fp = fp or gateway.stream_fingerprint or physical_stream_fingerprint(gateway._uri)
-                # Reuse existing decode pipeline for same physical stream
+            elif isinstance(gateway, LiveUsbUvcGateway):
+                fp = fp or gateway.stream_fingerprint
+
+            if _is_leaseable_live(gateway) and fp:
+                # Reuse existing decode/capture pipeline for same physical stream/device
                 lease = self._leases.get(fp)
                 if lease is not None and lease.gateway is not gateway:
                     try:
@@ -127,7 +136,7 @@ class CameraSourceRegistry:
         if old is None:
             return
         fp = old.stream_fingerprint
-        if fp and fp in self._leases and isinstance(old.gateway, LiveRTSPGateway):
+        if fp and fp in self._leases and _is_leaseable_live(old.gateway):
             lease = self._leases[fp]
             lease.holders.discard(camera_db_id)
             if stop_if_unshared and not lease.holders:

@@ -94,6 +94,13 @@ class CameraDevice(Base):
     secret_generation: Mapped[int] = mapped_column(Integer, default=0)
     # Immutable per-instance identity — fences SQLite integer PK reuse (C14)
     lifecycle_id: Mapped[str] = mapped_column(String(64), default="")
+    # P02-USB: RTSP | USB_UVC — never inherit RTSP HMAC into USB source
+    source_type: Mapped[str] = mapped_column(String(32), default="RTSP")
+    # Hashed stable USB identity (uvc:sha256…) — never OpenCV index alone
+    usb_stable_id: Mapped[str] = mapped_column(String(128), default="")
+    usb_friendly_name: Mapped[str] = mapped_column(String(128), default="")
+    # Ephemeral index hint only — not authoritative identity
+    usb_index_hint: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class RecognitionRegion(Base):
@@ -414,6 +421,8 @@ class CameraLiveBinding(Base):
     config_revision: Mapped[str] = mapped_column(String(64), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # P02-USB: persist hashed stable USB id when scheme=uvc (path may hold short token)
+    usb_stable_id: Mapped[str] = mapped_column(String(128), default="")
 
 
 class SecretFsOutbox(Base):

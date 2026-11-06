@@ -1,0 +1,2 @@
+Fail-closed release_sensitive_scan applied to CHANGED/FULL/EVIDENCE/COMPLETE ZIPs at packaging time.
+Synthetic test credentials only; no owner cookies/HMAC/frames in artifacts.
