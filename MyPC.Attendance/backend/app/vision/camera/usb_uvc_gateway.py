@@ -354,12 +354,20 @@ class LiveUsbUvcGateway(CameraGateway):
                 self._index = None
                 self._latest_good = None
             raise ValueError("USB_IDENTITY_MISMATCH")
-        if getattr(dev, "ambiguous", False) or not getattr(dev, "mapping_verified", False):
+        if getattr(dev, "ambiguous", False) or not getattr(dev, "mapping_verified", False) or not getattr(
+            dev, "capture_mapping_verified", False
+        ):
             with self._lock:
                 self._status = DecoderStatus.OFFLINE
                 self._index = None
                 self._latest_good = None
             raise ValueError("USB_DEVICE_AMBIGUOUS" if getattr(dev, "ambiguous", False) else "USB_CAPTURE_UNVERIFIED")
+        if not getattr(dev, "device_path_fingerprint", ""):
+            with self._lock:
+                self._status = DecoderStatus.OFFLINE
+                self._index = None
+                self._latest_good = None
+            raise ValueError("USB_DEVICE_PATH_UNVERIFIED")
         if dev.index_hint is None:
             with self._lock:
                 self._status = DecoderStatus.OFFLINE

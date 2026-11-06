@@ -61,6 +61,7 @@ def test_usb_enumerate_and_configure_no_attendance(app_client):
                         ambiguous=False,
                         mapping_verified=True,
                         capture_mapping_verified=True,
+                        device_path_fingerprint="synthetic-dpath-fp",
                         note_vi="synthetic",
                     )
                 ]
@@ -169,6 +170,7 @@ def test_usb_configure_revokes_prior_rtsp_material_flag(app_client):
                         ambiguous=False,
                         mapping_verified=True,
                         capture_mapping_verified=True,
+                        device_path_fingerprint="synthetic-dpath-fp",
                     )
                 ]
             },

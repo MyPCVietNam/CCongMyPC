@@ -45,6 +45,7 @@ def _set_enum_and_camera(app_client, *, stable_id, index_hint, ambiguous, mappin
         mapping_verified=verified,
         capture_mapping_verified=verified,
         pnp_id_found=True,
+        device_path_fingerprint=('fp-' + stable_id[-16:]) if verified else '',
     )
     class Enumerator:
         def list_devices(self): return [row]
