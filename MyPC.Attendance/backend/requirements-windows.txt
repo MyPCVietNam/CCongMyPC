@@ -1,0 +1,9 @@
+# Optional Windows-only USB UVC enumeration (P02-USB-HF2).
+# Install inside the Windows candidate venv AFTER requirements.txt:
+#   pip install -r requirements-windows.txt
+#
+# Win10/11: WMI PnP hashed identity + DirectShow moniker ordinal indexes via pywin32.
+# Without these packages, enumerator fails closed (CAPTURE_MAPPING_VERIFIED=false).
+# Do NOT treat OpenCV CAP_DSHOW "video=Name" as a supported open path.
+pywin32>=306,<309
+WMI>=1.5.1,<2.0

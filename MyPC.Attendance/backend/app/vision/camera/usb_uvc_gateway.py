@@ -26,7 +26,7 @@ from app.vision.camera.usb_device import usb_stream_fingerprint
 
 logger = logging.getLogger(__name__)
 
-OpenCaptureFn = Callable[[int | str, str], Any]  # (index|dshow-name, backend) -> VideoCapture-like
+OpenCaptureFn = Callable[[int | str, str], Any]  # (verified index, backend) -> VideoCapture-like
 
 MODE_PREFS: tuple[tuple[str, int, int, float], ...] = (
     ("MJPG", 1920, 1080, 30.0),
@@ -37,12 +37,19 @@ MODE_PREFS: tuple[tuple[str, int, int, float], ...] = (
 
 
 def _default_open_capture(target: int | str, backend: str):
+    """Open OpenCV capture by verified integer index only.
+
+    FFmpeg-style ``video=FriendlyName`` is NOT a valid OpenCV CAP_DSHOW selector.
+    Passing such a string must fail closed — never silently fall back to index 2.
+    """
     import cv2
 
-    api = cv2.CAP_DSHOW if backend == "dshow" else cv2.CAP_MSMF
-    # DirectShow supports "video=Friendly Name" — preferred when index is ephemeral
     if isinstance(target, str):
-        return cv2.VideoCapture(target, api)
+        raise ValueError(
+            "USB_DSHOW_INDEX_REQUIRED: OpenCV CAP_DSHOW does not accept FFmpeg "
+            "'video=Name' strings; require verified DirectShow integer index"
+        )
+    api = cv2.CAP_DSHOW if backend == "dshow" else cv2.CAP_MSMF
     return cv2.VideoCapture(int(target), api)
 
 
@@ -223,18 +230,20 @@ class LiveUsbUvcGateway(CameraGateway):
                     "config_revision": self.config_revision,
                     "stream_fingerprint": self.stream_fingerprint,
                     "index_hint_not_identity": True,
-                    "open_by_name": bool(self._index is None and self._open_target),
+                    "open_by_name": False,
+                    "stages": {
+                        "PNP_ID_FOUND": bool(self.stable_id.startswith("uvc:")),
+                        "CAPTURE_MAPPING_VERIFIED": self._index is not None,
+                        "OPENED": bool(self._cap is not None),
+                        "FRAME_RECEIVED": int(self._frames_ok) > 0,
+                    },
                     "frames_ok": int(self._frames_ok),
                 },
             )
 
-    def _capture_target(self) -> int | str:
+    def _capture_target(self) -> int:
         if self._index is not None:
             return int(self._index)
-        if self._open_target:
-            return self._open_target
-        if self.friendly_name:
-            return f"video={self.friendly_name}"
         raise RuntimeError("USB_INDEX_UNKNOWN")
 
     def _negotiate(self, cap) -> None:
@@ -313,29 +322,51 @@ class LiveUsbUvcGateway(CameraGateway):
                     self._fps_est = (len(self._fps_window) - 1) / dt
 
     def _reresolve_index(self) -> None:
-        """On reconnect, re-match the same stable_id; fail closed on identity mismatch."""
+        """On reconnect, re-match the same stable_id; fail closed on identity mismatch.
+
+        Always clear the previous ephemeral index BEFORE applying a new mapping so a
+        lost/unverified enumeration cannot reopen a different webcam via stale index.
+        """
         from app.vision.camera.usb_device import resolve_device
 
+        # Clear stale index/open_target first — never reuse last index on failed mapping
+        with self._lock:
+            self._index = None
+            self._open_target = ""
+            self._latest_good = None
+
         try:
-            dev = resolve_device(stable_id=self.stable_id)
+            dev = resolve_device(stable_id=self.stable_id, for_trusted_live=True)
         except ValueError as exc:
             with self._lock:
                 self._status = DecoderStatus.OFFLINE
                 self._detail_vi = (
-                    f"USB định danh không khớp sau cắm lại ({exc}) — "
-                    "không tự chuyển sang webcam khác."
+                    f"USB định danh/mapping không khớp sau cắm lại ({exc}) — "
+                    "đã xóa index cũ; không tự chuyển sang webcam khác; không tái dùng khung."
                 )
                 self._latest_good = None
+                self._index = None
             raise
         # Re-verify same stable_id — never silently switch device
         if getattr(dev, "stable_id", None) and dev.stable_id != self.stable_id:
+            with self._lock:
+                self._status = DecoderStatus.OFFLINE
+                self._index = None
+                self._latest_good = None
             raise ValueError("USB_IDENTITY_MISMATCH")
-        if getattr(dev, "ambiguous", False):
-            raise ValueError("USB_DEVICE_AMBIGUOUS")
-        if dev.index_hint is not None:
-            self._index = int(dev.index_hint)
-        if getattr(dev, "open_target", ""):
-            self._open_target = str(dev.open_target)
+        if getattr(dev, "ambiguous", False) or not getattr(dev, "mapping_verified", False):
+            with self._lock:
+                self._status = DecoderStatus.OFFLINE
+                self._index = None
+                self._latest_good = None
+            raise ValueError("USB_DEVICE_AMBIGUOUS" if getattr(dev, "ambiguous", False) else "USB_CAPTURE_UNVERIFIED")
+        if dev.index_hint is None:
+            with self._lock:
+                self._status = DecoderStatus.OFFLINE
+                self._index = None
+                self._latest_good = None
+            raise ValueError("USB_INDEX_UNKNOWN")
+        self._index = int(dev.index_hint)
         if dev.friendly_name:
             self.friendly_name = dev.friendly_name[:128]
 
@@ -420,17 +451,20 @@ def diagnose_usb_modes(
     """Owner diagnostic: try modes and report *actual* WxH/FOURCC (not requested)."""
     open_fn = open_capture or _default_open_capture
     prefs = mode_prefs or MODE_PREFS
-    if index is not None:
-        target: int | str = int(index)
-    elif open_target:
-        target = open_target
-    else:
+    if index is None:
         return [
             {
                 "opened": False,
-                "note_vi": "Thiếu index hoặc open_target — không đo được.",
+                "note_vi": (
+                    "Thiếu DirectShow index đã xác minh — "
+                    "không dùng FFmpeg video=Name với CAP_DSHOW."
+                ),
             }
         ]
+    if open_target:
+        # Ignored intentionally — open_target strings are not CAP_DSHOW selectors
+        pass
+    target: int = int(index)
     results: list[dict[str, Any]] = []
     for fourcc, w, h, fps in prefs:
         cap = None

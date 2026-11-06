@@ -605,9 +605,10 @@ def enumerate_usb_devices(
             "Không tự khởi động camera từ danh sách."
         ),
         "win_compat_vi": (
-            "Win10/11: WMI PNPDeviceID (hashed) + liên kết DirectShow (index hoặc video=tên). "
+            "Win10/11: WMI PNPDeviceID (hashed) + liên kết DirectShow index đã xác minh. "
+            "Không dùng FFmpeg video=Name với CAP_DSHOW. "
             "Trùng tên hiển thị → USB_DEVICE_AMBIGUOUS (fail-closed). "
-            "Chỉ số OpenCV thuần → ambiguous, không đủ CAMERA_LAB/HMAC."
+            "Chỉ số OpenCV thuần / thiếu CAPTURE_MAPPING_VERIFIED → không đủ CAMERA_LAB/HMAC."
         ),
     }
 
@@ -650,36 +651,59 @@ def diagnose_usb_device(
                 ),
             },
         )
-    if dev.index_hint is None and not (dev.open_target or "").strip():
+    if not getattr(dev, "mapping_verified", False) or not getattr(
+        dev, "capture_mapping_verified", False
+    ):
+        if not preview_only:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "USB_CAPTURE_UNVERIFIED",
+                    "message_vi": (
+                        "PNP_ID_FOUND nhưng CAPTURE_MAPPING_VERIFIED=false — "
+                        "chưa liên kết DirectShow index. Không mở bằng video=Name."
+                    ),
+                },
+            )
+    if dev.index_hint is None:
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_INDEX_UNKNOWN",
                 "message_vi": (
-                    "Không có chỉ số DirectShow và không có tên mở (video=…). "
-                    "Kiểm tra liên kết PnP↔DirectShow trên Windows."
+                    "Không có chỉ số DirectShow đã xác minh. "
+                    "OpenCV CAP_DSHOW chỉ mở bằng index — không dùng video=Name."
                 ),
             },
         )
     open_fn = getattr(state, "usb_open_capture", None)
     modes = diagnose_usb_modes(
-        index=int(dev.index_hint) if dev.index_hint is not None else None,
-        open_target=dev.open_target or "",
+        index=int(dev.index_hint),
         backend=dev.backend or "dshow",
         open_capture=open_fn,
     )
+    frame_ok = any(bool(m.get("frame_ok")) for m in modes if isinstance(m, dict))
+    opened = any(bool(m.get("opened")) for m in modes if isinstance(m, dict))
     return {
         "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
         "friendly_name": dev.friendly_name,
         "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
+        "capture_mapping_verified": bool(getattr(dev, "capture_mapping_verified", False)),
         "ambiguous": bool(dev.ambiguous),
         "trusted_live_eligible": bool(
             (not dev.ambiguous)
             and getattr(dev, "mapping_verified", False)
-            and (dev.index_hint is not None or (dev.open_target or "").strip())
+            and getattr(dev, "capture_mapping_verified", False)
+            and dev.index_hint is not None
         ),
         "index_hint": dev.index_hint,
-        "open_by_name": bool(dev.index_hint is None and (dev.open_target or "").strip()),
+        "open_by_name": False,
+        "stages": {
+            "PNP_ID_FOUND": bool(getattr(dev, "pnp_id_found", True)),
+            "CAPTURE_MAPPING_VERIFIED": bool(getattr(dev, "capture_mapping_verified", False)),
+            "OPENED": bool(opened),
+            "FRAME_RECEIVED": bool(frame_ok),
+        },
         "modes": modes,
         "claims_4k": False,
         "preview_only": preview_only and bool(dev.ambiguous),
@@ -773,21 +797,28 @@ def configure_live_usb_gateway(
                 "message_vi": "Định danh USB ambiguous — từ chối bind LIVE tin cậy (fail-closed).",
             },
         )
-    if not getattr(dev, "mapping_verified", False):
+    if not (
+        getattr(dev, "mapping_verified", False)
+        and getattr(dev, "capture_mapping_verified", False)
+    ):
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "USB_IDENTITY_MISMATCH",
-                "message_vi": "Chưa liên kết được PnP hashed với nguồn DirectShow — fail-closed.",
+                "code": "USB_CAPTURE_UNVERIFIED",
+                "message_vi": (
+                    "CAPTURE_MAPPING_VERIFIED=false — chưa liên kết PnP hashed với "
+                    "DirectShow index. Không đoán tên/index."
+                ),
             },
         )
-    if dev.index_hint is None and not (dev.open_target or "").strip():
+    if dev.index_hint is None:
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_INDEX_UNKNOWN",
                 "message_vi": (
-                    "Không có chỉ số DirectShow và không có tên mở (video=…) sau khi khớp stable_id."
+                    "Không có chỉ số DirectShow đã xác minh sau khi khớp stable_id. "
+                    "CAP_DSHOW không chấp nhận video=Name."
                 ),
             },
         )
@@ -857,8 +888,7 @@ def configure_live_usb_gateway(
     gw = LiveUsbUvcGateway(
         camera_id=str(camera_db_id),
         stable_id=dev.stable_id,
-        index=int(dev.index_hint) if dev.index_hint is not None else None,
-        open_target=dev.open_target or "",
+        index=int(dev.index_hint),
         friendly_name=dev.friendly_name,
         backend=dev.backend or "dshow",
         open_capture=open_fn,
@@ -947,7 +977,14 @@ def configure_live_usb_gateway(
         "friendly_name": dev.friendly_name,
         "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
         "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
-        "open_by_name": bool(dev.index_hint is None and (dev.open_target or "").strip()),
+        "capture_mapping_verified": bool(getattr(dev, "capture_mapping_verified", False)),
+        "open_by_name": False,
+        "stages": {
+            "PNP_ID_FOUND": bool(getattr(dev, "pnp_id_found", True)),
+            "CAPTURE_MAPPING_VERIFIED": bool(getattr(dev, "capture_mapping_verified", False)),
+            "OPENED": False,
+            "FRAME_RECEIVED": False,
+        },
         "transport": "USB_UVC",
         "camera_lab_pass": False,
         "face_pilot_pass": False,
