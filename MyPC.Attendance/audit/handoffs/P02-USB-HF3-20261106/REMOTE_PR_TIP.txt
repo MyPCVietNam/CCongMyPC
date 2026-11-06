@@ -1,1 +1,8 @@
-PR stacked on #26; tip filled after push.
+PR: #27 (patched in-place — property bag / COM lifetime)
+Branch: cursor/p02-usb-hf3-dshow-com-enum-83a8
+Pre-fix tip: 05f6ba991b4b43b3719125551298b18441578bcb
+Feature: c765e3c2d4f5c8d78f11a597c43ddd4e86f66854
+Packaging freeze: 6503df6893f43d93c211c9f96b80c11e5cc388fa
+Baseline PR26: 146d04cb930a446f891f48178a33672f0537b95e
+COMPLETE SHA256: e64a8281002c962ee54940e286106b23b985cb77b9ef724fb6eb46bfccf34869
+COMPLETE bytes: 3777597
