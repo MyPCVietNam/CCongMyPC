@@ -1,4 +1,5 @@
 d0a6b3c  P02 tip / PR #22  <<< HF1 BASELINE
 5c24cfb539db7a5bbd2c542b0479f200bffe4039  HF1 feature (AI budget + frame identity)
-FREEZE   COMPLETE ZIP bytes (next)
+c76b81485c7f2510d89a8aafb128fbf8221524c0  path manifests (package input tree)
+1a3ff6f25c71ecf0771b806cee897abdcf07ae43  packaging freeze (ZIP-introducing COMPLETE bytes)
 TIP      after push
