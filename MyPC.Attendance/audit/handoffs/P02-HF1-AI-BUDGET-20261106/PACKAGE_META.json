@@ -1,0 +1,61 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "baseline": "d0a6b3cf3c974e6ac953db16efce5393e3d4cbd2",
+  "feature_commit": "5c24cfb539db7a5bbd2c542b0479f200bffe4039",
+  "packaging_freeze_commit": "c76b81485c7f2510d89a8aafb128fbf8221524c0",
+  "remote_pr_tip": null,
+  "generated_at_utc": "2026-11-06T03:18:46.427137+00:00",
+  "code_paths": [
+    "MyPC.Attendance/backend/app/api/cameras.py",
+    "MyPC.Attendance/backend/app/services/live_face_detect_preview.py",
+    "MyPC.Attendance/backend/app/static/assets/index-9TtdYGpe.js",
+    "MyPC.Attendance/backend/app/static/assets/index-CeTofX6D.js",
+    "MyPC.Attendance/backend/app/static/index.html",
+    "MyPC.Attendance/frontend/src/pages/CameraPage.tsx",
+    "MyPC.Attendance/tests/unit/test_p02_hf1_budget_extended.py",
+    "MyPC.Attendance/tests/unit/test_p02_hf1_frame_cache_regressions.py",
+    "MyPC.Attendance/tools/package_p02_hf1_complete_audit.py"
+  ],
+  "handoff_paths": [
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/.gitignore",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/ACCEPTANCE_MATRIX.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/ARCHITECTURE_DECISIONS.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/BASELINE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/BASELINE_FAIL.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/BASELINE_RCA.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/CHANGED_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/CHANGELOG.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/CODE_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/COMMIT_GRAPH.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/DELETED_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/FEATURE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/FINAL_HEAD.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/FREEZE_VS_TIP_TIMELINE.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/FRONTEND_BUILD_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/HANDOFF_PATHS.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/OWNER_WINDOWS_STEPS_VI.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/PACKAGING_FREEZE_COMMIT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/README.md",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/REMOTE_PR_TIP.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/SCANNER_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/TEST_REPORT.txt",
+    "MyPC.Attendance/audit/handoffs/P02-HF1-AI-BUDGET-20261106/VERSIONS.txt"
+  ],
+  "sha256": {
+    "CHANGED-SOURCE-AUDIT.zip": "dd264b54c8b46bf8a3c83dd9071d9bb3015d7ece845284f224847f9e7a2ab246",
+    "FULL-SOURCE.zip": "397abc5f1b92476c02c35b7cb58df42627225db64cfeffd7e84d7a0a4f7ade1b",
+    "WINDOWS-SAFE-EVIDENCE.zip": "6e57569b9616f28bb39dcc67cb4074aff5b1032b68b57061e7b3517698c70ba4"
+  },
+  "gates_blocked": [
+    "LIVE_STABILITY_PASS",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_ATTENDANCE",
+    "WINDOWS_PHYSICAL_SOAK",
+    "HEVC_NATIVE_RCA",
+    "PRODUCTION_READY"
+  ],
+  "synthetic_credentials_in_tests": true,
+  "phase": "DETECTION_QUALITY_ONLY",
+  "hf1": "shared_ai_budget_frame_identity"
+}
