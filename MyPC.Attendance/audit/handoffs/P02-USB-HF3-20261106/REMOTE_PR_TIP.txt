@@ -1,9 +1,1 @@
-PR: #27 (patched in-place)
-Branch: cursor/p02-usb-hf3-dshow-com-enum-83a8
-Base: cursor/p02-usb-hf2-verified-binding-83a8 (PR #26)
-Packaging freeze: c951b2abeabb82ae4141f41a94d20070be9e1487
-Feature: 058481f9989b0126648fc64bc14507f638057dd4
-Baseline: 146d04cb930a446f891f48178a33672f0537b95e
-Prior tip before identity patch: bab8127ecd3f8559fded7f62774d0753b9f7c559
-COMPLETE SHA256: 19f17e5eca907adf32e6043c3e3b7b30bcbda504fca858a2e9d29b15651ac2b9
-COMPLETE bytes: 3839797
+PR stacked on #26; tip filled after push.

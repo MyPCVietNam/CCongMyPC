@@ -93,16 +93,26 @@ def main() -> int:
 
     payload = {
         "PNP_VIDEO_COUNT": usb.get("PNP_VIDEO_COUNT"),
+        "DSHOW_ENUM_OK": usb.get("DSHOW_ENUM_OK"),
         "DSHOW_VIDEO_MONIKER_COUNT": usb.get("DSHOW_VIDEO_MONIKER_COUNT"),
+        "PROPERTY_BAG_BIND_OK_COUNT": usb.get("PROPERTY_BAG_BIND_OK_COUNT"),
+        "FRIENDLY_NAME_READ_OK_COUNT": usb.get("FRIENDLY_NAME_READ_OK_COUNT"),
+        "DEVICE_PATH_READ_OK_COUNT": usb.get("DEVICE_PATH_READ_OK_COUNT"),
+        "DEVICE_PATH_CANONICAL_OK_COUNT": usb.get("DEVICE_PATH_CANONICAL_OK_COUNT"),
         "VIDEO_DEVICE_PATH_MATCH_COUNT": usb.get("VIDEO_DEVICE_PATH_MATCH_COUNT"),
         "CAPTURE_MAPPING_VERIFIED": usb.get("CAPTURE_MAPPING_VERIFIED"),
         "VERIFIED_INDEX": usb.get("VERIFIED_INDEX"),
         "VIDEO_FRAME_RECEIVED": False,  # diagnose-only; frame proof is separate owner step
         "MODEL_PINS_PASS": models.get("MODEL_PINS_PASS"),
         "DSHOW_BLOCKER_CODE": usb.get("DSHOW_BLOCKER_CODE"),
+        "DSHOW_FIRST_BLOCKER_CODE": usb.get("DSHOW_FIRST_BLOCKER_CODE"),
+        "DSHOW_FIRST_EXCEPTION_CLASS": usb.get("DSHOW_FIRST_EXCEPTION_CLASS"),
+        "DSHOW_HRESULT": usb.get("DSHOW_HRESULT"),
+        "COM_RELEASE_WARNING_COUNT": usb.get("COM_RELEASE_WARNING_COUNT"),
         "progid_dispatch_used": False,
         "forbidden_progid_code": BLOCKER_PROGID_DISPATCH_FORBIDDEN,
         "models": models.get("models"),
+        "stage_notes": usb.get("stage_notes"),
         "gates_blocked": [
             "USB_WINDOWS_PHYSICAL",
             "USB_STABILITY_30_MIN",
@@ -111,6 +121,10 @@ def main() -> int:
             "INSTALLER",
             "PRODUCTION_READY",
         ],
+        "note_vi": (
+            "Phân biệt: ENUM_OK nhưng BIND_TO_STORAGE_FAILED / FRIENDLY_NAME_READ_FAILED / "
+            "DEVICE_PATH_READ_FAILED / DEVICE_PATH_MISSING_FROM_DRIVER / identity mismatch."
+        ),
     }
     text = json.dumps(payload, indent=2, ensure_ascii=False)
     print(text)

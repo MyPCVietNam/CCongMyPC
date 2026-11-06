@@ -16,19 +16,26 @@
 
 ```powershell
 cd <extract>\MyPC.Attendance\scripts\windows
+# Lần đầu:
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Prepare `
   -FullSourceZip <FULL.zip> -ExpectedSha256 <hex> `
   -ModelsSourceDir <thư-mục-onnx-đã-PIN>
+# Đã Prepare sẵn — chỉ vá source (KHÔNG xóa DataDir/venv/models):
+.\p02_usb_hf3_candidate_18878.ps1 -Mode Update `
+  -FullSourceZip <FULL.zip> -ExpectedSha256 <hex>
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Preflight
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
+# Chỉ Start khi CAPTURE_MAPPING_VERIFIED=true
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Start
 .\p02_usb_hf3_candidate_18878.ps1 -Mode SafeExport
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Stop
 ```
 
-Diagnose (không cần admin) in redacted: `PNP_VIDEO_COUNT`, `DSHOW_VIDEO_MONIKER_COUNT`,
-`VIDEO_DEVICE_PATH_MATCH_COUNT`, `CAPTURE_MAPPING_VERIFIED`, `VERIFIED_INDEX`,
-`MODEL_PINS_PASS`, blocker code. Không in raw PnP / DevicePath / frame.
+Diagnose (không cần admin) in redacted stage counters:
+`DSHOW_ENUM_OK`, `PROPERTY_BAG_BIND_OK_COUNT`, `FRIENDLY_NAME_READ_OK_COUNT`,
+`DEVICE_PATH_READ_OK_COUNT`, `DEVICE_PATH_CANONICAL_OK_COUNT`,
+`VIDEO_DEVICE_PATH_MATCH_COUNT`, `CAPTURE_MAPPING_VERIFIED`, `DSHOW_FIRST_BLOCKER_CODE`,
+`COM_RELEASE_WARNING_COUNT`. Không in raw PnP / DevicePath / frame.
 
 ## Smoke vật lý (sau khi Diagnose PASS)
 

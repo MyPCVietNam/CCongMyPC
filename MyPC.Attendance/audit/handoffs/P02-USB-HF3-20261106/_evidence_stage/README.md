@@ -1,6 +1,6 @@
 # MyPC Attendance — P02-USB-HF3 COMPLETE AUDIT
 
-Corrective on PR #26: native DirectShow COM video enumeration + DevicePath↔PnP verified binding.
+Corrective on PR #26 + **in-place identity patch on PR #27**: native DirectShow COM enum and **strict** DevicePath↔PnP video-function binding.
 
 **Download:** `MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip`
 
@@ -15,18 +15,18 @@ Physical gates **BLOCKED**. Port `18878` HF3 DataDir only.
 
 ## Verified COMPLETE (HTTP + SHA256 OK)
 
-Pin (ZIP-introducing packaging freeze): `91a7c3188af67da1234a099c60756b4d062b638b`
+Pin (ZIP-introducing packaging freeze): `c951b2abeabb82ae4141f41a94d20070be9e1487`
 
-Feature / source freeze tree: `53bf5919a1192d1e4e0d69e60a12274de7fda7e9`
+Feature / source freeze tree: `058481f9989b0126648fc64bc14507f638057dd4`
 
 Baseline PR #26: `146d04cb930a446f891f48178a33672f0537b95e`
 
-https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/91a7c3188af67da1234a099c60756b4d062b638b/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip
+https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/c951b2abeabb82ae4141f41a94d20070be9e1487/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip
 
-SHA256 `23315ef1d7935475a63b75cc31901371ec18a0c74f1d333eabb4ac0a80ec4fb3` · **3785256** bytes
+SHA256 `19f17e5eca907adf32e6043c3e3b7b30bcbda504fca858a2e9d29b15651ac2b9` · **3839797** bytes
 
 ```powershell
-$u='https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/91a7c3188af67da1234a099c60756b4d062b638b/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip'; $o="$env:TEMP\MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip"; Invoke-WebRequest -Uri $u -OutFile $o; (Get-FileHash $o -Algorithm SHA256).Hash.ToLower()
+$u='https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/c951b2abeabb82ae4141f41a94d20070be9e1487/MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip'; $o="$env:TEMP\MYPC-P02-USB-HF3-COMPLETE-AUDIT.zip"; Invoke-WebRequest -Uri $u -OutFile $o; (Get-FileHash $o -Algorithm SHA256).Hash.ToLower()
 ```
 
-Expected hash: `23315ef1d7935475a63b75cc31901371ec18a0c74f1d333eabb4ac0a80ec4fb3`
+Expected hash: `19f17e5eca907adf32e6043c3e3b7b30bcbda504fca858a2e9d29b15651ac2b9`

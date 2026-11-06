@@ -1,20 +1,21 @@
-# P02-USB-HF3 — Root cause
+# P02-USB-HF3 — Property bag / COM lifetime RCA
 
-## Patch (identity false-positive on PR #27 tip `bab8127`)
+**Pre-fix PR #27 tip:** `05f6ba991b4b43b3719125551298b18441578bcb`
 
-Independent audit reproduced 3/4 RED in `test_p02_usb_hf3_identity_boundary.py`:
+## Owner Windows (2026-11-06)
 
-1. `capture_instances_match` used substring containment (`na in nb`) → distinct instances `A&ONE` vs `A&ONE2` matched.
-2. VID/PID + trailing-instance fallback ignored MI → `MI_00` matched `MI_01`.
-3. Linker then set `mapping_verified=True` / ephemeral index to the **wrong** camera.
+- DSHOW moniker count=3, PnP video=1, but ALL FriendlyName/DevicePath empty.
+- Diagnose exit 2; three Win32 IUnknown release exceptions at process exit.
+- COM ProgID blocker already gone; failure is the **property-bag stage**, not enumeration.
 
-**Fix:** strict `parse_usb_video_function_id` equality (VID|PID|MI|full instance). No containment, no MI-blind fallback. 1:1 bijection required.
+## Likely defects addressed
 
-## Original HF3 (vs PR #26)
+1. Mixing `pythoncom.CoInitialize/CoUninitialize` on the caller thread with comtypes objects while WMI may still hold live IUnknowns → release exceptions / unstable BindToStorage.
+2. Swallowed BindToStorage/Read exceptions treated as empty success; aggregate blocker stayed empty.
+3. Missing CreateBindCtx and explicit reverse-order Release before CoUninitialize.
 
-`Dispatch('SystemDeviceEnum')` → `CO_E_CLASSSTRING` (0x800401F3); fixed via `CoCreateInstance(ICreateDevEnum)`.
+## Fix
 
-## Rollback
+Dedicated STA worker + CreateBindCtx + stage telemetry + Update mode for prepared candidates.
 
-- Identity patch: revert to `bab8127` only if needed (not recommended).
-- Full HF3: PR #26 tip `146d04c`. Do not mutate owner DataDirs / 18876 / 18877.
+Strict identity matching unchanged. Physical USB still BLOCKED until owner Diagnose shows bag/path reads.
