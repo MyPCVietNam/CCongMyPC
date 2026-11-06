@@ -1,0 +1,43 @@
+=== FULL PYTEST ===
+........................................................................ [ 51%]
+........................................................................ [ 68%]
+........................................................................ [ 85%]
+...........................................................              [100%]
+419 passed in 85.17s (0:01:25)
+
+=== HF1 focused ===
+.....................                                                    [100%]
+21 passed in 7.75s
+
+=== baseline RED ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.7.0 -- /workspace/MyPC.Attendance/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/MyPC.Attendance
+configfile: pytest.ini
+plugins: asyncio-0.24.0, anyio-4.16.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 2 items
+
+tests/unit/test_p02_hf1_frame_cache_regressions.py::test_global_inference_budget_applies_across_distinct_frame_ids FAILED [ 50%]
+tests/unit/test_p02_hf1_frame_cache_regressions.py::test_overlapping_requests_never_return_old_frame_as_current FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_global_inference_budget_applies_across_distinct_frame_ids ________
+tests/unit/test_p02_hf1_frame_cache_regressions.py:63: in test_global_inference_budget_applies_across_distinct_frame_ids
+    assert pipe.calls <= 1, (
+E   AssertionError: P02 budget bypass: 2 inferences in <0.5s on distinct frames; a shared per-camera 2 FPS budget must not be keyed only by frame_id
+E   assert 2 <= 1
+E    +  where 2 = <test_p02_hf1_frame_cache_regressions.CountingDetector object at 0x7feb4ce88770>.calls
+_________ test_overlapping_requests_never_return_old_frame_as_current __________
+tests/unit/test_p02_hf1_frame_cache_regressions.py:90: in test_overlapping_requests_never_return_old_frame_as_current
+    assert snap.frame_id == "f3", (
+E   AssertionError: Frame identity violation: input=f3, output snapshot=f1; must return fresh-frame metadata or explicit current-frame no-AI status
+E   assert 'f1' == 'f3'
+E     
+E     - f3
+E     + f1
+=========================== short test summary info ============================
+FAILED tests/unit/test_p02_hf1_frame_cache_regressions.py::test_global_inference_budget_applies_across_distinct_frame_ids
+FAILED tests/unit/test_p02_hf1_frame_cache_regressions.py::test_overlapping_requests_never_return_old_frame_as_current
+============================== 2 failed in 0.04s ===============================

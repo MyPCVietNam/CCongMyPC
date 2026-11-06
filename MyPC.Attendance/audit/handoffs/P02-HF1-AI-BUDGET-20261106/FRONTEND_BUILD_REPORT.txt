@@ -1,0 +1,36 @@
+=== typecheck ===
+
+> mypc-attendance-ui@0.1.0-p00 typecheck
+> tsc --noEmit -p tsconfig.json
+
+=== vitest ===
+
+> mypc-attendance-ui@0.1.0-p00 test
+> vitest run
+
+
+ RUN  v3.2.4 /workspace/MyPC.Attendance/frontend
+
+ ✓ src/camera/imageCoords.test.ts (4 tests) 2ms
+ ✓ src/camera/diagLanes.test.ts (5 tests) 3ms
+ ✓ src/lab/signOpGuard.test.ts (4 tests) 5ms
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  03:17:37
+   Duration  331ms (transform 110ms, setup 0ms, collect 159ms, tests 10ms, environment 0ms, prepare 397ms)
+
+=== build ===
+
+> mypc-attendance-ui@0.1.0-p00 build
+> vite build
+
+vite v6.4.5 building for production...
+transforming...
+✓ 1608 modules transformed.
+rendering chunks...
+computing gzip size...
+../backend/app/static/index.html                   0.43 kB │ gzip:  0.29 kB
+../backend/app/static/assets/index-DR3tvPoc.css   15.64 kB │ gzip:  3.98 kB
+../backend/app/static/assets/index-CeTofX6D.js   279.24 kB │ gzip: 85.87 kB
+✓ built in 1.52s

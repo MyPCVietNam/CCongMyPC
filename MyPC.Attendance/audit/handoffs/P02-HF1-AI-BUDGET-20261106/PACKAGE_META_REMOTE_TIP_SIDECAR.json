@@ -1,0 +1,10 @@
+{
+  "schema": "mypc.package-meta.remote-tip-sidecar.v1",
+  "baseline": "d0a6b3cf3c974e6ac953db16efce5393e3d4cbd2",
+  "feature_commit": "5c24cfb539db7a5bbd2c542b0479f200bffe4039",
+  "packaging_freeze_commit_sidecar": "1a3ff6f25c71ecf0771b806cee897abdcf07ae43",
+  "remote_pr_tip": "4a73c46936ac15fabf86eebecc67bbf83fa1f7d4",
+  "complete_zip_sha256": "f72e7a642aed87fdbe7d58cbe3cf957a5be3a40ed182be5d161e6c56928cdae5",
+  "complete_zip_bytes": 3721768,
+  "note": "Sidecar only — does not rewrite COMPLETE ZIP bytes"
+}

@@ -105,6 +105,11 @@ type FaceDetectResult = {
   cache_hit?: boolean;
   identity_exposed?: boolean;
   attendance_written?: boolean;
+  analyzed?: boolean;
+  prior_analyzed_frame_id?: string | null;
+  browser_mjpeg_synchronized?: boolean;
+  last_analyzed_note_vi?: string;
+  receive_time_utc?: string | null;
 };
 
 type Mode = "new" | "edit";
@@ -1014,16 +1019,30 @@ export function CameraPage() {
           {aiOverlay ? (
             <div className="text-xs space-y-1 border border-line rounded-md p-2 bg-canvas/40">
               <div className="font-medium">
-                AI detection (chỉ phát hiện + chất lượng — không nhận dạng / không chấm công)
+                AI — khung đã phân tích gần nhất (JSON poll ≠ đồng bộ tuyệt đối với từng JPEG MJPEG)
+              </div>
+              <div className="text-muted">
+                Chỉ phát hiện + chất lượng — không nhận dạng / không chấm công. browser_transport vẫn
+                UNVERIFIED trừ khi có telemetry multipart thật.
               </div>
               {faceDetectErr ? <div className="text-danger">{faceDetectErr}</div> : null}
               {faceDetect ? (
                 <>
                   <div>
-                    status={faceDetect.status} · faces={faceDetect.face_count} · frame=
-                    {faceDetect.frame_id.slice(0, 12)} · gate={faceDetect.enrollment_gate}
+                    status={faceDetect.status}
+                    {faceDetect.analyzed === false ? " (chưa phân tích frame này)" : ""} · faces=
+                    {faceDetect.face_count} · last_frame={faceDetect.frame_id.slice(0, 12)} · gate=
+                    {faceDetect.enrollment_gate}
                   </div>
                   <div className="text-muted">{faceDetect.status_vi}</div>
+                  {faceDetect.receive_time_utc ? (
+                    <div className="text-muted">receive_time_utc={faceDetect.receive_time_utc}</div>
+                  ) : null}
+                  {faceDetect.prior_analyzed_frame_id ? (
+                    <div className="text-muted">
+                      prior_analyzed={faceDetect.prior_analyzed_frame_id.slice(0, 12)}
+                    </div>
+                  ) : null}
                   {faceDetect.quality?.face_width_px != null ? (
                     <div>
                       face_width_px={faceDetect.quality.face_width_px} (min{" "}
@@ -1033,9 +1052,13 @@ export function CameraPage() {
                     </div>
                   ) : null}
                   <div className="text-muted">
-                    identity_exposed={String(!!faceDetect.identity_exposed)} · attendance_written=
+                    sync_claimed={String(!!faceDetect.browser_mjpeg_synchronized)} · identity_exposed=
+                    {String(!!faceDetect.identity_exposed)} · attendance_written=
                     {String(!!faceDetect.attendance_written)}
                   </div>
+                  {faceDetect.last_analyzed_note_vi ? (
+                    <div className="text-muted">{faceDetect.last_analyzed_note_vi}</div>
+                  ) : null}
                 </>
               ) : (
                 <div className="text-muted">Đang chờ kết quả detect…</div>

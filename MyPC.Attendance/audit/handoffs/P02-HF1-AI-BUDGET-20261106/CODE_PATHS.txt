@@ -1,0 +1,9 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/services/live_face_detect_preview.py
+MyPC.Attendance/backend/app/static/assets/index-9TtdYGpe.js
+MyPC.Attendance/backend/app/static/assets/index-CeTofX6D.js
+MyPC.Attendance/backend/app/static/index.html
+MyPC.Attendance/frontend/src/pages/CameraPage.tsx
+MyPC.Attendance/tests/unit/test_p02_hf1_budget_extended.py
+MyPC.Attendance/tests/unit/test_p02_hf1_frame_cache_regressions.py
+MyPC.Attendance/tools/package_p02_hf1_complete_audit.py

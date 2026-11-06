@@ -1,0 +1,5 @@
+Python: 3.12.3
+pytest full: 419 passed (~85s)
+vitest: 13 passed
+frontend: npm ci + typecheck + vitest + vite build PASS
+static: index-CeTofX6D.js
