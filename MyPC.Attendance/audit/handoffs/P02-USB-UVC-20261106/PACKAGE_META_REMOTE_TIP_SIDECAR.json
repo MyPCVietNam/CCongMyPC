@@ -1,0 +1,10 @@
+{
+  "pr": "https://github.com/MyPCVietNam/CCongMyPC/pull/24",
+  "remote_pr_tip": "ccb2bbe65b7260d5560cc058410d88975129b1d0",
+  "packaging_freeze_source_tree": "553899005510dbf8a884800ffb519e1682ac63dd",
+  "zip_introducing_commit": "770185594812d567975054e00f331b991494ed44",
+  "complete_zip_sha256": "1f391db8115a17c00e522933e9f5f86c5699ab849ec31c710ae873c3dc6cf1b1",
+  "complete_zip_bytes": 3794672,
+  "complete_raw_url": "https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/770185594812d567975054e00f331b991494ed44/MyPC.Attendance/audit/handoffs/P02-USB-UVC-20261106/MYPC-P02-USB-UVC-COMPLETE-AUDIT.zip",
+  "verify_ok_http_sha256": true
+}
