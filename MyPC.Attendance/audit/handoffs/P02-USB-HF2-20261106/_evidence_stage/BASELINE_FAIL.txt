@@ -1,0 +1,12 @@
+Independent HF2 regression suite (repro/test_p02_usb_hf2_trust_and_open_regressions.py)
+reproduced RED against PR #25 tip 6d1842b before corrective implementation:
+
+Expected failure themes (5 failed / 1 passed on handoff):
+- enrich_for_capture / empty-DShow path fabricates mapping_verified
+- video=Name CAP_DSHOW open path accepted
+- stale index retained after mapping loss
+- trusted LIVE allowed without CAPTURE_MAPPING_VERIFIED
+- candidate Start mode did not launch uvicorn
+
+After HF2 corrective: suite GREEN (see TEST_REPORT.txt; focused HF2 unit 7 passed; full backend 448 passed).
+Physical Windows Start/Export: BLOCKED (no owner lab in this agent environment).
