@@ -1,1 +1,7 @@
-PR stacked on #26; tip filled after push.
+Branch: cursor/p02-usb-hf3-dshow-com-enum-83a8
+Base: cursor/p02-usb-hf2-verified-binding-83a8 (PR #26)
+Packaging freeze: 91a7c3188af67da1234a099c60756b4d062b638b
+Feature: 53bf5919a1192d1e4e0d69e60a12274de7fda7e9
+Baseline: 146d04cb930a446f891f48178a33672f0537b95e
+COMPLETE SHA256: 23315ef1d7935475a63b75cc31901371ec18a0c74f1d333eabb4ac0a80ec4fb3
+COMPLETE bytes: 3785256
