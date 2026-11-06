@@ -1,0 +1,1 @@
+64e370f fix(usb): P02-USB-HF2 verified capture binding and working 18878 candidate

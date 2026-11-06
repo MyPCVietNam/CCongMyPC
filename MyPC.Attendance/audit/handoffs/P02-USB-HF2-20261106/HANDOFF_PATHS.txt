@@ -1,0 +1,11 @@
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/ACCEPTANCE_MATRIX.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/ARCHITECTURE_DECISIONS.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/BASELINE_FAIL.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/BASELINE_RCA.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/CHANGELOG.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/FREEZE_VS_TIP_TIMELINE.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/FRONTEND_BUILD_REPORT.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/OWNER_WINDOWS_STEPS_VI.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/README.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/TEST_REPORT.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF2-20261106/VERSIONS.txt

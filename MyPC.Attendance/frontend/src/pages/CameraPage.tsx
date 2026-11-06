@@ -54,6 +54,7 @@ type UsbDeviceRow = {
   index_hint?: number | null;
   ambiguous?: boolean;
   mapping_verified?: boolean;
+  capture_mapping_verified?: boolean;
   trusted_live_eligible?: boolean;
   open_target?: string;
   note_vi?: string;
@@ -612,10 +613,12 @@ export function CameraPage() {
         message_vi?: string;
         claims_4k?: boolean;
         mapping_verified?: boolean;
+        capture_mapping_verified?: boolean;
         trusted_live_eligible?: boolean;
         ambiguous?: boolean;
         index_hint?: number | null;
         open_by_name?: boolean;
+        stages?: Record<string, boolean>;
         stable_id_short?: string;
         friendly_name?: string;
       }>("/api/v1/cameras/usb/diagnose", {
@@ -627,12 +630,14 @@ export function CameraPage() {
           `${m.requested}: opened=${m.opened} actual=${m.actual_width}x${m.actual_height} ` +
           `fourcc=${m.actual_fourcc || "?"} frame_ok=${m.frame_ok ?? "?"}`
       );
+      const st = r.stages || {};
       setUsbDiagMsg(
         [
           r.message_vi || "",
           `thiết bị=${r.friendly_name || "?"} · id=${r.stable_id_short || "?"}`,
-          `mapping_verified=${String(!!r.mapping_verified)} · trusted_live_eligible=${String(!!r.trusted_live_eligible)}`,
-          `ambiguous=${String(!!r.ambiguous)} · index_hint=${r.index_hint ?? "n/a"} · open_by_name=${String(!!r.open_by_name)}`,
+          `PNP_ID_FOUND=${String(!!st.PNP_ID_FOUND)} · CAPTURE_MAPPING_VERIFIED=${String(!!st.CAPTURE_MAPPING_VERIFIED)} · OPENED=${String(!!st.OPENED)} · FRAME_RECEIVED=${String(!!st.FRAME_RECEIVED)}`,
+          `mapping_verified=${String(!!r.mapping_verified)} · capture_mapping_verified=${String(!!r.capture_mapping_verified)} · trusted_live_eligible=${String(!!r.trusted_live_eligible)}`,
+          `ambiguous=${String(!!r.ambiguous)} · index_hint=${r.index_hint ?? "n/a"} · open_by_name=${String(!!r.open_by_name)} (always false — CAP_DSHOW index only)`,
           `claims_4k=${String(!!r.claims_4k)}`,
           ...lines,
         ].join("\n")
@@ -1384,9 +1389,9 @@ export function CameraPage() {
                     const d = usbDevices.find((x) => x.stable_id === form.usbStableId);
                     if (!d) return "Đã chọn stable_id — bấm Liệt kê USB nếu danh sách trống.";
                     return (
-                      `Trạng thái: mapping_verified=${String(!!d.mapping_verified)} · ` +
+                      `Trạng thái: capture_mapping_verified=${String(!!(d.capture_mapping_verified ?? d.mapping_verified))} · ` +
                       `trusted_live=${String(!!d.trusted_live_eligible)} · ` +
-                      `index_hint=${d.index_hint ?? "n/a (mở bằng tên)"}` +
+                      `index_hint=${d.index_hint ?? "n/a (chưa liên kết DShow)"}` +
                       (d.note_vi ? ` — ${d.note_vi}` : "")
                     );
                   })()}

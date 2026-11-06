@@ -1,0 +1,7 @@
+Branch: cursor/p02-usb-hf2-verified-binding-83a8
+Base: cursor/p02-usb-hf1-stable-bind-83a8 (PR #25)
+Packaging freeze (ZIP bytes): 9d5a2477a174a52497b798c6f6c4ddfb531a2fa9
+Feature commit: 64e370f4db368da2da4f89800802855b24960d5d
+Baseline: 6d1842b5c2bd577f4945f35e85767228906fae0d
+COMPLETE SHA256: 12c7b0300eb7e90757c050a86de65608409fe5152c1b7d00df0985cd3844c808
+COMPLETE bytes: 3840531

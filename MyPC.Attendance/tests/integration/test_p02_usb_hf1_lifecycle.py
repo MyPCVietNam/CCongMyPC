@@ -79,7 +79,7 @@ def test_index_reorder_same_stable_preserves_revision(app_client):
                 index_hint=2,
                 ambiguous=False,
                 mapping_verified=True,
-                open_target="video=UGREEN Camera 4K",
+                capture_mapping_verified=True,
             )
         ]
     )
@@ -107,7 +107,7 @@ def test_index_reorder_same_stable_preserves_revision(app_client):
                     index_hint=0,
                     ambiguous=False,
                     mapping_verified=True,
-                    open_target="video=UGREEN Camera 4K",
+                    capture_mapping_verified=True,
                 )
             ]
         )
@@ -137,7 +137,7 @@ def test_different_usb_device_rotates_and_revokes(app_client):
                 index_hint=1,
                 ambiguous=False,
                 mapping_verified=True,
-                open_target="video=Cam A",
+                capture_mapping_verified=True,
             ),
             UsbDeviceInfo(
                 stable_id=sid_b,
@@ -145,7 +145,7 @@ def test_different_usb_device_rotates_and_revokes(app_client):
                 index_hint=2,
                 ambiguous=False,
                 mapping_verified=True,
-                open_target="video=Cam B",
+                capture_mapping_verified=True,
             ),
         ]
     )
@@ -291,7 +291,7 @@ def test_duplicate_lease_conflict(app_client):
                 index_hint=1,
                 ambiguous=False,
                 mapping_verified=True,
-                open_target="video=UGREEN Camera 4K",
+                capture_mapping_verified=True,
             )
         ]
     )

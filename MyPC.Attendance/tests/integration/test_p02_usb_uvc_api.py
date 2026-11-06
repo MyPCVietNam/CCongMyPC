@@ -59,6 +59,8 @@ def test_usb_enumerate_and_configure_no_attendance(app_client):
                         friendly_name="UGREEN Camera 4K",
                         index_hint=2,
                         ambiguous=False,
+                        mapping_verified=True,
+                        capture_mapping_verified=True,
                         note_vi="synthetic",
                     )
                 ]
@@ -165,6 +167,8 @@ def test_usb_configure_revokes_prior_rtsp_material_flag(app_client):
                         friendly_name="UGREEN Camera 4K",
                         index_hint=1,
                         ambiguous=False,
+                        mapping_verified=True,
+                        capture_mapping_verified=True,
                     )
                 ]
             },

@@ -1,0 +1,5 @@
+- packaging_freeze = source tree used to build FULL/CHANGED ZIPs (PACKAGE_META)
+- packaging_freeze_sidecar = ZIP-introducing commit on the same branch
+- remote tip may advance after freeze for URL/SHA documentation only
+- freeze ≠ tip when sidecar commits follow packaging
+- baseline = PR #25 tip `6d1842b5c2bd577f4945f35e85767228906fae0d`

@@ -1,0 +1,50 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "baseline": "6d1842b5c2bd577f4945f35e85767228906fae0d",
+  "baseline_pr": 25,
+  "feature_commit": "64e370f4db368da2da4f89800802855b24960d5d",
+  "packaging_freeze_commit": "64e370f4db368da2da4f89800802855b24960d5d",
+  "generated_at_utc": "2026-11-06T09:31:21.119665+00:00",
+  "code_paths": [
+    "MyPC.Attendance/backend/app/api/cameras.py",
+    "MyPC.Attendance/backend/app/static/assets/index-BF6qSwhf.js",
+    "MyPC.Attendance/backend/app/static/index.html",
+    "MyPC.Attendance/backend/app/vision/camera/usb_device.py",
+    "MyPC.Attendance/backend/app/vision/camera/usb_uvc_gateway.py",
+    "MyPC.Attendance/backend/requirements-windows.txt",
+    "MyPC.Attendance/docs/gates/P02-USB-HF2-GATE-MATRIX.md",
+    "MyPC.Attendance/docs/runbooks/P02-USB-HF2-OWNER-RUNBOOK-VI.md",
+    "MyPC.Attendance/frontend/src/pages/CameraPage.tsx",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf2_candidate_18878.ps1",
+    "MyPC.Attendance/tests/integration/test_p02_usb_hf1_lifecycle.py",
+    "MyPC.Attendance/tests/integration/test_p02_usb_owner_repro.py",
+    "MyPC.Attendance/tests/integration/test_p02_usb_uvc_api.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf2_candidate_script.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf2_trust_and_open_regressions.py",
+    "MyPC.Attendance/tools/package_p02_usb_hf2_complete_audit.py"
+  ],
+  "deleted_paths": [
+    "MyPC.Attendance/backend/app/static/assets/index-TQqxC0tP.js"
+  ],
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF2.zip": "7c28405a30426772f3ef17c977ed52b3b0c625f6c9ac3319cb7f7a26bc88f63f",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF2.zip": "e6d2940076ddef5b65ea8556172da2718be784d6330a1c97e316ae04d5a69714",
+    "MYPC-P02-USB-HF2-WINDOWS-SAFE-EVIDENCE.zip": "3b7aa5565a6f9eef4aafe34e899a33f677b60f51a8822fc3244942a035ca9299"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "candidate_port": 18878,
+  "phase": "USB_HF2_VERIFIED_BINDING",
+  "aliases": {
+    "CHANGED": "MYPC-P02-USB-HF2-CHANGED-SOURCE-AUDIT.zip",
+    "FULL": "MYPC-P02-USB-HF2-FULL-SOURCE.zip",
+    "EVIDENCE": "MYPC-P02-USB-HF2-WINDOWS-SAFE-EVIDENCE.zip",
+    "COMPLETE": "MYPC-P02-USB-HF2-COMPLETE-AUDIT.zip"
+  }
+}

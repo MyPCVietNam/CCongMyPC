@@ -31,10 +31,21 @@ class _FakeCapture:
     def release(self): self.opened=False
 
 
-def _set_enum_and_camera(app_client, *, stable_id, index_hint, ambiguous):
+def _set_enum_and_camera(app_client, *, stable_id, index_hint, ambiguous, mapping_verified=None):
     client, application=app_client
     headers=_login(client)
-    row=UsbDeviceInfo(stable_id=stable_id,friendly_name='UGREEN Camera 4K',index_hint=index_hint,ambiguous=ambiguous)
+    verified = bool(mapping_verified) if mapping_verified is not None else (
+        (not ambiguous) and index_hint is not None
+    )
+    row=UsbDeviceInfo(
+        stable_id=stable_id,
+        friendly_name='UGREEN Camera 4K',
+        index_hint=index_hint,
+        ambiguous=ambiguous,
+        mapping_verified=verified,
+        capture_mapping_verified=verified,
+        pnp_id_found=True,
+    )
     class Enumerator:
         def list_devices(self): return [row]
     set_usb_enumerator_for_tests(Enumerator())
@@ -51,13 +62,15 @@ def _cleanup(application):
     application.state.container.usb_open_capture=None
 
 
-def test_pnp_identity_without_dshow_index_should_not_block_usb_owner_flow(app_client):
-    """WMI PnP enumerator supplies stable ID but no index mapping: RED on current API."""
+def test_pnp_identity_without_dshow_index_must_fail_closed_for_trusted_live(app_client):
+    """HF2: PnP without CAPTURE_MAPPING_VERIFIED must not bind trusted LIVE."""
     sid=fingerprint_stable_id('USB\\VID_0BDA&PID_58B0\\UGREEN-FAKE-1')
     client,app,head,cid=_set_enum_and_camera(app_client,stable_id=sid,index_hint=None,ambiguous=False)
     try:
         r=client.post('/api/v1/cameras/gateway/live/configure-usb',headers=head,json={'camera_id':cid,'stable_id':sid})
-        assert r.status_code == 200, f'PnP was enumerated but capture cannot bind: {r.status_code} {r.text}'
+        assert r.status_code == 409, r.text
+        code = r.json()['detail']['code']
+        assert code in {'USB_CAPTURE_UNVERIFIED', 'USB_INDEX_UNKNOWN', 'USB_IDENTITY_MISMATCH'}
     finally: _cleanup(app)
 
 

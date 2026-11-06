@@ -1,0 +1,21 @@
+tsc exit: 0
+--- vitest (prior run) ---
+
+> mypc-attendance-ui@0.1.0-p00 test
+> vitest run --run
+
+
+ RUN  v3.2.4 /workspace/MyPC.Attendance/frontend
+
+ ✓ src/camera/diagLanes.test.ts (5 tests) 3ms
+ ✓ src/lab/signOpGuard.test.ts (4 tests) 4ms
+ ✓ src/camera/imageCoords.test.ts (4 tests) 3ms
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  09:28:43
+   Duration  285ms (transform 93ms, setup 0ms, collect 128ms, tests 10ms, environment 0ms, prepare 299ms)
+
+--- build (post CameraPage stages) ---
+assets: index-BF6qSwhf.js
+build exit: 0
