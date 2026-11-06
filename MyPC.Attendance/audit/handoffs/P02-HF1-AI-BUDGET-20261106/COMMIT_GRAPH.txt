@@ -1,0 +1,4 @@
+d0a6b3c  P02 tip / PR #22  <<< HF1 BASELINE
+FEATURE  HF1 shared AI budget + frame identity
+FREEZE   COMPLETE ZIP bytes
+TIP      after push

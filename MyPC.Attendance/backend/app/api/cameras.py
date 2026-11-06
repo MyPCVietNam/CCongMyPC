@@ -1512,16 +1512,15 @@ def preview_mjpeg_ai(
         state.face_detect_preview = svc
 
     def generate():
-        last_id = ""
+        last_emitted = ""
         while True:
             try:
                 with state.session_factory() as sdb:
                     _row, _bound, fr = _resolve_ai_preview_frame(camera_id, sdb, state)
                     roi, _cal = _load_arrival_roi(sdb, camera_id)
-                if fr.frame_id == last_id:
+                if fr.frame_id == last_emitted:
                     time.sleep(interval)
                     continue
-                last_id = fr.frame_id
                 snap, ann = svc.analyze_frame(
                     camera_id=camera_id,
                     frame=fr,
@@ -1530,17 +1529,26 @@ def preview_mjpeg_ai(
                     max_ai_fps=fps,
                     want_annotated=True,
                 )
+                # P02-HF1: headers + pixels must describe the SAME frame_id as snap.
+                # Never label fr.frame_id while encoding a prior annotated buffer.
+                if snap.frame_id != fr.frame_id:
+                    time.sleep(interval)
+                    continue
                 if ann is None:
-                    ann = fr.clone_pixels()
+                    # Skip emission rather than invent boxes / mislabel pixels.
+                    time.sleep(interval)
+                    continue
                 jpeg = _encode_annotated_jpeg(ann, max_w=1280, quality=72)
+                last_emitted = snap.frame_id
                 header = (
                     b"--" + boundary + b"\r\n"
                     b"Content-Type: image/jpeg\r\n"
                     b"Content-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n"
                     b"X-View-Mode: LIVE_MJPEG_AI\r\n"
-                    b"X-Frame-Id: " + fr.frame_id.encode("ascii", errors="ignore") + b"\r\n"
+                    b"X-Frame-Id: " + snap.frame_id.encode("ascii", errors="ignore") + b"\r\n"
                     b"X-Detect-Status: " + snap.status.encode("ascii", errors="ignore") + b"\r\n"
-                    b"X-Face-Count: " + str(snap.face_count).encode("ascii") + b"\r\n"
+                    b"X-Face-Count: " + str(int(snap.face_count)).encode("ascii") + b"\r\n"
+                    b"X-Analyzed: " + (b"1" if snap.analyzed else b"0") + b"\r\n"
                     b"\r\n"
                 )
                 yield header + jpeg + b"\r\n"
