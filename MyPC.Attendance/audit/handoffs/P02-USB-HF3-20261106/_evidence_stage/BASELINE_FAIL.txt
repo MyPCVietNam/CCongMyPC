@@ -1,0 +1,8 @@
+Owner Windows (2026-11-06) on PR #26 / HF2 candidate:
+SYSTEM_DEVICE_ENUM_DISPATCH FAIL hresult=-2147221005 (0x800401F3 CO_E_CLASSSTRING)
+DSHOW_MONIKER_COUNT=0 (enumerator failure, not camera absent)
+CAPTURE_MAPPING_VERIFIED=false trusted_live_eligible=false
+
+After HF3 corrective: unit/integration GREEN (see TEST_REPORT.txt; full backend 465 passed).
+Physical USB_WINDOWS_PHYSICAL remains BLOCKED until owner Diagnose shows DevicePath mapping
+and confirms 0x800401F3 eliminated.

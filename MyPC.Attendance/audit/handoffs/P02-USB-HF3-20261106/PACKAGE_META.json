@@ -1,0 +1,42 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "baseline": "146d04cb930a446f891f48178a33672f0537b95e",
+  "baseline_pr": 26,
+  "feature_commit": "53bf5919a1192d1e4e0d69e60a12274de7fda7e9",
+  "packaging_freeze_commit": "53bf5919a1192d1e4e0d69e60a12274de7fda7e9",
+  "generated_at_utc": "2026-11-06T10:12:16.027909+00:00",
+  "code_paths": [
+    "MyPC.Attendance/backend/app/api/cameras.py",
+    "MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py",
+    "MyPC.Attendance/backend/app/vision/camera/usb_device.py",
+    "MyPC.Attendance/backend/app/vision/camera/usb_uvc_gateway.py",
+    "MyPC.Attendance/backend/requirements-windows.txt",
+    "MyPC.Attendance/docs/gates/P02-USB-HF3-GATE-MATRIX.md",
+    "MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf2_candidate_18878.ps1",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf3_readonly_diag.py",
+    "MyPC.Attendance/tests/integration/test_p02_usb_hf1_lifecycle.py",
+    "MyPC.Attendance/tests/integration/test_p02_usb_owner_repro.py",
+    "MyPC.Attendance/tests/integration/test_p02_usb_uvc_api.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_dshow_com_enum.py",
+    "MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py"
+  ],
+  "deleted_paths": [],
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "e84e12ad27df2c94dfef901156022249a0b9958b27a68a3755b3e0cd1aed9798",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "20783221cab57dfbfffd09b58a5a8c9b9ef9166e9a3c06120c358bdc22028f9e",
+    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "cdc421fdefad81f93611948779cc24e2578a0c4fcfaf3ff3c6435a920f60d779"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "candidate_port": 18878,
+  "phase": "USB_HF3_DSHOW_COM_ENUM"
+}

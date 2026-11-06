@@ -1,0 +1,16 @@
+MyPC.Attendance/backend/app/api/cameras.py
+MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py
+MyPC.Attendance/backend/app/vision/camera/usb_device.py
+MyPC.Attendance/backend/app/vision/camera/usb_uvc_gateway.py
+MyPC.Attendance/backend/requirements-windows.txt
+MyPC.Attendance/docs/gates/P02-USB-HF3-GATE-MATRIX.md
+MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md
+MyPC.Attendance/scripts/windows/p02_usb_hf2_candidate_18878.ps1
+MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1
+MyPC.Attendance/scripts/windows/p02_usb_hf3_readonly_diag.py
+MyPC.Attendance/tests/integration/test_p02_usb_hf1_lifecycle.py
+MyPC.Attendance/tests/integration/test_p02_usb_owner_repro.py
+MyPC.Attendance/tests/integration/test_p02_usb_uvc_api.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_dshow_com_enum.py
+MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py

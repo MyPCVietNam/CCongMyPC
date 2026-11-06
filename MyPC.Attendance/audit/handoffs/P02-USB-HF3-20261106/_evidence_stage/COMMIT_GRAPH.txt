@@ -1,0 +1,1 @@
+53bf591 fix(usb): P02-USB-HF3 native DirectShow COM enum and DevicePath binding
