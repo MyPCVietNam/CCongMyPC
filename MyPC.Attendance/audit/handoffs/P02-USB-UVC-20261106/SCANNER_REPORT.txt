@@ -1,2 +1,3 @@
-Fail-closed release_sensitive_scan applied to CHANGED/FULL/EVIDENCE/COMPLETE ZIPs at packaging time.
-Synthetic test credentials only; no owner cookies/HMAC/frames in artifacts.
+PASS CHANGED-SOURCE-AUDIT.zip
+PASS FULL-SOURCE.zip
+PASS WINDOWS-SAFE-EVIDENCE.zip

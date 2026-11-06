@@ -1,0 +1,1 @@
+N/A — greenfield USB feature on HF1 tip; baseline CI was HF1 green (434 after this change).
