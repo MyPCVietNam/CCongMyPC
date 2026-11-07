@@ -1,11 +1,19 @@
 # P02-USB-HF3 changelog
 
-## Patch on PR #27 — venv redirector PID ownership (in-place)
+## Patch on PR #27 — PID safety corrective V2 (in-place)
+
+- Rename kill iterators off automatic `$PID`; `Stop-VerifiedHf3Identity` / `LaunchTree`.
+- Fail-closed legacy pid-only Stop; require nonblank listener/launcher creation stamps.
+- Remove `$venvMarker` / folder-substring kill authorization; never kill conhost.
+- Preserve launch meta on Stop refusal; success only when 18878 has no listener.
+- Update: SHA256 + staged layout before owned stop; leaf Rename-Item + rollback.
+- Stricter uvicorn cmdline tokens; top-level health `status=ok` + `startup_phase=READY`.
+- Static independent suite GREEN; Windows PS 5.1 runtime harness added (owner-gated).
+
+## Prior — venv redirector PID ownership (in-place)
 
 - Verified descendant listener ownership for 18878.
 - Launch meta JSON; Stop/Update share trust model; no foreign kills.
-- Health: `ok` + `READY` only; ownership failures not swallowed.
-- Unit matrix: `tests/unit/test_p02_usb_hf3_pid_ownership.py`.
 
 ## Prior — VT_BSTR direct Read / CoInit / COM release / Update leaf rename / identity
 

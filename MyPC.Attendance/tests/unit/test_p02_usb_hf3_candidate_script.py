@@ -46,12 +46,18 @@ def test_hf3_start_stop_share_launch_meta_trust_model():
     text = PS1.read_text(encoding="utf-8-sig")
     assert "Save-Hf3LaunchMeta" in text
     assert "Test-LiveMatchesLaunchMeta" in text
-    assert "Stop-VerifiedHf3Pids" in text
+    assert "Stop-VerifiedHf3Identity" in text
+    assert "Stop-VerifiedHf3LaunchTree" in text
     assert "listener_creation" in text
+    assert "launcher_creation" in text
     assert "session_proof" in text or "sessionProofPid" in text
-    # Stop must re-validate; Update must not kill foreign listeners
     assert "EXIT_FOREIGN_LISTENER" in text
+    assert "EXIT_STOP_BLOCKED_LEGACY_PID" in text
+    assert "Test-Hf3LaunchMetaSchema" in text
     assert "creation-time mismatch" in text or "creation_match" in text
+    # No foreach($pid) collision with automatic $PID
+    assert not re.search(r"(?i)\bforeach\s*\(\s*\$pid\b", text)
+    assert "$venvMarker" not in text
 
 
 def test_hf3_update_uses_leaf_rename_and_rollback():

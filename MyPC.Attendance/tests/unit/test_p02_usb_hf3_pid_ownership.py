@@ -149,3 +149,76 @@ def test_grandchild_python_accepted():
     )
     assert rel == m.REL_VERIFIED_DESCENDANT
     assert pid == 300
+
+
+def test_kill_requires_creation_and_rejects_marker_only_python():
+    assert not m.kill_authorized(
+        role="launcher",
+        expected_creation="",
+        live_creation="T1",
+        is_conhost=False,
+        cmdline_ok=False,
+        is_python=True,
+        exe_matches_expected=False,
+    )
+    assert not m.kill_authorized(
+        role="launcher",
+        expected_creation="T1",
+        live_creation="T1",
+        is_conhost=False,
+        cmdline_ok=False,
+        is_python=True,
+        exe_matches_expected=False,  # path substring alone is insufficient
+    )
+    assert m.kill_authorized(
+        role="launcher",
+        expected_creation="T1",
+        live_creation="T1",
+        is_conhost=False,
+        cmdline_ok=False,
+        is_python=True,
+        exe_matches_expected=True,
+    )
+    assert m.kill_authorized(
+        role="listener",
+        expected_creation="T1",
+        live_creation="T1",
+        is_conhost=False,
+        cmdline_ok=True,
+        is_python=True,
+        exe_matches_expected=False,
+    )
+    assert not m.kill_authorized(
+        role="listener",
+        expected_creation="T1",
+        live_creation="T_REUSED",
+        is_conhost=False,
+        cmdline_ok=True,
+        is_python=True,
+        exe_matches_expected=False,
+    )
+
+
+def test_loose_port_substring_without_tokens_rejected():
+    loose = f"something 18878 uvicorn note --app-dir {BACKEND}"
+    assert not m.uvicorn_cmdline_matches(loose, port=18878, backend=BACKEND)
+
+
+def test_health_requires_top_level_ok_ready_not_nested():
+    nested = '{"status":"degraded","startup_phase":"FAIL","detail":{"status":"ok","startup_phase":"READY"}}'
+    assert not m.health_is_start_pass(200, nested)
+    assert m.health_is_start_pass(200, '{"status":"ok","startup_phase":"READY"}')
+    assert not m.health_is_start_pass(200, '{"status":"ok","startup_phase":"FAIL"}')
+    assert not m.health_is_start_pass(503, '{"status":"ok","startup_phase":"READY"}')
+
+
+def test_conhost_never_authorized_to_kill():
+    assert not m.kill_authorized(
+        role="listener",
+        expected_creation="T1",
+        live_creation="T1",
+        is_conhost=True,
+        cmdline_ok=True,
+        is_python=False,
+        exe_matches_expected=False,
+    )

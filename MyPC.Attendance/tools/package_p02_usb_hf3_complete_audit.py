@@ -14,14 +14,17 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 pre-fix tip (PID ownership corrective).
-# Prior tips remain in PACKAGE_META for custody.
-BASELINE = "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc"
+# CHANGED zip is relative to PR #27 tip before this PID-safety corrective.
+# Prior tips remain in PACKAGE_META for custody; do not rewrite immutable pins.
+BASELINE = "f441da40ade699021980ee636388be9eef42b68c"
+BASELINE_PID_OWNERSHIP = "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc"
 BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 BASELINE_PROPERTY_BAG = "05f6ba991b4b43b3719125551298b18441578bcb"
 BASELINE_COM_RELEASE = "ff6789ecd15ede618101e6a4c4938c3290ed1748"
 BASELINE_COINIT = "98d8d40290018d688749931a9f78d4ee016b126b"
 BASELINE_VTBSTR = "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e"
+BASELINE_PID_OWNERSHIP_FREEZE = "59148ebd1d545aa887c4cb4a6288d9c8c394ba1b"
+BASELINE_PID_OWNERSHIP_FEATURE = "3c989facccc9443c351e0526dc76db7ee2f742a0"
 A_NAME = "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip"
 B_NAME = "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip"
 C_NAME = "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip"
@@ -84,7 +87,10 @@ def write_zip(path: Path, members: list[tuple[str, Path]]) -> None:
 
 
 def main() -> int:
+    import os
+
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    feature = os.environ.get("HF3_FEATURE_COMMIT", "").strip() or head
     HANDOFF.mkdir(parents=True, exist_ok=True)
     changed = [p for p in git_diff_names(BASELINE) if not p.lower().endswith(".zip")]
     deleted = git_deleted_names(BASELINE)
@@ -96,7 +102,7 @@ def main() -> int:
     (HANDOFF / "DELETED_PATHS.txt").write_text(
         ("\n".join(deleted) + "\n") if deleted else "(none)\n", encoding="utf-8"
     )
-    (HANDOFF / "FEATURE_COMMIT.txt").write_text(head + "\n", encoding="utf-8")
+    (HANDOFF / "FEATURE_COMMIT.txt").write_text(feature + "\n", encoding="utf-8")
     (HANDOFF / "PACKAGING_FREEZE_COMMIT.txt").write_text(head + "\n", encoding="utf-8")
     (HANDOFF / "FINAL_HEAD.txt").write_text(head + "\n", encoding="utf-8")
     (HANDOFF / "BASELINE_COMMIT.txt").write_text(BASELINE + "\n", encoding="utf-8")
@@ -172,6 +178,9 @@ def main() -> int:
         "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
         "PID_OWNERSHIP_BASELINE_RED.md",
         "OWNER-PID-RESULTS-AND-RCA.md",
+        "PID_SAFETY_BASELINE_RED.md",
+        "PID_SAFETY_RATIONALE.md",
+        "PID_SAFETY_GREEN.txt",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -179,6 +188,7 @@ def main() -> int:
     for src in [
         ROOT / "scripts" / "windows" / "p02_usb_hf3_candidate_18878.ps1",
         ROOT / "scripts" / "windows" / "p02_usb_hf3_readonly_diag.py",
+        ROOT / "scripts" / "windows" / "p02_usb_hf3_pid_safety_runtime_tests.ps1",
         ROOT / "docs" / "gates" / "P02-USB-HF3-GATE-MATRIX.md",
         ROOT / "docs" / "runbooks" / "P02-USB-HF3-OWNER-RUNBOOK-VI.md",
         ROOT / "docs" / "runbooks" / "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
@@ -217,15 +227,19 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (venv redirector PID ownership)",
+        "baseline_note": "PR #27 pre-fix HEAD (PID safety corrective V2; tip f441da4)",
+        "baseline_pid_ownership": BASELINE_PID_OWNERSHIP,
+        "baseline_pid_ownership_feature": BASELINE_PID_OWNERSHIP_FEATURE,
+        "baseline_pid_ownership_freeze": BASELINE_PID_OWNERSHIP_FREEZE,
         "baseline_pr26": BASELINE_PR26,
         "baseline_property_bag": BASELINE_PROPERTY_BAG,
         "baseline_com_release": BASELINE_COM_RELEASE,
         "baseline_coinit": BASELINE_COINIT,
         "baseline_vtbstr": BASELINE_VTBSTR,
         "baseline_pr": 27,
-        "feature_commit": head,
+        "feature_commit": feature,
         "packaging_freeze_commit": head,
+        "audit_staging_note": "feature_commit=code/docs fix; packaging_freeze_commit=HEAD when ZIP built; tip pin may advance after freeze",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "code_paths": code_paths,
         "deleted_paths": deleted,
@@ -239,7 +253,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_PID_OWNERSHIP",
+        "phase": "USB_HF3_PID_SAFETY_CORRECTIVE",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -282,6 +296,9 @@ def main() -> int:
         "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
         "PID_OWNERSHIP_BASELINE_RED.md",
         "OWNER-PID-RESULTS-AND-RCA.md",
+        "PID_SAFETY_BASELINE_RED.md",
+        "PID_SAFETY_RATIONALE.md",
+        "PID_SAFETY_GREEN.txt",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

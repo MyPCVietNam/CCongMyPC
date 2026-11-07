@@ -6,6 +6,7 @@
 | CODE_FIX_VIDEO_DEVICEPATH_MAPPING | code | CI |
 | CODE_FIX_AUDIO_EXCLUDED | code | CI |
 | CODE_FIX_CANDIDATE_HF3_SCRIPT | code (contract) | CI — physical Start BLOCKED until owner Windows |
+| CODE_FIX_PID_SAFETY_STOP_UPDATE | code (contract) | CI static GREEN; Windows PS 5.1 runtime owner-gated |
 | USB_WINDOWS_PHYSICAL | physical | BLOCKED |
 | USB_STABILITY_30_MIN | physical | BLOCKED |
 | USB_CAMERA_LAB_OWNER_SIGN | physical+HMAC | BLOCKED |

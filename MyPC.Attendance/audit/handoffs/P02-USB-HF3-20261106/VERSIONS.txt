@@ -1,3 +1,8 @@
-python: 3.x CI agent
-comtypes pin: requirements-windows.txt
-frontend: vite 6.4.5 / vitest 3.2.4 / typescript 5.6
+python=3.12.3
+platform=Linux-6.12.94+-x86_64-with-glibc2.39
+pytest_note=agent CI (not GitHub Actions; not owner Windows physical)
+frontend_typecheck=PASS
+frontend_vitest=13 passed
+frontend_build=PASS
+windows_ps51_runtime=BLOCKED_UNTIL_OWNER (p02_usb_hf3_pid_safety_runtime_tests.ps1)
+physical_gates=BLOCKED

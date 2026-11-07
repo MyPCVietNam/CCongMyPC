@@ -142,14 +142,19 @@ function Test-Hf3UvicornCommandLine {
     [string]$HostAddr = "127.0.0.1"
   )
   if (-not $CommandLine) { return $false }
-  if ($CommandLine -notmatch 'uvicorn') { return $false }
-  if ($CommandLine -notmatch 'app\.main:app') { return $false }
-  if ($CommandLine -notmatch [regex]::Escape($HostAddr)) { return $false }
-  if ($CommandLine -notmatch [regex]::Escape("$PortNum")) { return $false }
+  # Require actual uvicorn launch tokens — not free-form "uvicorn"/"18878" substrings alone.
+  if ($CommandLine -notmatch '(?i)(^|[\s"''])-m([\s''"]+|[=])uvicorn([\s"'']|$)') { return $false }
+  if ($CommandLine -notmatch '(?i)(^|[\s"''])app\.main:app([\s"'']|$)') { return $false }
+  if ($CommandLine -notmatch ('(?i)--host([=\s]+)"?{0}"?' -f [regex]::Escape($HostAddr))) { return $false }
+  if ($CommandLine -notmatch ('(?i)--port([=\s]+)"?{0}"?' -f [regex]::Escape("$PortNum"))) { return $false }
   $backendNorm = ($Backend -replace '/', '\').TrimEnd('\')
   if (-not $backendNorm) { return $false }
-  if ($CommandLine.IndexOf($backendNorm, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-    return $false
+  if ($CommandLine -notmatch ('(?i)--app-dir([=\s]+)"?{0}' -f [regex]::Escape($backendNorm))) {
+    # Allow quoted/unquoted app-dir; also accept exact backend path after --app-dir
+    if ($CommandLine.IndexOf($backendNorm, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+      return $false
+    }
+    if ($CommandLine -notmatch '(?i)--app-dir') { return $false }
   }
   return $true
 }
@@ -259,10 +264,17 @@ function Resolve-Hf3ListenerOwnership {
 
 function Test-Hf3HealthStartPass([int]$StatusCode, [string]$Body) {
   if ($StatusCode -ne 200) { return $false }
-  if ($Body -notmatch '"status"\s*:\s*"ok"') { return $false }
-  if ($Body -notmatch '"startup_phase"\s*:\s*"READY"') { return $false }
-  if ($Body -match '"status"\s*:\s*"degraded"') { return $false }
-  if ($Body -match '"startup_phase"\s*:\s*"FAIL"') { return $false }
+  if (-not $Body) { return $false }
+  try {
+    $obj = $Body | ConvertFrom-Json
+  } catch {
+    return $false
+  }
+  # Top-level fields only — nested status/startup_phase must not satisfy Start.
+  $topStatus = [string]$obj.status
+  $topPhase = [string]$obj.startup_phase
+  if ($topStatus -ne "ok") { return $false }
+  if ($topPhase -ne "READY") { return $false }
   return $true
 }
 
@@ -283,65 +295,134 @@ function Read-Hf3LaunchMeta([string]$Path) {
   }
 }
 
-function Test-LiveMatchesLaunchMeta {
-  param($Meta, [int]$LivePid)
+function Test-Hf3LaunchMetaSchema($Meta) {
   if (-not $Meta) { return $false }
-  $live = Get-Win32ProcessById $LivePid
-  if (-not $live) { return $false }
-  $liveCreate = ""
-  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
-  if ([string]$Meta.listener_creation -and $liveCreate -ne [string]$Meta.listener_creation) {
-    return $false
-  }
-  if (-not (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend ([string]$Meta.backend) -PortNum ([int]$Meta.port))) {
-    return $false
-  }
-  if (Test-IsConhostName $live.Name) { return $false }
+  if ([string]$Meta.schema -ne "mypc.hf3.launch.v1") { return $false }
+  if ([int]$Meta.port -ne 18878) { return $false }
+  if (-not [string]$Meta.backend) { return $false }
+  if (-not [string]$Meta.listener_creation) { return $false }
+  if ([int]$Meta.listener_pid -le 0) { return $false }
   return $true
 }
 
-function Stop-VerifiedHf3Pids {
+function Test-LiveMatchesLaunchMeta {
+  param($Meta, [int]$LivePid)
+  if (-not (Test-Hf3LaunchMetaSchema $Meta)) { return $false }
+  if ($LivePid -le 0 -or [int]$Meta.listener_pid -ne $LivePid) { return $false }
+  $live = Get-Win32ProcessById $LivePid
+  if (-not $live) { return $false }
+  if (Test-IsConhostName $live.Name) { return $false }
+  $liveCreate = ""
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+  # Fail closed: blank stored or live creation never authenticates.
+  if (-not [string]$Meta.listener_creation) { return $false }
+  if (-not $liveCreate) { return $false }
+  if ($liveCreate -ne [string]$Meta.listener_creation) { return $false }
+  if (-not (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend ([string]$Meta.backend) -PortNum ([int]$Meta.port))) {
+    return $false
+  }
+  return $true
+}
+
+function Stop-VerifiedHf3Identity {
+  <#
+    .SYNOPSIS
+      Kill exactly one process only when PID + required creation timestamp + role proof match.
+      Never uses PowerShell automatic $PID. Never authorizes via candidate-folder substring.
+  #>
   param(
-    [int[]]$Pids,
+    [int]$TargetPid,
+    [string]$ExpectedCreation,
     [string]$Backend,
     [int]$PortNum,
-    [string]$ExpectedCreation = ""
+    [ValidateSet("listener", "launcher")]
+    [string]$Role,
+    [string]$ExpectedExePath = ""
   )
-  $stopped = @()
-  foreach ($pid in ($Pids | Select-Object -Unique)) {
-    if ($pid -le 0) { continue }
-    $p = Get-Win32ProcessById $pid
-    if (-not $p) { continue }
-    if (Test-IsConhostName $p.Name) {
-      Write-Log ("Refusing to kill conhost pid={0}" -f $pid)
-      continue
+  if ($TargetPid -le 0) {
+    Write-Log "Refusing kill — invalid TargetPid"
+    return $false
+  }
+  if (-not $ExpectedCreation) {
+    Write-Log ("Refusing kill pid={0} role={1} — missing required creation timestamp" -f $TargetPid, $Role)
+    return $false
+  }
+  $procInfo = Get-Win32ProcessById $TargetPid
+  if (-not $procInfo) {
+    Write-Log ("Stop identity: pid={0} already absent" -f $TargetPid)
+    return $true
+  }
+  if (Test-IsConhostName $procInfo.Name) {
+    Write-Log ("Refusing to kill conhost pid={0}" -f $TargetPid)
+    return $false
+  }
+  $liveCreate = ""
+  try { $liveCreate = ([datetime]$procInfo.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$procInfo.CreationDate }
+  if (-not $liveCreate -or $liveCreate -ne $ExpectedCreation) {
+    Write-Log ("Refusing to kill pid={0} — creation-time mismatch/absent (possible PID reuse)" -f $TargetPid)
+    return $false
+  }
+  $cmd = [string]$procInfo.CommandLine
+  if ($Role -eq "listener") {
+    if (-not (Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum)) {
+      Write-Log ("Refusing to kill pid={0} — listener cmdline proof failed" -f $TargetPid)
+      return $false
     }
-    $cmd = [string]$p.CommandLine
-    $okCmd = Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum
-    # Launcher may be a short redirector without full uvicorn args — allow python under candidate venv path
-    $venvMarker = "p02-usb-hf3-candidate"
-    $okLauncher = (Test-IsPythonProcessName $p.Name) -and ($cmd.Contains($venvMarker) -or $cmd.Contains("uvicorn"))
-    if (-not ($okCmd -or $okLauncher)) {
-      Write-Log ("Refusing to kill unverified pid={0} name={1}" -f $pid, $p.Name)
-      continue
+  } else {
+    # launcher: must be python AND match expected venv executable path (not folder substring)
+    if (-not (Test-IsPythonProcessName $procInfo.Name)) {
+      Write-Log ("Refusing to kill pid={0} — launcher not python" -f $TargetPid)
+      return $false
     }
-    if ($ExpectedCreation -and $okCmd) {
-      $liveCreate = ""
-      try { $liveCreate = ([datetime]$p.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$p.CreationDate }
-      if ($liveCreate -ne $ExpectedCreation) {
-        Write-Log ("Refusing to kill pid={0} — creation-time mismatch (possible PID reuse)" -f $pid)
-        continue
+    $exe = [string]$procInfo.ExecutablePath
+    if (-not $ExpectedExePath) {
+      Write-Log ("Refusing to kill launcher pid={0} — ExpectedExePath missing" -f $TargetPid)
+      return $false
+    }
+    $exeNorm = ($exe -replace '/', '\').TrimEnd('\')
+    $expNorm = ($ExpectedExePath -replace '/', '\').TrimEnd('\')
+    if (-not $exeNorm -or ($exeNorm.ToLowerInvariant() -ne $expNorm.ToLowerInvariant())) {
+      # Also accept uvicorn cmdline if redirector was replaced by the real server (DIRECT case)
+      if (-not (Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum)) {
+        Write-Log ("Refusing to kill launcher pid={0} — exe path mismatch and no uvicorn proof" -f $TargetPid)
+        return $false
       }
     }
-    try {
-      Stop-Process -Id $pid -Force -ErrorAction Stop
-      $stopped += $pid
-      Write-Log ("Stopped verified pid={0} name={1}" -f $pid, $p.Name)
-    } catch {
-      Write-Log ("Stop-Process failed pid={0}: {1}" -f $pid, $_.Exception.Message)
+  }
+  try {
+    Stop-Process -Id $TargetPid -Force -ErrorAction Stop
+    Write-Log ("Stopped verified pid={0} role={1} name={2}" -f $TargetPid, $Role, $procInfo.Name)
+    return $true
+  } catch {
+    Write-Log ("Stop-Process failed pid={0}: {1}" -f $TargetPid, $_.Exception.Message)
+    return $false
+  }
+}
+
+function Stop-VerifiedHf3LaunchTree {
+  param($Meta)
+  if (-not (Test-Hf3LaunchMetaSchema $Meta)) {
+    Write-Log "Stop tree refused — launch meta schema/identity incomplete"
+    return $false
+  }
+  $backend = [string]$Meta.backend
+  $portNum = [int]$Meta.port
+  $okListener = Stop-VerifiedHf3Identity -TargetPid ([int]$Meta.listener_pid) `
+    -ExpectedCreation ([string]$Meta.listener_creation) `
+    -Backend $backend -PortNum $portNum -Role "listener"
+  $okLauncher = $true
+  if ([int]$Meta.launcher_pid -gt 0 -and [int]$Meta.launcher_pid -ne [int]$Meta.listener_pid) {
+    if (-not [string]$Meta.launcher_creation) {
+      Write-Log ("Refusing launcher kill pid={0} — launcher_creation missing; listener stop ok={1}" -f [int]$Meta.launcher_pid, $okListener)
+      $okLauncher = $false
+    } else {
+      $okLauncher = Stop-VerifiedHf3Identity -TargetPid ([int]$Meta.launcher_pid) `
+        -ExpectedCreation ([string]$Meta.launcher_creation) `
+        -Backend $backend -PortNum $portNum -Role "launcher" `
+        -ExpectedExePath ([string]$Meta.venv_python)
     }
   }
-  return $stopped
+  return ($okListener -and $okLauncher)
 }
 
 Assert-PortSafe
@@ -450,30 +531,7 @@ switch ($Mode) {
     if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare once before Update" }
     if (-not (Test-Path $dataDir)) { throw "DataDir missing — run Prepare first (Update will not create secrets)" }
 
-    # Refuse Update while 18878 is listening unless ownership re-validates against launch meta.
-    $owners = @(Get-Hf3PortListenerOwnerPids $Port)
-    if ($owners.Count -gt 0) {
-      $meta = Read-Hf3LaunchMeta $launchMetaFile
-      $backendGuess = $null
-      try { $backendGuess = Find-BackendDir $srcDir } catch {}
-      $stoppedOwn = $false
-      if ($meta -and $backendGuess -and $owners.Count -eq 1) {
-        $livePid = [int]$owners[0]
-        if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
-          Write-Log ("Update: stopping verified listener pid={0} (rel={1}) before source swap" -f $livePid, $meta.relationship)
-          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend ([string]$meta.backend) -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
-          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 1
-          $still = @(Get-Hf3PortListenerOwnerPids $Port)
-          if ($still.Count -eq 0) { $stoppedOwn = $true }
-        }
-      }
-      if (-not $stoppedOwn) {
-        throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
-      }
-    }
-
+    # Validate FULL-SOURCE SHA256 + staged layout BEFORE interrupting any running candidate.
     $got = Get-Sha256Lower $FullSourceZip
     if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
       throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
@@ -485,7 +543,7 @@ switch ($Mode) {
     New-Item -ItemType Directory -Force -Path $stageSrc | Out-Null
     Expand-Archive -Path $FullSourceZip -DestinationPath $stageSrc -Force
 
-    # Validate staged backend layout BEFORE touching live src.
+    # Validate staged backend layout BEFORE touching live src or stopping the server.
     $stagedBackend = $null
     try { $stagedBackend = Find-BackendDir $stageSrc } catch {
       Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
@@ -496,6 +554,33 @@ switch ($Mode) {
       throw "Update refused: staged backend layout invalid"
     }
     Write-Log ("Update staged backend OK: {0}" -f $stagedBackend)
+
+    # Only now stop a re-validated owned listener (never foreign).
+    $owners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($owners.Count -gt 0) {
+      $meta = Read-Hf3LaunchMeta $launchMetaFile
+      $stoppedOwn = $false
+      if ((Test-Hf3LaunchMetaSchema $meta) -and $owners.Count -eq 1) {
+        $livePid = [int]$owners[0]
+        if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
+          Write-Log ("Update: stopping verified launch tree listener_pid={0} before source swap" -f $livePid)
+          $treeOk = Stop-VerifiedHf3LaunchTree -Meta $meta
+          Start-Sleep -Seconds 1
+          $still = @(Get-Hf3PortListenerOwnerPids $Port)
+          if ($treeOk -and $still.Count -eq 0) {
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+            $stoppedOwn = $true
+          } else {
+            Write-Log "Update: owned stop incomplete — preserving launch meta; refusing source swap"
+          }
+        }
+      }
+      if (-not $stoppedOwn) {
+        Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+        throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
+      }
+    }
 
     $backupLeaf = "src-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss")
     $backup = Join-Path $CandidateRoot $backupLeaf
@@ -567,15 +652,17 @@ switch ($Mode) {
     if ($preOwners.Count -gt 0) {
       $prevMeta = Read-Hf3LaunchMeta $launchMetaFile
       $restarted = $false
-      if ($prevMeta -and $preOwners.Count -eq 1) {
+      if ((Test-Hf3LaunchMetaSchema $prevMeta) -and $preOwners.Count -eq 1) {
         $livePid = [int]$preOwners[0]
         if (([int]$prevMeta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $prevMeta -LivePid $livePid)) {
           Write-Log ("Port $Port owned by previous verified listener pid={0} — stopping before relaunch" -f $livePid)
-          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$prevMeta.launcher_pid) -Backend ([string]$prevMeta.backend) -PortNum $Port -ExpectedCreation ([string]$prevMeta.listener_creation))
-          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          $treeOk = Stop-VerifiedHf3LaunchTree -Meta $prevMeta
           Start-Sleep -Seconds 1
-          if (@(Get-Hf3PortListenerOwnerPids $Port).Count -eq 0) { $restarted = $true }
+          if ($treeOk -and (@(Get-Hf3PortListenerOwnerPids $Port).Count -eq 0)) {
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+            $restarted = $true
+          }
         }
       }
       if (-not $restarted) {
@@ -704,32 +791,49 @@ switch ($Mode) {
 
     if (-not $ok) {
       Write-Log ("Start FAILED code={0} — see {1}" -f $failCode, $errLog)
-      # Cleanup: only stop proven members of THIS launch tree (incl. session-proof child).
-      $ownFail = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
-      $killList = @($launcherPid)
-      $expectCreate = ""
-      if ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $ownFail.ListenerPid -gt 0) {
-        $killList += [int]$ownFail.ListenerPid
-        $expectCreate = [string]$ownFail.ListenerCreation
-      } elseif ($sessionProofPid -gt 0) {
-        $killList += $sessionProofPid
-        $expectCreate = $sessionProofCreation
+      # Cleanup: only stop proven members of THIS launch with per-PID creation stamps.
+      $launcherLive = Get-Win32ProcessById $launcherPid
+      $launcherCreationFail = ""
+      if ($launcherLive) {
+        try { $launcherCreationFail = ([datetime]$launcherLive.CreationDate).ToUniversalTime().ToString("o") } catch { $launcherCreationFail = [string]$launcherLive.CreationDate }
       }
-      if ($killList.Count -gt 1 -or ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT")) -or $sessionProofPid -gt 0) {
-        [void](Stop-VerifiedHf3Pids -Pids $killList -Backend $backend -PortNum $Port -ExpectedCreation $expectCreate)
+      $ownFail = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      $listenerKillPid = 0
+      $listenerKillCreation = ""
+      if ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $ownFail.ListenerPid -gt 0 -and [string]$ownFail.ListenerCreation) {
+        $listenerKillPid = [int]$ownFail.ListenerPid
+        $listenerKillCreation = [string]$ownFail.ListenerCreation
+      } elseif ($sessionProofPid -gt 0 -and $sessionProofCreation) {
+        $listenerKillPid = $sessionProofPid
+        $listenerKillCreation = $sessionProofCreation
+      }
+      if ($listenerKillPid -gt 0 -and $listenerKillCreation) {
+        [void](Stop-VerifiedHf3Identity -TargetPid $listenerKillPid -ExpectedCreation $listenerKillCreation `
+          -Backend $backend -PortNum $Port -Role "listener")
       } else {
-        [void](Stop-VerifiedHf3Pids -Pids @($launcherPid) -Backend $backend -PortNum $Port)
         $foreignOwners = @(Get-Hf3PortListenerOwnerPids $Port)
         if ($foreignOwners.Count -gt 0) {
           Write-Log ("BLOCKED cleanup: listener owner(s)={0} unverified — not killing; manual resolution required" -f ($foreignOwners -join ','))
         }
+      }
+      if ($launcherPid -gt 0 -and $launcherCreationFail -and $launcherPid -ne $listenerKillPid) {
+        [void](Stop-VerifiedHf3Identity -TargetPid $launcherPid -ExpectedCreation $launcherCreationFail `
+          -Backend $backend -PortNum $Port -Role "launcher" -ExpectedExePath $venvPy)
       }
       Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
       Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
       throw ("{0}: Backend Start failed on 127.0.0.1:{1}" -f $failCode, $Port)
     }
 
-    # Persist durable launch identity (listener PID + creation + nonce). PID file alone is insufficient.
+    if (-not $acceptedCreation) {
+      throw "EXIT_LISTENER_OWNERSHIP: Start refused — listener creation timestamp unavailable"
+    }
+    $launcherLiveOk = Get-Win32ProcessById $launcherPid
+    $launcherCreationOk = ""
+    if ($launcherLiveOk) {
+      try { $launcherCreationOk = ([datetime]$launcherLiveOk.CreationDate).ToUniversalTime().ToString("o") } catch { $launcherCreationOk = [string]$launcherLiveOk.CreationDate }
+    }
+    # Persist durable launch identity. PID file alone is insufficient.
     $meta = @{
       schema = "mypc.hf3.launch.v1"
       port = $Port
@@ -737,60 +841,80 @@ switch ($Mode) {
       backend = $backend
       venv_python = $venvPy
       launcher_pid = $launcherPid
+      launcher_creation = $launcherCreationOk
       listener_pid = $acceptedListener
       listener_creation = $acceptedCreation
       relationship = $acceptedRel
       nonce = $launchNonce
       started_utc = (Get-Date).ToUniversalTime().ToString("o")
     }
+    if (-not $launcherCreationOk -and $launcherPid -ne $acceptedListener) {
+      Write-Log "WARN: launcher exited before meta persist — launcher_creation blank; Stop will not kill launcher PID by guess"
+    }
     Save-Hf3LaunchMeta -Path $launchMetaFile -Meta $meta
     Set-Content -Path $pidFile -Value $acceptedListener -Encoding ASCII
-    Write-Log ("Start OK — http://127.0.0.1:{0} listener_pid={1} rel={2}" -f $Port, $acceptedListener, $acceptedRel)
+    Write-Log ("Start OK — http://127.0.0.1:{0} listener_pid={1} rel={2} launcher_creation_present={3}" -f $Port, $acceptedListener, $acceptedRel, [bool]$launcherCreationOk)
   }
   "Stop" {
     $meta = Read-Hf3LaunchMeta $launchMetaFile
-    $backend = $null
-    try { $backend = Find-BackendDir $srcDir } catch {}
-    if (-not $backend -and $meta) { $backend = [string]$meta.backend }
-    if (-not $backend) { $backend = "" }
-
     $listeners = @(Get-Hf3PortListenerOwnerPids $Port)
-    if ($meta -and $listeners.Count -eq 1) {
-      $livePid = [int]$listeners[0]
-      if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
-        Write-Log ("Stop: verified listener_pid={0} rel={1} creation_match=true" -f $livePid, $meta.relationship)
-        [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend $backend -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
-      } else {
-        Write-Log ("Stop: port listener pid={0} does not match launch meta — refusing kill" -f $livePid)
+
+    if (-not $meta) {
+      if (Test-Path $pidFile) {
+        Write-Log "EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid present without uvicorn.launch.json — refuse kill; preserving evidence"
+        throw "EXIT_STOP_BLOCKED_LEGACY_PID: launch meta required; will not terminate by numeric PID alone"
       }
-    } elseif ($meta -and $listeners.Count -gt 1) {
-      Write-Log "Stop: AMBIGUOUS listeners — refusing kill"
-    } elseif ($meta -and $listeners.Count -eq 0) {
-      # No listener; still try launcher if alive and matches candidate python
-      Write-Log "Stop: no listener; attempting verified launcher cleanup only"
-      [void](Stop-VerifiedHf3Pids -Pids @([int]$meta.launcher_pid) -Backend $backend -PortNum $Port)
-    } elseif (Test-Path $pidFile) {
-      # Legacy pid file without meta — only stop if live process still matches exact uvicorn cmdline
-      $old = 0
-      try { $old = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
-      if ($old -gt 0 -and $backend) {
-        $p = Get-Win32ProcessById $old
-        if ($p -and (Test-Hf3UvicornCommandLine -CommandLine ([string]$p.CommandLine) -Backend $backend -PortNum $Port)) {
-          [void](Stop-VerifiedHf3Pids -Pids @($old) -Backend $backend -PortNum $Port)
-        } else {
-          Write-Log ("Stop: refusing legacy pid={0} without launch meta / cmdline proof" -f $old)
-        }
-      }
-    } else {
       Write-Log "No launch meta / pid file — nothing to stop"
+      return
     }
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
-    $left = @(Get-Hf3PortListenerOwnerPids $Port)
-    if ($left.Count -eq 0) {
+
+    if (-not (Test-Hf3LaunchMetaSchema $meta)) {
+      Write-Log "EXIT_STOP_BLOCKED: launch meta incomplete (schema/port/backend/listener_creation) — preserving files"
+      throw "EXIT_STOP_BLOCKED: incomplete launch meta"
+    }
+
+    if ($listeners.Count -gt 1) {
+      Write-Log ("EXIT_AMBIGUOUS_LISTENERS: refusing kill; preserving launch meta. owners={0}" -f ($listeners -join ','))
+      throw "EXIT_AMBIGUOUS_LISTENERS: Stop refused"
+    }
+
+    if ($listeners.Count -eq 1) {
+      $livePid = [int]$listeners[0]
+      if (-not (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid))) {
+        Write-Log ("EXIT_FOREIGN_LISTENER: port listener pid={0} does not match launch meta — refuse kill; preserving evidence" -f $livePid)
+        throw "EXIT_FOREIGN_LISTENER: Stop refused"
+      }
+      Write-Log ("Stop: verified listener_pid={0} rel={1} creation_match=true launcher_creation_present={2}" -f $livePid, $meta.relationship, [bool][string]$meta.launcher_creation)
+      $treeOk = Stop-VerifiedHf3LaunchTree -Meta $meta
+      $left = @(Get-Hf3PortListenerOwnerPids $Port)
+      if (-not $treeOk -or $left.Count -gt 0) {
+        Write-Log ("EXIT_STOP_INCOMPLETE: treeOk={0} remaining_owners={1} — preserving launch meta" -f $treeOk, ($left -join ','))
+        throw "EXIT_STOP_INCOMPLETE: owned listener may still be present"
+      }
+      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+      Write-Log "Stop OK — port 18878 has no listener"
+      return
+    }
+
+    # No listener: only stop launcher if launcher_creation proves identity
+    Write-Log "Stop: no listener on 18878; attempting launcher-only cleanup with launcher_creation"
+    if ([int]$meta.launcher_pid -gt 0 -and [string]$meta.launcher_creation) {
+      [void](Stop-VerifiedHf3Identity -TargetPid ([int]$meta.launcher_pid) `
+        -ExpectedCreation ([string]$meta.launcher_creation) `
+        -Backend ([string]$meta.backend) -PortNum ([int]$meta.port) `
+        -Role "launcher" -ExpectedExePath ([string]$meta.venv_python))
+    } else {
+      Write-Log "Stop: launcher_creation missing/blank — not killing launcher PID"
+    }
+    $left2 = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($left2.Count -eq 0) {
+      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
       Write-Log "Stop OK — port 18878 has no listener"
     } else {
-      Write-Log ("Stop finished with remaining listener owner pid(s): {0} (manual check if foreign)" -f ($left -join ','))
+      Write-Log ("EXIT_STOP_INCOMPLETE: remaining owners={0} — preserving launch meta" -f ($left2 -join ','))
+      throw "EXIT_STOP_INCOMPLETE"
     }
   }
   "Diagnose" {

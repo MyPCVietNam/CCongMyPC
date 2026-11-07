@@ -55,20 +55,50 @@ def uvicorn_cmdline_matches(
     backend: str,
     host: str = "127.0.0.1",
 ) -> bool:
+    import re
+
     c = cmd or ""
-    if "uvicorn" not in c:
+    if not re.search(r"(?i)(^|[\s\"'])-m([\s\"']+|[=])uvicorn([\s\"']|$)", c):
         return False
-    if "app.main:app" not in c:
+    if not re.search(r"(?i)(^|[\s\"'])app\.main:app([\s\"']|$)", c):
         return False
-    if host not in c:
+    if not re.search(rf"(?i)--host([=\s]+)\"?{re.escape(host)}\"?", c):
         return False
-    if str(port) not in c:
+    if not re.search(rf"(?i)--port([=\s]+)\"?{re.escape(str(port))}\"?", c):
+        return False
+    if not re.search(r"(?i)--app-dir", c):
         return False
     backend_n = (backend or "").rstrip("\\/").lower().replace("/", "\\")
     cmd_n = c.lower().replace("/", "\\")
     if backend_n and backend_n not in cmd_n:
         return False
     return True
+
+
+def kill_authorized(
+    *,
+    role: str,
+    expected_creation: str,
+    live_creation: str,
+    is_conhost: bool,
+    cmdline_ok: bool,
+    is_python: bool,
+    exe_matches_expected: bool,
+) -> bool:
+    """Mirror Stop-VerifiedHf3Identity fail-closed rules (no folder-substring auth)."""
+    if is_conhost:
+        return False
+    if not expected_creation or not live_creation:
+        return False
+    if expected_creation != live_creation:
+        return False
+    if role == "listener":
+        return bool(cmdline_ok)
+    if role == "launcher":
+        if not is_python:
+            return False
+        return bool(exe_matches_expected or cmdline_ok)
+    return False
 
 
 def is_descendant(
@@ -166,20 +196,22 @@ def classify_port_listeners(
 
 
 def health_is_start_pass(status_code: int, body: str) -> bool:
-    """Start PASS requires HTTP 200 + status=ok + startup_phase=READY only."""
+    """Start PASS requires HTTP 200 + top-level status=ok + startup_phase=READY."""
     if int(status_code) != 200:
         return False
     b = body or ""
-    if '"status"' not in b or '"startup_phase"' not in b:
+    if not b.strip():
         return False
-    # Reject degraded / FAIL explicitly even if other tokens present
-    import re
+    import json
 
-    sm = re.search(r'"status"\s*:\s*"([^"]+)"', b)
-    pm = re.search(r'"startup_phase"\s*:\s*"([^"]+)"', b)
-    if not sm or not pm:
+    try:
+        obj = json.loads(b)
+    except (TypeError, ValueError, json.JSONDecodeError):
         return False
-    return sm.group(1) == "ok" and pm.group(1) == "READY"
+    if not isinstance(obj, dict):
+        return False
+    # Nested status/startup_phase must not satisfy Start.
+    return obj.get("status") == "ok" and obj.get("startup_phase") == "READY"
 
 
 def creation_time_matches(expected: str, actual: str) -> bool:
