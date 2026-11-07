@@ -205,7 +205,10 @@ def main() -> int:
         "V3_ADDITIONAL_BASELINE_RED.txt",
         "V3_ADDITIONAL_GREEN.txt",
         "V3_ADDITIONAL_RATIONALE.md",
+        "V3_ADDITIONAL_HF3_84_PASS.txt",
+        "INDEPENDENT_REPRO_test_hf3_v3_safety_additional.py",
         "OMITTED_HISTORICAL_ARCHIVES.md",
+        "GITHUB_ACTIONS.txt",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -286,7 +289,18 @@ def main() -> int:
         ],
         "candidate_port": 18878,
         "phase": "USB_HF3_QUALITY_GUARD_V1",
-        "github_actions": "UNRUN_UNTIL_WORKFLOW_APPEARS",
+        "github_actions": {
+            "feature_tip": "a0e88efb74c850c21526501f3f343357965f649c",
+            "workflow_run_url": "https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763",
+            "conclusion": "success",
+            "jobs": [
+                "guard-contract",
+                "windows-contract",
+                "backend-linux",
+                "frontend",
+            ],
+            "note": "Check runs on feature tip before packaging-freeze commit; freeze may re-trigger Actions.",
+        },
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -338,7 +352,10 @@ def main() -> int:
         "V3_ADDITIONAL_BASELINE_RED.txt",
         "V3_ADDITIONAL_GREEN.txt",
         "V3_ADDITIONAL_RATIONALE.md",
+        "V3_ADDITIONAL_HF3_84_PASS.txt",
+        "INDEPENDENT_REPRO_test_hf3_v3_safety_additional.py",
         "OMITTED_HISTORICAL_ARCHIVES.md",
+        "GITHUB_ACTIONS.txt",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

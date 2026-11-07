@@ -1,16 +1,90 @@
 FFFFFF                                                                   [100%]
 =================================== FAILURES ===================================
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:47: AssertionError: Start deletes persisted launch evidence with port free without checking launcher PID and creation
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:55: AssertionError: Start erases PID-only evidence without determining whether that process is alive
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:67: AssertionError: A foreign Python -c process with fake uvicorn flags is accepted as owned
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:74: AssertionError: PowerShell permits -m uvicorn anywhere, including arguments to python -c
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:82: AssertionError: DIRECT listener is accepted without a Python process-name check (Python mirror rejects it)
-/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py:90: AssertionError: Opt-in synthetic lab directly kills a PID selected by its socket without verifying creation + process identity
+E   AssertionError: Start deletes persisted launch evidence with port free without checking launcher PID and creation
+    assert ('Read-Hf3LaunchMeta' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ')
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:47: AssertionError: Start deletes persisted launch evidence with port free without checking launcher PID and creation
+E   AssertionError: Start erases PID-only evidence without determining whether that process is alive
+    assert ('EXIT_STOP_BLOCKED_LEGACY_PID' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ' or 'Get-Win32ProcessById' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ')
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:55: AssertionError: Start erases PID-only evidence without determining whether that process is alive
+E   AssertionError: A foreign Python -c process with fake uvicorn flags is accepted as owned
+    assert not True
+     +  where True = <function uvicorn_cmdline_matches at 0x7f99856ef380>('C:\\Python\\python.exe -c "import time; time.sleep(60)" -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir C:\\HF3\\backend', port=18878, backend='C:\\HF3\\backend')
+     +    where <function uvicorn_cmdline_matches at 0x7f99856ef380> = <module 'mypc_hf3_pid_additional' from '/mnt/data/mypc_audit_v3/full/MyPC.Attendance/scripts/windows/hf3_pid_ownership.py'>.uvicorn_cmdline_matches
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:67: AssertionError: A foreign Python -c process with fake uvicorn flags is accepted as owned
+E   AssertionError: PowerShell permits -m uvicorn anywhere, including arguments to python -c
+    assert 'for ($i = 0... - 1); $i++)' not in '\n  param(\...$true\n}\n\n'
+      
+      'for ($i = 0; $i -l...v.Count - 1); $i++)' is contained here:
+         $false
+          for ($i = 0; $i -lt ($argv.Count - 1); $i++) {
+            if (([string]$argv[$i]).ToLowerInvariant() -eq "-m" -and ([string]$argv[$i + 1]).ToLowerInvariant() -eq "uvicorn") {
+              $foundM = $true
+              break
+            }
+          }
+          if (-not $foundM) { return $false }
+          if (-not ($argv -contains "app.main:app")) { return $false }
+          $hosts = @(Get-Hf3OptionValues $argv "--host")
+          $ports = @(Get-Hf3OptionValues $argv "--port")
+          $appDirs = @(Get-Hf3OptionValues $argv "--app-dir")
+          if ($hosts.Count -ne 1 -or $hosts[0] -eq "__MISSING__") { return $false }
+          if ($ports.Count -ne 1 -or $ports[0] -eq "__MISSING__") { return $false }
+          if ($appDirs.Count -ne 1 -or $appDirs[0] -eq "__MISSING__") { return $false }
+          if ([string]$hosts[0] -ne $HostAddr) { return $false }
+          if ([string]$ports[0] -ne "$PortNum") { return $false }
+          $backendNorm = (($Backend -replace '/', '\').TrimEnd('\')).ToLowerInvariant()
+          if (-not $backendNorm) { return $false }
+          $appNorm = (([string]$appDirs[0] -replace '/', '\').TrimEnd('\')).ToLowerInvariant()
+          # Exact canonical --app-dir value only — never IndexOf/substring anywhere in cmdline.
+          if ($appNorm -ne $backendNorm) { return $false }
+          return $true
+        }
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:74: AssertionError: PowerShell permits -m uvicorn anywhere, including arguments to python -c
+E   AssertionError: DIRECT listener is accepted without a Python process-name check (Python mirror rejects it)
+    assert 'Test-IsPythonProcessName $listener.Name' in ' {\n    return [pscustomobject]@{\n      Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation\n    }\n  }\n  '
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:82: AssertionError: DIRECT listener is accepted without a Python process-name check (Python mirror rejects it)
+E   AssertionError: Opt-in synthetic lab directly kills a PID selected by its socket without verifying creation + process identity
+    assert ('CreationDate' in ' {\n  $venvPy = Join-Path $CandidateRoot "venv\\Scripts\\python.exe"\n  if (-not (Test-Path $venvPy)) {\n    Write-Ho...ULT: PASS (Windows PS 5.1 PID-safety runtime checks; Stop-Process mocked by default)" -ForegroundColor Green\nexit 0\n')
+/mnt/data/mypc_audit_v3/test_hf3_v3_safety_additional.py:90: AssertionError: Opt-in synthetic lab directly kills a PID selected by its socket without verifying creation + process identity
 =========================== short test summary info ============================
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_start_refuses_unverified_live_launcher_when_port_free
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_start_does_not_silently_discard_legacy_pid_when_port_free
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_python_owner_check_rejects_python_dash_c_even_with_uvicorn_flags
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_powershell_owner_check_requires_module_as_interpreter_entrypoint
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_powershell_direct_listener_requires_python_identity
-FAILED tests/unit/test_p02_usb_hf3_v3_safety_additional.py::test_opt_in_synthetic_lab_does_not_kill_by_port_owner_only
-6 failed in 0.02s
+FAILED ../../test_hf3_v3_safety_additional.py::test_start_refuses_unverified_live_launcher_when_port_free - AssertionError: Start deletes persisted launch evidence with port free without checking launcher PID and creation
+assert ('Read-Hf3LaunchMeta' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ')
+FAILED ../../test_hf3_v3_safety_additional.py::test_start_does_not_silently_discard_legacy_pid_when_port_free - AssertionError: Start erases PID-only evidence without determining whether that process is alive
+assert ('EXIT_STOP_BLOCKED_LEGACY_PID' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ' or 'Get-Win32ProcessById' in ' — never kill by PID alone\n      if (Test-Path $pidFile) {\n        Write-Log "Ignoring stale uvicorn.pid while port... while port is free"\n        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue\n      }\n    }\n\n    ')
+FAILED ../../test_hf3_v3_safety_additional.py::test_python_owner_check_rejects_python_dash_c_even_with_uvicorn_flags - AssertionError: A foreign Python -c process with fake uvicorn flags is accepted as owned
+assert not True
+ +  where True = <function uvicorn_cmdline_matches at 0x7f99856ef380>('C:\\Python\\python.exe -c "import time; time.sleep(60)" -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir C:\\HF3\\backend', port=18878, backend='C:\\HF3\\backend')
+ +    where <function uvicorn_cmdline_matches at 0x7f99856ef380> = <module 'mypc_hf3_pid_additional' from '/mnt/data/mypc_audit_v3/full/MyPC.Attendance/scripts/windows/hf3_pid_ownership.py'>.uvicorn_cmdline_matches
+FAILED ../../test_hf3_v3_safety_additional.py::test_powershell_owner_check_requires_module_as_interpreter_entrypoint - AssertionError: PowerShell permits -m uvicorn anywhere, including arguments to python -c
+assert 'for ($i = 0... - 1); $i++)' not in '\n  param(\...$true\n}\n\n'
+  
+  'for ($i = 0; $i -l...v.Count - 1); $i++)' is contained here:
+     $false
+      for ($i = 0; $i -lt ($argv.Count - 1); $i++) {
+        if (([string]$argv[$i]).ToLowerInvariant() -eq "-m" -and ([string]$argv[$i + 1]).ToLowerInvariant() -eq "uvicorn") {
+          $foundM = $true
+          break
+        }
+      }
+      if (-not $foundM) { return $false }
+      if (-not ($argv -contains "app.main:app")) { return $false }
+      $hosts = @(Get-Hf3OptionValues $argv "--host")
+      $ports = @(Get-Hf3OptionValues $argv "--port")
+      $appDirs = @(Get-Hf3OptionValues $argv "--app-dir")
+      if ($hosts.Count -ne 1 -or $hosts[0] -eq "__MISSING__") { return $false }
+      if ($ports.Count -ne 1 -or $ports[0] -eq "__MISSING__") { return $false }
+      if ($appDirs.Count -ne 1 -or $appDirs[0] -eq "__MISSING__") { return $false }
+      if ([string]$hosts[0] -ne $HostAddr) { return $false }
+      if ([string]$ports[0] -ne "$PortNum") { return $false }
+      $backendNorm = (($Backend -replace '/', '\').TrimEnd('\')).ToLowerInvariant()
+      if (-not $backendNorm) { return $false }
+      $appNorm = (([string]$appDirs[0] -replace '/', '\').TrimEnd('\')).ToLowerInvariant()
+      # Exact canonical --app-dir value only — never IndexOf/substring anywhere in cmdline.
+      if ($appNorm -ne $backendNorm) { return $false }
+      return $true
+    }
+FAILED ../../test_hf3_v3_safety_additional.py::test_powershell_direct_listener_requires_python_identity - AssertionError: DIRECT listener is accepted without a Python process-name check (Python mirror rejects it)
+assert 'Test-IsPythonProcessName $listener.Name' in ' {\n    return [pscustomobject]@{\n      Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation\n    }\n  }\n  '
+FAILED ../../test_hf3_v3_safety_additional.py::test_opt_in_synthetic_lab_does_not_kill_by_port_owner_only - AssertionError: Opt-in synthetic lab directly kills a PID selected by its socket without verifying creation + process identity
+assert ('CreationDate' in ' {\n  $venvPy = Join-Path $CandidateRoot "venv\\Scripts\\python.exe"\n  if (-not (Test-Path $venvPy)) {\n    Write-Ho...ULT: PASS (Windows PS 5.1 PID-safety runtime checks; Stop-Process mocked by default)" -ForegroundColor Green\nexit 0\n')
+6 failed in 0.03s

@@ -1,0 +1,18 @@
+# GitHub Actions — MyPC Quality Guard on packaging tip
+# Agent-local pytest is NOT a substitute for these check runs.
+
+commit: a0e88efb74c850c21526501f3f343357965f649c
+workflow_run: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763
+conclusion: success (all four jobs)
+
+jobs:
+- guard-contract: success
+  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763/job/128350739098
+- windows-contract: success (Windows PowerShell 5.1 + Pester + analyzer)
+  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763/job/128350739226
+- backend-linux: success
+  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763/job/128350739279
+- frontend: success
+  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763/job/128350739358
+
+Physical gates remain BLOCKED (not exercised by these jobs).

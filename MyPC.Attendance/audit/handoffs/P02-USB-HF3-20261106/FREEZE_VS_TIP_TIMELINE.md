@@ -14,7 +14,9 @@ Naming:
 - audited_pr_tip_at_handoff=`ab1161dd87f0f363ea3974cf68c79b095ec11f03`
 - baseline_pre_v3_additional=`e04a34121f3bf00253685a8512e2b835aa86b7ab` (Quality Guard tip before this fix)
 - feature_commit / packaging_freeze / tip_after_push: filled at package time in `FEATURE_COMMIT.txt`, `PACKAGING_FREEZE_COMMIT.txt`, `REMOTE_PR_TIP.txt`, `PACKAGE_META.json`
-- github_actions: record actual check-run URLs after Actions complete; else `UNRUN`/`BLOCKED`
+- feature_tip_ci_green=`a0e88efb74c850c21526501f3f343357965f649c`
+- github_actions_run=`https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763` (guard/windows/backend/frontend SUCCESS)
+- packaging_freeze / tip_after_push: set at package commit
 - owner_windows_physical=`BLOCKED`
 
 ## Quality Guard v1.0 (prior on same PR)

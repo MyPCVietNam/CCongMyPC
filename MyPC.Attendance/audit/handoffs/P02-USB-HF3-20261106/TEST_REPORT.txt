@@ -1,13 +1,20 @@
-# Agent-local test report (NOT a GitHub Actions check run)
-UTC: 2026-11-07T08:18:12.619019+00:00
-HEAD_at_report: 0c2bcad4533184d1f58784c6b9decacb0e207720
+# Test report — code gates vs physical gates
 
-Agent-local (Linux):
-- test_p02_usb_hf3_v3_safety_additional.py: 6 passed (exit 0)
-- HF3 unit suite (test_p02_usb_hf3*.py): 91 passed (exit 0)
-- backend unit/integration/acceptance (not real_model): 524 passed, 5 skipped (exit 0)
-- quality_guard/tests: 19 passed (exit 0)
-- quality_guard/check.py --strict: PASS (exit 0)
+UTC: 2026-11-07T08:24:06.532313+00:00
+Feature tip (pre-packaging): a0e88efb74c850c21526501f3f343357965f649c
 
-GitHub Actions: record URLs after workflow completes on packaging tip — agent-local ≠ CI check run.
-Physical gates BLOCKED: USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN, FACE_PILOT, INSTALLER, PRODUCTION_READY
+## GitHub Actions (authoritative for CI)
+Workflow run SUCCESS: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763
+- guard-contract: PASS
+- windows-contract: PASS (PS 5.1 / Pester / ScriptAnalyzer)
+- backend-linux: PASS
+- frontend: PASS
+
+## Agent-local (supplementary; not a GitHub check run)
+- independent V3 additional 6: PASS
+- HF3 unit suite: 91 PASS
+- backend not real_model: 524 passed, 5 skipped
+- quality_guard check --strict: PASS
+
+## Owner Windows / physical (BLOCKED — do not Start)
+USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN, FACE_PILOT, INSTALLER, PRODUCTION_READY = BLOCKED
