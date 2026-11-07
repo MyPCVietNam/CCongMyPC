@@ -45,4 +45,27 @@ def test_owner_windows_repeated_enumeration_no_com_leak_warnings():
         res = enumerate_video_capture_monikers()
         warns += int(res.com_release_warning_count)
         assert res.dshow_enum_ok is True
+        assert res.first_blocker_code != "DSHOW_COINIT_FAILED", res.stage_notes
+        assert "coinit:TypeError" not in list(res.stage_notes)
     assert warns == 0, f"COM release warnings across 20 cycles: {warns}"
+
+
+def test_owner_windows_sta_worker_init_uninit_and_property_bag():
+    """Real STA worker: CoInitializeEx(flags) must succeed; bag/path stages truthfully counted.
+
+    Synthetic CI must never mark this PASS — gated by MYPC_OWNER_WINDOWS_USB=1.
+    """
+    from app.vision.camera.dshow_com_enum import (
+        BLOCKER_COINIT_FAILED,
+        enumerate_video_capture_monikers,
+        redacted_enum_diagnostics,
+    )
+
+    res = enumerate_video_capture_monikers()
+    diag = redacted_enum_diagnostics()
+    assert res.first_blocker_code != BLOCKER_COINIT_FAILED, diag
+    assert diag.get("DSHOW_FIRST_EXCEPTION_CLASS") != "TypeError" or res.dshow_enum_ok
+    assert res.dshow_enum_ok is True, diag
+    assert res.property_bag_bind_ok_count >= 1, diag
+    assert res.device_path_read_ok_count >= 1, diag
+    assert int(diag.get("COM_RELEASE_WARNING_COUNT", -1)) == 0

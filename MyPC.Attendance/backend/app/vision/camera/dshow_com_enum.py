@@ -37,6 +37,7 @@ IID_IPropertyBag = "{55272A00-42CB-11CE-8135-00AA004BB851}"
 # Blocker / stage codes (redacted — never include raw PnP / DevicePath)
 BLOCKER_NOT_WINDOWS = "NOT_WINDOWS"
 BLOCKER_COMTYPES_MISSING = "COMTYPES_MISSING"
+BLOCKER_COINIT_FAILED = "DSHOW_COINIT_FAILED"
 BLOCKER_COCREATE_FAILED = "DSHOW_COCREATE_FAILED"
 BLOCKER_CLASS_ENUM_EMPTY = "DSHOW_VIDEO_CATEGORY_EMPTY"
 BLOCKER_CLASS_ENUM_FAILED = "DSHOW_CLASS_ENUM_FAILED"
@@ -358,18 +359,23 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
     stage_notes: list[str] = []
     need_uninit = False
     try:
-        CoInitializeEx(None, _COINIT_APARTMENTTHREADED)
+        # comtypes 1.4.17: CoInitializeEx(flags=None) — wrapper already passes
+        # NULL punkOuter to ole32._CoInitializeEx. Do NOT pass (None, flags).
+        CoInitializeEx(_COINIT_APARTMENTTHREADED)
         need_uninit = True
     except Exception as exc:  # noqa: BLE001
         cls, hr = _exc_meta(exc)
+        # Distinguish Python arity/TypeError from COM HRESULT failures.
         # RPC_E_CHANGED_MODE: apartment already initialized differently on this thread
         # (should not happen on a fresh worker). Fail closed rather than fight it.
+        # Early coinit failure ⇒ COM_RELEASE_WARNING_COUNT stays 0; that is NOT a
+        # physical USB PASS.
         return DshowEnumResult(
             monikers=[],
-            blocker_code=BLOCKER_COCREATE_FAILED,
+            blocker_code=BLOCKER_COINIT_FAILED,
             hresult=hr,
             detail_vi=f"CoInitializeEx thất bại ({cls}).",
-            first_blocker_code=BLOCKER_COCREATE_FAILED,
+            first_blocker_code=BLOCKER_COINIT_FAILED,
             first_exception_class=cls,
             stage_notes=[f"coinit:{cls}"],
         )
