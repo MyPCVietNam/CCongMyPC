@@ -1353,8 +1353,13 @@ switch ($Mode) {
         if (-not [int]::TryParse(([string]$rawLegacy).Trim(), [ref]$legacyPidStart) -or $legacyPidStart -le 0) {
           throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: malformed uvicorn.pid"
         }
-        try { $null = Get-Win32ProcessById $legacyPidStart } catch {
+        $legacyLive = $null
+        try { $legacyLive = Get-Win32ProcessById $legacyPidStart } catch {
           throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy pid probe failed"
+        }
+        if ($legacyLive) {
+          # Historical contract token (Pester + V3): refuse Start over numeric PID alone.
+          throw "EXIT_STOP_BLOCKED_LEGACY_PID: launch meta required; will not Start over live numeric PID alone"
         }
         $startGate = Invoke-Hf3StartHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port
         if ($startGate.Action -eq "CLEAR_STALE_PID") {
