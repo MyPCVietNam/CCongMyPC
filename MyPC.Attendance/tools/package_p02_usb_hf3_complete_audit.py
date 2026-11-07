@@ -16,6 +16,7 @@ ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
 # CHANGED zip is relative to PR #27 tip before Quality Guard v1.0 integration.
 # Prior tips remain in PACKAGE_META for custody; do not rewrite immutable pins.
+# CHANGED zip is relative to PR #27 tip immediately before V3-additional corrective.
 BASELINE = "e04a34121f3bf00253685a8512e2b835aa86b7ab"
 BASELINE_PID_SAFETY_V3_FEATURE = "97c1e9df2d54314098066eca7c88c7e82edc4c79"
 BASELINE_PID_SAFETY_V3_FREEZE = "00858e3f78325517c43c4d688e5547748928b3a0"
@@ -201,6 +202,10 @@ def main() -> int:
         "PID_SAFETY_V3_BASELINE_RED.txt",
         "PID_SAFETY_V3_GREEN.txt",
         "PID_SAFETY_V3_RATIONALE.md",
+        "V3_ADDITIONAL_BASELINE_RED.txt",
+        "V3_ADDITIONAL_GREEN.txt",
+        "V3_ADDITIONAL_RATIONALE.md",
+        "OMITTED_HISTORICAL_ARCHIVES.md",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -247,9 +252,12 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (Quality Guard v1.0 on tip ab1161d; V3 freeze 00858e3)",
+        "baseline_note": "PR #27 tip before V3-additional corrective (Quality Guard on e04a341; audited V3 freeze 00858e3)",
         "baseline_pid_safety_v3_feature": BASELINE_PID_SAFETY_V3_FEATURE,
         "baseline_pid_safety_v3_freeze": BASELINE_PID_SAFETY_V3_FREEZE,
+        "audited_v3_complete_sha256": "508f4fbc444f1ebb5fa7782a52ba8bb236448822e679718de344aeab10fce80f",
+        "historical_zip_digests_omitted_from_full_source": True,
+        "historical_zip_digests_note": "Tracked SHA256SUMS*.txt under older handoffs list digests for intentionally omitted .zip archives; see OMITTED_HISTORICAL_ARCHIVES.md — do not claim those binaries are verified inside FULL-SOURCE.",
         "baseline_pid_safety_v2_freeze": BASELINE_PID_SAFETY_V2_FREEZE,
         "baseline_pid_safety_v2_feature": BASELINE_PID_SAFETY_V2_FEATURE,
         "baseline_pid_ownership": BASELINE_PID_OWNERSHIP,
@@ -327,6 +335,10 @@ def main() -> int:
         "PID_SAFETY_V3_BASELINE_RED.txt",
         "PID_SAFETY_V3_GREEN.txt",
         "PID_SAFETY_V3_RATIONALE.md",
+        "V3_ADDITIONAL_BASELINE_RED.txt",
+        "V3_ADDITIONAL_GREEN.txt",
+        "V3_ADDITIONAL_RATIONALE.md",
+        "OMITTED_HISTORICAL_ARCHIVES.md",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

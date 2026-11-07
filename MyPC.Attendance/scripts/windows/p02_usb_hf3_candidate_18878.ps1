@@ -814,7 +814,11 @@ switch ($Mode) {
                                     @{Pid=[int]$prevFree.listener_pid; Create=[string]$prevFree.listener_creation; Role="listener"})) {
           $probePid = [int]$rolePidName.Pid
           if ($probePid -le 0) { continue }
-          $liveProbe = Get-Win32ProcessById $probePid
+          $liveProbe = $null
+          try { $liveProbe = Get-Win32ProcessById $probePid } catch {
+            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} probe failed — preserving evidence" -f $rolePidName.Role, $probePid)
+            throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: process probe failed; owner must inspect"
+          }
           if (-not $liveProbe) { continue }
           if (-not [string]$rolePidName.Create) {
             Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} live without creation — preserving evidence" -f $rolePidName.Role, $probePid)
@@ -841,15 +845,21 @@ switch ($Mode) {
         # Legacy pid-only evidence: probe before discard; never silent erase if live/unverifiable.
         $rawPidTxt = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
         $legacyPid = 0
-        [void][int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
-        if ($legacyPid -gt 0) {
-          $liveLegacy = Get-Win32ProcessById $legacyPid
-          if ($liveLegacy) {
-            Write-Log ("EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — preserve file; refuse Start" -f $legacyPid)
-            throw "EXIT_STOP_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
-          }
+        $parsedOk = [int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
+        if (-not $parsedOk -or $legacyPid -le 0) {
+          Write-Log "EXIT_START_STALE_IDENTITY_UNVERIFIED: uvicorn.pid present but unreadable — preserving file; refuse Start"
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy PID file unreadable; owner must inspect"
         }
-        Write-Log "Ignoring stale uvicorn.pid while port is free and PID absent (no kill)"
+        $liveLegacy = $null
+        try { $liveLegacy = Get-Win32ProcessById $legacyPid } catch {
+          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: cannot prove uvicorn.pid={0} absent — preserving file" -f $legacyPid)
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy PID probe failed; owner must inspect"
+        }
+        if ($liveLegacy) {
+          Write-Log ("EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — preserve file; refuse Start" -f $legacyPid)
+          throw "EXIT_STOP_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
+        }
+        Write-Log "Ignoring stale uvicorn.pid while port is free and PID proven absent (no kill)"
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
       }
     }

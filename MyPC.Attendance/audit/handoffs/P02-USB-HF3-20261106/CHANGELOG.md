@@ -1,5 +1,18 @@
 # P02-USB-HF3 changelog
 
+## Patch on PR #27 — V3 additional independent corrective (in-place)
+
+- Start free-port: probe `Read-Hf3LaunchMeta` + `Get-Win32ProcessById`; refuse with
+  `EXIT_START_STALE_LAUNCHER` / `EXIT_START_STALE_IDENTITY_UNVERIFIED` / legacy PID block;
+  archive redacted meta only when identities proven absent (never kill to clear).
+- Contiguous Python → `-m uvicorn app.main:app` entrypoint (reject `-c` / `--reload` / `--workers`);
+  DIRECT listener requires Python process name; PS mirror matches Python helper.
+- Synthetic lab: approval env only; no qualified real `Stop-Process`; natural exit; default
+  harness asserts mock-only kill boundary.
+- Quality Guard gates + Pester extended; CI `fetch-depth: 0` for ancestry; Inspect `$profile` rename.
+- Packaging hygiene: `OMITTED_HISTORICAL_ARCHIVES.md`; truthful feature vs freeze vs tip naming.
+- Independent 6 additional tests GREEN; physical gates remain BLOCKED.
+
 ## Patch on PR #27 — Engineering Quality Guard v1.0 (in-place)
 
 - Installed `repository-overlay/` at repo root: `AGENTS.md`, `.cursor/` rules/hooks/skill,

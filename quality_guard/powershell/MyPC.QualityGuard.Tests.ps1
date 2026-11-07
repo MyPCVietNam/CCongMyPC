@@ -32,4 +32,39 @@ Describe 'MyPC HF3 Windows process-safety contract' {
         $raw | Should -Match 'launcher_creation'
         $raw | Should -Match 'listener_creation'
     }
+    It 'Start free-port branch probes launch meta before cleanup' {
+        $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
+        $start = $raw.IndexOf('"Start" {')
+        $stop = $raw.IndexOf('"Stop" {')
+        $start | Should -BeGreaterThan -1
+        $stop | Should -BeGreaterThan $start
+        $branch = $raw.Substring($start, $stop - $start)
+        $branch | Should -Match 'Stale metadata with free port'
+        $branch | Should -Match 'Read-Hf3LaunchMeta'
+        $branch | Should -Match 'Get-Win32ProcessById'
+        $branch | Should -Match 'EXIT_START_STALE_LAUNCHER'
+        $branch | Should -Match 'EXIT_START_STALE_IDENTITY_UNVERIFIED'
+        $branch | Should -Match 'EXIT_STOP_BLOCKED_LEGACY_PID'
+    }
+    It 'Test-Hf3UvicornCommandLine uses contiguous -m uvicorn entrypoint walk' {
+        $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
+        $fnStart = $raw.IndexOf('function Test-Hf3UvicornCommandLine')
+        $fnEnd = $raw.IndexOf('function Test-IsPythonProcessName')
+        $fnStart | Should -BeGreaterThan -1
+        $fnEnd | Should -BeGreaterThan $fnStart
+        $helper = $raw.Substring($fnStart, $fnEnd - $fnStart)
+        $helper | Should -Not -Match 'for \(\$i = 0; \$i -lt \(\$argv\.Count - 1\); \$i\+\+\)'
+        $helper | Should -Match '(?i)-c'
+        $helper | Should -Match 'uvicorn'
+    }
+    It 'DIRECT listener requires Python process name' {
+        $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
+        $raw | Should -Match 'Test-IsPythonProcessName \$listener\.Name'
+    }
+    It 'synthetic lab is approval-gated and never qualifies real Stop-Process' {
+        $raw = Get-Content -LiteralPath $script:runtime -Raw -Encoding UTF8
+        $raw | Should -Match 'MYPC_HF3_SYNTHETIC_LAB_APPROVED'
+        $raw | Should -Not -Match '(?i)Microsoft\.PowerShell\.Management\\Stop-Process'
+        $raw | Should -Match '(?i)function Stop-Process'
+    }
 }

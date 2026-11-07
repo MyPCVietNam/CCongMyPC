@@ -1,9 +1,13 @@
-........................................................................ [ 13%]
-................sssss................................................... [ 26%]
-........................................................................ [ 39%]
-........................................................................ [ 52%]
-........................................................................ [ 66%]
-........................................................................ [ 79%]
-........................................................................ [ 92%]
-........................................                                 [100%]
-539 passed, 5 skipped in 92.37s (0:01:32)
+# Agent-local test report (NOT a GitHub Actions check run)
+UTC: 2026-11-07T08:18:12.619019+00:00
+HEAD_at_report: 0c2bcad4533184d1f58784c6b9decacb0e207720
+
+Agent-local (Linux):
+- test_p02_usb_hf3_v3_safety_additional.py: 6 passed (exit 0)
+- HF3 unit suite (test_p02_usb_hf3*.py): 91 passed (exit 0)
+- backend unit/integration/acceptance (not real_model): 524 passed, 5 skipped (exit 0)
+- quality_guard/tests: 19 passed (exit 0)
+- quality_guard/check.py --strict: PASS (exit 0)
+
+GitHub Actions: record URLs after workflow completes on packaging tip — agent-local ≠ CI check run.
+Physical gates BLOCKED: USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN, FACE_PILOT, INSTALLER, PRODUCTION_READY
