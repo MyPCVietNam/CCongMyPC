@@ -132,8 +132,8 @@ $prefixCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 
 
 $cmdOk = Test-Hf3UvicornCommandLine -CommandLine $goodCmd -Backend $backend -PortNum 18878
 if (-not $cmdOk) {
-  $dbgArgs = @(Split-Hf3WindowsCommandLine $goodCmd)
-  Write-Host ("DBG goodCmd argv({0}): {1}" -f $dbgArgs.Count, ($dbgArgs -join ' || ')) -ForegroundColor Yellow
+  $dbgArgs = Split-Hf3WindowsCommandLine $goodCmd
+  Write-Host ("DBG goodCmd argv({0}): {1}" -f @($dbgArgs).Count, ((@($dbgArgs) | ForEach-Object { "$_" }) -join ' || ')) -ForegroundColor Yellow
 }
 Assert-True ($cmdOk -eq $true) "Exact tokenized cmdline accepted"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $goodCmdSpaced -Backend $backendSpaced -PortNum 18878) -eq $true) "Quoted path with spaces accepted"

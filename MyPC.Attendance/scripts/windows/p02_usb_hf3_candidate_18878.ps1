@@ -185,7 +185,8 @@ function Split-Hf3WindowsCommandLine([string]$CommandLine) {
     $i++
   }
   if ($cur.Length -gt 0) { $argsOut.Add($cur.ToString()) | Out-Null }
-  return ,@($argsOut.ToArray())
+  # Unary comma prevents pipeline enumeration; do NOT wrap again with @() (that nests).
+  return , $argsOut.ToArray()
 }
 
 function Get-Hf3OptionValues([string[]]$Argv, [string]$Name) {
@@ -208,7 +209,7 @@ function Get-Hf3OptionValues([string[]]$Argv, [string]$Name) {
     }
     $i++
   }
-  return ,@($out.ToArray())
+  return , $out.ToArray()
 }
 
 function Test-Hf3UvicornCommandLine {
