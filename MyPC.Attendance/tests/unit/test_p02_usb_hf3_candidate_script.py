@@ -28,11 +28,30 @@ def test_hf3_script_modes_and_port():
     assert "face_recognition_sface_2021dec.onnx" in text
     assert "PIN_MATCH" in text
     assert "Get-ManifestPinMap" in text or "models" in text
-    # Start must require HTTP 200 + documented health payload, not any <500
-    assert 'StatusCode -eq 200' in text
+    # Start must require HTTP 200 + status=ok + READY (never FAIL/degraded)
+    assert "Test-Hf3HealthStartPass" in text
     assert "startup_phase" in text
-    assert "unrelated process" in text.lower() or "Refusing Start" in text
-    assert "not our uvicorn" in text
+    assert "EXIT_LISTENER_OWNERSHIP" in text
+    assert "VERIFIED_DESCENDANT" in text
+    assert "uvicorn.launch.json" in text
+    assert "Resolve-Hf3ListenerOwnership" in text
+    assert 'READY|FAIL' not in text  # FAIL must not be Start PASS
+    assert "ok|degraded" not in text  # degraded must not be Start PASS
+    assert "catch {}" not in text.split('"Start"')[1].split('"Stop"')[0]
+    assert "Refusing Start" in text or "EXIT_FOREIGN_LISTENER" in text
+    assert "conhost" in text.lower()
+
+
+def test_hf3_start_stop_share_launch_meta_trust_model():
+    text = PS1.read_text(encoding="utf-8-sig")
+    assert "Save-Hf3LaunchMeta" in text
+    assert "Test-LiveMatchesLaunchMeta" in text
+    assert "Stop-VerifiedHf3Pids" in text
+    assert "listener_creation" in text
+    assert "session_proof" in text or "sessionProofPid" in text
+    # Stop must re-validate; Update must not kill foreign listeners
+    assert "EXIT_FOREIGN_LISTENER" in text
+    assert "creation-time mismatch" in text or "creation_match" in text
 
 
 def test_hf3_update_uses_leaf_rename_and_rollback():
