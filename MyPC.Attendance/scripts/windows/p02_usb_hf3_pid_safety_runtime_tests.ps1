@@ -53,9 +53,9 @@ Assert-True ($raw -notmatch '\$CommandLine\.IndexOf\(\$backendNorm') "No IndexOf
 
 # --- Extract helpers into isolated scope with DI mocks ---
 $helperNames = @(
-  "Test-Hf3UvicornCommandLine",
   "Split-Hf3WindowsCommandLine",
   "Get-Hf3OptionValues",
+  "Test-Hf3UvicornCommandLine",
   "Test-IsPythonProcessName",
   "Test-IsConhostName",
   "Test-Hf3LaunchMetaSchema",
@@ -94,11 +94,11 @@ $extracted = New-Object System.Text.StringBuilder
 [void]$extracted.AppendLine($stub)
 foreach ($name in $helperNames) {
   if ($name -eq "Write-Log") { continue }
-  $pattern = "(?s)function\s+$([regex]::Escape($name))\s*\{"
+  # Allow param(...) between name and '{' (PS 5.1 / Windows CI).
+  $pattern = "(?s)function\s+$([regex]::Escape($name))\b[^{]*\{"
   $m = [regex]::Match($raw, $pattern)
   if (-not $m.Success) {
-    Write-Host "WARN: helper $name not found for extract" -ForegroundColor Yellow
-    continue
+    throw ("Required helper missing or unextractable: {0}" -f $name)
   }
   $start = $m.Index
   $depth = 0
