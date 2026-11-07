@@ -1,0 +1,25 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "phase": "HF3_PID_SAFETY_V41_RESIDUAL_FAIL_CLOSED",
+  "baseline": "7c6a324da7a22c704b33a8ad1b0319099f38f1da",
+  "feature_commit": "979349f52c755474ab3cecd7ab8c701bf43acd5b",
+  "packaging_freeze_commit": "979349f52c755474ab3cecd7ab8c701bf43acd5b",
+  "prior_v4_complete_sha256": "068ee217304cd17ce366b768882b84297b7e89617955186ef1b9405d1881bf48",
+  "generated_at_utc": "2026-11-07T11:09:57.496981+00:00",
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-HF3-V41.zip": "196646eee296c85ecc1784298a7134e21d491a666602227188b21c74efd61882",
+    "MyPC.Attendance-FULL-SOURCE-HF3-V41.zip": "9ade84e694c8edd151e27b7a81245184b8eea4494d0b0f73b280e7121baf0b17",
+    "MYPC-HF3-V41-WINDOWS-SAFE-EVIDENCE.zip": "e3236ef984b7868a0d0057f98d51bfe929de3e6612f98b8029e4d320a8ffa82e"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "verdict": "READY_FOR_INDEPENDENT_REAUDIT",
+  "owner_start_approved": false,
+  "candidate_port": 18878
+}

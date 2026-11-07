@@ -1,0 +1,21 @@
+# HF3 V4.1 test report
+
+## Pins
+- baseline_v4_tip_RED: 7c6a324da7a22c704b33a8ad1b0319099f38f1da
+- feature_v41_CI:      979349f52c755474ab3cecd7ab8c701bf43acd5b
+- prior_v4_complete:   068ee217304cd17ce366b768882b84297b7e89617955186ef1b9405d1881bf48
+
+## Baseline RED
+Independent redteam 8/8 FAILED on 7c6a324 (see V41_BEHAVIORAL_BASELINE_RED.txt).
+
+## Agent-local GREEN
+1. python quality_guard/check.py --root . --strict → PASS
+2. python -m unittest discover -s quality_guard/tests -p 'test_*.py' -v → 22 passed
+3. node --test .cursor/hooks/guard-shell.test.cjs → 23 passed
+4. python -m pytest MyPC.Attendance/tests/unit/test_p02_usb_hf3*.py -q → 119 passed
+5. cd MyPC.Attendance && python -m pytest -q -m "not real_model" tests/unit tests/integration tests/acceptance → 552 passed, 5 skipped, 4 deselected
+6. frontend npm ci && npm run ci → vitest 13 + build PASS
+7. Independent canaries + V41 contracts → 24 passed
+
+## GitHub Actions
+See GITHUB_ACTIONS.txt — run 42366402413 on 979349f — 4/4 PASS

@@ -1,0 +1,11 @@
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-V41-20261107/V41_BEHAVIORAL_BASELINE_RED.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-V41-20261107/V41_BEHAVIORAL_GREEN.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-V41-20261107/V41_INDEPENDENT_REDTEAM_BASELINE.txt
+MyPC.Attendance/scripts/windows/hf3_pid_ownership.py
+MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1
+MyPC.Attendance/scripts/windows/p02_usb_hf3_v4_fail_closed_runtime_tests.ps1
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_v41_fail_closed.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_v41_independent_redteam.py
+quality_guard/check.py
+quality_guard/powershell/MyPC.QualityGuard.Tests.ps1
+quality_guard/tests/test_hf3_safety.py
