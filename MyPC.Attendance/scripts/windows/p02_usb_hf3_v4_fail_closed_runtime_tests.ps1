@@ -264,14 +264,16 @@ Assert-True (Test-Path -LiteralPath $metaPath) "R3 meta preserved"
 Assert-True ($script:__StopCalls.Count -eq 0) "R3 zero Stop-Process (no numeric kill)"
 
 # --- R4: Update legacy pid live ---
-Remove-Item -LiteralPath $metaPath -Force -ErrorAction SilentlyContinue
-Set-Content -LiteralPath $pidPath -Value "3333" -Encoding ASCII
+# Real filesystem delete — local Remove-Item mock must not leave prior meta in place.
+Microsoft.PowerShell.Management\Remove-Item -LiteralPath $metaPath -Force -ErrorAction SilentlyContinue
 $script:__CimMap = @{
   3333 = [pscustomobject]@{ ProcessId = 3333; Name = "python.exe"; CommandLine = "x"; CreationDate = $createDt; ExecutablePath = "C:\x\python.exe" }
 }
+Set-Content -LiteralPath $pidPath -Value "3333" -Encoding ASCII
+Assert-True (-not (Test-Path -LiteralPath $metaPath)) "R4 setup: meta absent"
 $threw = $false; $code = ""
 try { Invoke-Hf3UpdateHandler -MetaPath $metaPath -PidPath $pidPath } catch { $threw = $true; $code = [string]$_.Exception.Message }
-Assert-True ($threw -and $code -match "EXIT_UPDATE_BLOCKED_LEGACY_PID") "R4 Update blocks live legacy pid"
+Assert-True ($threw -and $code -match "EXIT_UPDATE_BLOCKED_LEGACY_PID") ("R4 Update blocks live legacy pid (got={0})" -f $code)
 Assert-True (Test-Path -LiteralPath $pidPath) "R4 legacy pid preserved"
 
 # --- R8: Update launcher+listener live => zero stop ---
