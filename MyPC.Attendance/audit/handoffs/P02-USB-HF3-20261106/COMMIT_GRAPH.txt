@@ -1,1 +1,1 @@
-ae003b8 fix(hf3): harden PID stop/update ownership on PowerShell 5.1
+97c1e9d fix(hf3): PID safety V3 — mock Stop-Process, exact app-dir, fail-closed Stop

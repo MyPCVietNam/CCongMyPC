@@ -1,11 +1,9 @@
 MyPC.Attendance/docs/gates/P02-USB-HF3-GATE-MATRIX.md
-MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md
 MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md
 MyPC.Attendance/scripts/windows/hf3_pid_ownership.py
 MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1
 MyPC.Attendance/scripts/windows/p02_usb_hf3_pid_safety_runtime_tests.ps1
-MyPC.Attendance/tests/integration/test_p02_usb_hf3_pid_ownership_windows.py
 MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py
-MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_owner_independent_red.py
 MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_ownership.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py
 MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py
