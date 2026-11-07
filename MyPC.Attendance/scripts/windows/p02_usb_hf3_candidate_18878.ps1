@@ -214,15 +214,31 @@ function Test-Hf3UvicornCommandLine {
   if (-not $CommandLine) { return $false }
   $argv = @(Split-Hf3WindowsCommandLine $CommandLine)
   if ($argv.Count -lt 5) { return $false }
-  $foundM = $false
-  for ($i = 0; $i -lt ($argv.Count - 1); $i++) {
-    if (([string]$argv[$i]).ToLowerInvariant() -eq "-m" -and ([string]$argv[$i + 1]).ToLowerInvariant() -eq "uvicorn") {
-      $foundM = $true
-      break
+  # Reject -c / --reload / --workers — not HF3 uvicorn interpreter entrypoints.
+  foreach ($tok in $argv) {
+    $tl = ([string]$tok).ToLowerInvariant()
+    if ($tl -eq "-c" -or $tl.StartsWith("-c") -or $tl -eq "--reload" -or $tl -eq "--workers") {
+      return $false
     }
   }
-  if (-not $foundM) { return $false }
-  if (-not ($argv -contains "app.main:app")) { return $false }
+  # Require contiguous interpreter entry: [safeFlags*] -m uvicorn app.main:app (never -m anywhere).
+  $safeNoVal = @("-b", "-bb", "-B", "-E", "-I", "-O", "-OO", "-s", "-S", "-u", "-v", "-x")
+  $pos = 1
+  $entryOk = $false
+  while ($pos -lt $argv.Count) {
+    $cur = ([string]$argv[$pos]).ToLowerInvariant()
+    if ($cur -eq "-m") {
+      if (($pos + 2) -lt $argv.Count -and
+          ([string]$argv[$pos + 1]).ToLowerInvariant() -eq "uvicorn" -and
+          [string]$argv[$pos + 2] -eq "app.main:app") {
+        $entryOk = $true
+      }
+      break
+    }
+    if ($safeNoVal -contains $cur) { $pos++; continue }
+    break
+  }
+  if (-not $entryOk) { return $false }
   $hosts = @(Get-Hf3OptionValues $argv "--host")
   $ports = @(Get-Hf3OptionValues $argv "--port")
   $appDirs = @(Get-Hf3OptionValues $argv "--app-dir")
@@ -313,8 +329,14 @@ function Resolve-Hf3ListenerOwnership {
   try { $creation = ([datetime]$listener.CreationDate).ToUniversalTime().ToString("o") } catch { $creation = [string]$listener.CreationDate }
 
   if ($listenerPid -eq $LauncherPid) {
+    # DIRECT still requires a Python process identity (mirrors hf3_pid_ownership.py).
+    if (Test-IsPythonProcessName $listener.Name) {
+      return [pscustomobject]@{
+        Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation
+      }
+    }
     return [pscustomobject]@{
-      Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "direct_not_python"; ListenerCreation = ""
     }
   }
   if (-not (Test-IsPythonProcessName $listener.Name)) {
@@ -780,14 +802,55 @@ switch ($Mode) {
         throw ("EXIT_FOREIGN_LISTENER: Port 18878 already in use by process(es): {0}. Refusing Start (no kill)." -f ($preOwners -join ','))
       }
     } else {
-      # Stale metadata with free port — never kill by PID alone
-      if (Test-Path $pidFile) {
-        Write-Log "Ignoring stale uvicorn.pid while port is free (no kill)"
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-      }
-      if (Test-Path $launchMetaFile) {
-        Write-Log "Clearing stale uvicorn.launch.json while port is free"
+      # Stale metadata with free port — free TCP ≠ absent launcher. Never kill; fail closed.
+      # Stale metadata with free port — probe launcher/listener identity before any cleanup.
+      $prevFree = Read-Hf3LaunchMeta $launchMetaFile
+      if ($prevFree) {
+        if ([bool]$prevFree.cleanup_blocked -or [bool]$prevFree.start_failed) {
+          Write-Log "EXIT_START_STALE_IDENTITY_UNVERIFIED: prior start evidence cleanup_blocked/start_failed — preserving files"
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: inspect uvicorn.launch.json before Start"
+        }
+        foreach ($rolePidName in @(@{Pid=[int]$prevFree.launcher_pid; Create=[string]$prevFree.launcher_creation; Role="launcher"},
+                                    @{Pid=[int]$prevFree.listener_pid; Create=[string]$prevFree.listener_creation; Role="listener"})) {
+          $probePid = [int]$rolePidName.Pid
+          if ($probePid -le 0) { continue }
+          $liveProbe = Get-Win32ProcessById $probePid
+          if (-not $liveProbe) { continue }
+          if (-not [string]$rolePidName.Create) {
+            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} live without creation — preserving evidence" -f $rolePidName.Role, $probePid)
+            throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: live process without creation proof"
+          }
+          $liveCreate = ""
+          try { $liveCreate = ([datetime]$liveProbe.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$liveProbe.CreationDate }
+          if ($liveCreate -eq [string]$rolePidName.Create) {
+            Write-Log ("EXIT_START_STALE_LAUNCHER: prior {0} still live pid={1} — refuse Start; preserving evidence (no kill)" -f $rolePidName.Role, $probePid)
+            throw "EXIT_START_STALE_LAUNCHER: stop/inspect prior launch before Start"
+          }
+          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} creation mismatch (possible reuse) — preserving evidence" -f $rolePidName.Role, $probePid)
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: PID reuse suspected"
+        }
+        # Proven absent — archive redacted meta then clear (no kill performed).
+        $archiveDir = Join-Path $CandidateRoot "logs\launch-meta-archive"
+        New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        Copy-Item -LiteralPath $launchMetaFile -Destination (Join-Path $archiveDir ("uvicorn.launch.archived-{0}.json" -f $stamp)) -Force
         Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $pidFile) { Remove-Item $pidFile -Force -ErrorAction SilentlyContinue }
+        Write-Log "Start: prior launch identities proven absent; archived redacted meta then cleared"
+      } elseif (Test-Path $pidFile) {
+        # Legacy pid-only evidence: probe before discard; never silent erase if live/unverifiable.
+        $rawPidTxt = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        $legacyPid = 0
+        [void][int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
+        if ($legacyPid -gt 0) {
+          $liveLegacy = Get-Win32ProcessById $legacyPid
+          if ($liveLegacy) {
+            Write-Log ("EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — preserve file; refuse Start" -f $legacyPid)
+            throw "EXIT_STOP_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
+          }
+        }
+        Write-Log "Ignoring stale uvicorn.pid while port is free and PID absent (no kill)"
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
       }
     }
 

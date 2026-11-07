@@ -71,5 +71,26 @@ class Hf3Safety(unittest.TestCase):
         self.assertFalse(self.module.creation_time_matches("", "2026-11-07T00:00:00Z"))
         self.assertFalse(self.module.creation_time_matches("2026-11-07T00:00:00Z", ""))
 
+    def test_rejects_python_dash_c_with_uvicorn_tokens(self):
+        cmd = (
+            r'C:\Python\python.exe -c "import time; time.sleep(60)" '
+            r"-m uvicorn app.main:app --host 127.0.0.1 --port 18878 "
+            r"--app-dir C:\HF3\backend"
+        )
+        self.assertFalse(self.module.uvicorn_cmdline_matches(cmd, port=18878, backend=r"C:\HF3\backend"))
+
+    def test_start_free_port_probes_launch_meta(self):
+        start = HF3.read_text(encoding="utf-8-sig").split('  "Start" {', 1)[1].split('  "Stop" {', 1)[0]
+        free = start.split("# Stale metadata with free port", 1)[1].split("$launchNonce", 1)[0]
+        self.assertIn("Read-Hf3LaunchMeta", free)
+        self.assertIn("Get-Win32ProcessById", free)
+        self.assertIn("EXIT_START_STALE_LAUNCHER", free)
+
+    def test_runtime_has_no_qualified_real_stop_process(self):
+        if not RUNTIME.exists():
+            self.skipTest("HF3 Windows runtime script absent")
+        s = RUNTIME.read_text(encoding="utf-8-sig", errors="replace")
+        self.assertNotRegex(s, r"(?i)Microsoft\.PowerShell\.Management\\Stop-Process")
+
 if __name__ == "__main__":
     unittest.main()

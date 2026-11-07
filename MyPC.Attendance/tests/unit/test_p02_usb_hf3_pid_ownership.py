@@ -213,6 +213,20 @@ def test_foreign_app_dir_rejected_even_when_hf3_path_in_other_arg():
     assert not m.uvicorn_cmdline_matches(cmd, port=18878, backend=BACKEND)
 
 
+def test_python_dash_c_rejected_even_with_uvicorn_tokens_later():
+    cmd = (
+        r'C:\Python\python.exe -c "import time; time.sleep(60)" '
+        r"-m uvicorn app.main:app --host 127.0.0.1 --port 18878 "
+        f"--app-dir {BACKEND}"
+    )
+    assert not m.uvicorn_cmdline_matches(cmd, port=18878, backend=BACKEND)
+    assert not m.uvicorn_cmdline_matches(
+        f'py --reload -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir {BACKEND}',
+        port=18878,
+        backend=BACKEND,
+    )
+
+
 def test_app_dir_prefix_and_wrong_port_rejected():
     assert not m.uvicorn_cmdline_matches(
         f'py -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir {BACKEND}2',

@@ -63,13 +63,32 @@ def find_issues(root: Path, strict: bool = True) -> list[str]:
             issues.append("HF3_SYNTHETIC_FAKE_PID_REACHES_KILL_BOUNDARY")
         if re.search(r"(?m)^\s*(?:try\s*\{\s*)?Stop-Process\b", s, re.I):
             issues.append("HF3_SYNTHETIC_RUNTIME_CALLS_REAL_STOP_PROCESS")
+        if re.search(r"(?i)Microsoft\.PowerShell\.Management\\Stop-Process", s):
+            issues.append("HF3_SYNTHETIC_LAB_REAL_QUALIFIED_STOP_PROCESS")
 
     hf3 = psdir / "p02_usb_hf3_candidate_18878.ps1"
     if hf3.is_file():
         s = hf3.read_text(encoding="utf-8-sig", errors="replace")
-        block = re.search(r"(?is)function\s+Test-Hf3UvicornCommandLine\b(.{0,3000}?)\bfunction\s+Test-IsPythonProcessName", s)
+        block = re.search(r"(?is)function\s+Test-Hf3UvicornCommandLine\b(.{0,4000}?)\bfunction\s+Test-IsPythonProcessName", s)
         if block and re.search(r"\bIndexOf\s*\(\s*\$backendNorm", block.group(1), re.I):
             issues.append("HF3_PS_BACKEND_SUBSTRING_AUTHORIZATION")
+        if block and re.search(r"for\s*\(\s*\$i\s*=\s*0;\s*\$i\s*-lt\s*\(\$argv\.Count\s*-\s*1\)", block.group(1), re.I):
+            issues.append("HF3_PS_UVICORN_ANYWHERE_SCAN")
+        start = re.search(r'(?is)"Start"\s*\{(.{0,8000}?)"Stop"\s*\{', s)
+        if start:
+            free = start.group(1)
+            if "Stale metadata with free port" in free or "port is free" in free:
+                if "Read-Hf3LaunchMeta" not in free or "Get-Win32ProcessById" not in free:
+                    issues.append("HF3_START_FREE_PORT_CLEARS_META_WITHOUT_PROBE")
+                if "EXIT_START_STALE_LAUNCHER" not in free:
+                    issues.append("HF3_START_MISSING_STALE_LAUNCHER_EXIT")
+        resolve = re.search(r"(?is)function\s+Resolve-Hf3ListenerOwnership\b(.{0,3500}?)\bfunction\s+Test-Hf3HealthStartPass", s)
+        if resolve:
+            direct = resolve.group(1).split("if ($listenerPid -eq $LauncherPid)", 1)
+            if len(direct) > 1:
+                chunk = direct[1].split("if (-not (Test-IsPythonProcessName", 1)[0]
+                if "Test-IsPythonProcessName $listener.Name" not in chunk:
+                    issues.append("HF3_DIRECT_LISTENER_MISSING_PYTHON_NAME_CHECK")
     else:
         issues.append("HF3_SCRIPT_MISSING")
     return issues

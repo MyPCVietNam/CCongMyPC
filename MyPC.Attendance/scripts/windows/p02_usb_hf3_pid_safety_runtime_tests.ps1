@@ -206,16 +206,22 @@ Assert-True ($healthOk -eq $true) "Top-level ok+READY accepted"
 $metaBad = [pscustomobject]@{ schema = "mypc.hf3.launch.v1"; port = 18878; backend = $backend; listener_pid = 4242; listener_creation = "" }
 Assert-True ((Test-Hf3LaunchMetaSchema $metaBad) -eq $false) "Blank listener_creation fails schema"
 
-# --- Optional synthetic lab (explicit -RunSyntheticLab only) ---
+# --- Optional synthetic lab (explicit -RunSyntheticLab + env approval only) ---
+# NEVER calls a real Stop-Process / kill API. One-shot HTTP server exits after the request.
+# Disabled unless MYPC_HF3_SYNTHETIC_LAB_APPROVED=1 on an isolated CI host (not owner workstation).
 if ($RunSyntheticLab) {
-  $venvPy = Join-Path $CandidateRoot "venv\Scripts\python.exe"
-  if (-not (Test-Path $venvPy)) {
-    Write-Host "SKIP synthetic lab — venv missing at $CandidateRoot" -ForegroundColor Yellow
+  if ($env:MYPC_HF3_SYNTHETIC_LAB_APPROVED -ne "1") {
+    Write-Host "SKIP synthetic lab — set MYPC_HF3_SYNTHETIC_LAB_APPROVED=1 only on isolated CI (never owner HF3/USB)" -ForegroundColor Yellow
   } else {
-    $busy = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
-    Assert-True ($busy.Count -eq 0) ("Synthetic port {0} must be free before lab" -f $SyntheticPort)
-    if ($busy.Count -eq 0) {
-      $pyCode = @"
+    $venvPy = Join-Path $CandidateRoot "venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) {
+      Write-Host "SKIP synthetic lab — venv missing at $CandidateRoot" -ForegroundColor Yellow
+    } else {
+      $busy = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
+      Assert-True ($busy.Count -eq 0) ("Synthetic port {0} must be free before lab" -f $SyntheticPort)
+      if ($busy.Count -eq 0) {
+        $pyFile = Join-Path $env:TEMP ("hf3-synth-lab-{0}.py" -f [guid]::NewGuid().ToString("N"))
+        $pyBody = @"
 import http.server, socketserver, json, sys
 PORT = int(sys.argv[1])
 class H(http.server.BaseHTTPRequestHandler):
@@ -232,49 +238,72 @@ httpd = socketserver.TCPServer(('127.0.0.1', PORT), H)
 httpd.timeout = 15
 httpd.handle_request()
 "@
-      $proc = $null
-      $childPids = @()
-      try {
-        $proc = Start-Process -FilePath $venvPy -ArgumentList @("-c", $pyCode, "$SyntheticPort") -PassThru -WindowStyle Hidden
-        $deadline = (Get-Date).AddSeconds(10)
-        $listening = $false
-        while ((Get-Date) -lt $deadline) {
-          $ls = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
-          if ($ls.Count -gt 0) { $listening = $true; $childPids = @($ls | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique); break }
-          Start-Sleep -Milliseconds 200
-        }
-        Assert-True $listening ("Synthetic lab listening on 127.0.0.1:{0}" -f $SyntheticPort)
-        $r = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/" -f $SyntheticPort) -UseBasicParsing -TimeoutSec 5
-        Assert-True ([int]$r.StatusCode -eq 200) "Synthetic health HTTP 200"
-        Assert-True ($r.Content -match '"status"\s*:\s*"ok"') "Synthetic health status ok"
-        $launcher = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $proc.Id) -ErrorAction SilentlyContinue
-        Assert-True ($null -ne $launcher -or $proc.HasExited) "Launcher identity probed"
-        Write-Host ("SYNTH launcher_pid={0} child_pids={1}" -f $proc.Id, ($childPids -join ','))
-      } finally {
-        foreach ($cp in $childPids) {
-          if ($cp -gt 0 -and $cp -ne [int]$proc.Id) {
-            # Only stop children that still own our synthetic port (verified ownership of THIS lab).
-            $still = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue |
-              Where-Object { [int]$_.OwningProcess -eq $cp })
-            if ($still.Count -gt 0) {
-              try { Microsoft.PowerShell.Management\Stop-Process -Id $cp -Force -ErrorAction SilentlyContinue } catch {}
-            }
+        Set-Content -LiteralPath $pyFile -Value $pyBody -Encoding ASCII
+        $proc = $null
+        $spawnCreation = ""
+        $spawnCmd = ""
+        try {
+          $proc = Start-Process -FilePath $venvPy -ArgumentList @($pyFile, "$SyntheticPort") -PassThru -WindowStyle Hidden
+          $spawnSnap = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $proc.Id) -ErrorAction SilentlyContinue
+          if ($spawnSnap) {
+            $spawnCreation = [string]$spawnSnap.CreationDate
+            $spawnCmd = [string]$spawnSnap.CommandLine
           }
+          Assert-True ($null -ne $spawnSnap) "Synthetic lab captured launcher CreationDate + CommandLine at spawn"
+          $deadline = (Get-Date).AddSeconds(10)
+          $listening = $false
+          $childPids = @()
+          while ((Get-Date) -lt $deadline) {
+            $ls = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
+            if ($ls.Count -gt 0) {
+              $listening = $true
+              $childPids = @($ls | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
+              break
+            }
+            Start-Sleep -Milliseconds 200
+          }
+          Assert-True $listening ("Synthetic lab listening on 127.0.0.1:{0}" -f $SyntheticPort)
+          # Prove listener identity matches self-spawned tree (creation/cmdline), never kill by port alone.
+          foreach ($cp in $childPids) {
+            $lp = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $cp) -ErrorAction SilentlyContinue
+            Assert-True ($null -ne $lp) ("Synthetic listener pid={0} still enumerable" -f $cp)
+            Assert-True ([string]$lp.CreationDate -ne "") ("Synthetic listener pid={0} has CreationDate" -f $cp)
+            Assert-True ([string]$lp.CommandLine -match [regex]::Escape($pyFile) -or $cp -eq [int]$proc.Id) (
+              "Synthetic listener cmdline must reference spawned script or be launcher itself"
+            )
+          }
+          $r = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/" -f $SyntheticPort) -UseBasicParsing -TimeoutSec 5
+          Assert-True ([int]$r.StatusCode -eq 200) "Synthetic health HTTP 200"
+          Assert-True ($r.Content -match '"status"\s*:\s*"ok"') "Synthetic health status ok"
+          Write-Host ("SYNTH launcher_pid={0} create={1} child_pids={2}" -f $proc.Id, $spawnCreation, ($childPids -join ','))
+          # Wait for natural exit after one-shot handle_request — no real Stop-Process.
+          $exitDeadline = (Get-Date).AddSeconds(10)
+          while ((Get-Date) -lt $exitDeadline) {
+            try { $proc.Refresh() } catch {}
+            if ($proc.HasExited) { break }
+            Start-Sleep -Milliseconds 200
+          }
+          Assert-True ($proc.HasExited) "Synthetic launcher exited naturally after single request (no kill)"
+          $left = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
+          Assert-True ($left.Count -eq 0) ("Synthetic port {0} released without Stop-Process" -f $SyntheticPort)
+        } finally {
+          # Fail closed: never call real Stop-Process here even if processes linger.
+          if ($proc -and -not $proc.HasExited) {
+            Write-Host "FAIL: synthetic process still live — refusing kill; mark lab FAILED" -ForegroundColor Red
+            $script:failed++
+          }
+          Remove-Item -LiteralPath $pyFile -Force -ErrorAction SilentlyContinue
         }
-        if ($proc -and -not $proc.HasExited) {
-          try { Microsoft.PowerShell.Management\Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
-        }
-        Start-Sleep -Milliseconds 300
-        if ($proc) {
-          try { $proc.Refresh() } catch {}
-          Assert-True ($proc.HasExited) "Synthetic launcher exited after teardown"
-        }
-        $left = @(Get-NetTCPConnection -LocalPort $SyntheticPort -State Listen -ErrorAction SilentlyContinue)
-        Assert-True ($left.Count -eq 0) ("Synthetic port {0} released after teardown" -f $SyntheticPort)
       }
     }
   }
 }
+# Contract: harness must not contain a real qualified process-kill cmdlet invocation.
+# Build the forbidden token without embedding a greppable kill cmdlet path in source comments.
+$forbiddenKill = 'Microsoft' + '.PowerShell.Management' + [char]92 + 'Stop-Process'
+$harnessSelf = Get-Content -LiteralPath $MyInvocation.MyCommand.Path -Raw -Encoding UTF8
+Assert-True ($harnessSelf.IndexOf($forbiddenKill, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) "Harness has no real qualified Stop-Process kill cmdlet"
+Assert-True ($harnessSelf -match '(?i)function Stop-Process') "Harness defines Stop-Process mock only"
 
 Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 if ($failed -gt 0) {

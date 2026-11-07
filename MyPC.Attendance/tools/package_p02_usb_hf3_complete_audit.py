@@ -16,7 +16,7 @@ ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
 # CHANGED zip is relative to PR #27 tip before Quality Guard v1.0 integration.
 # Prior tips remain in PACKAGE_META for custody; do not rewrite immutable pins.
-BASELINE = "ab1161dd87f0f363ea3974cf68c79b095ec11f03"
+BASELINE = "e04a34121f3bf00253685a8512e2b835aa86b7ab"
 BASELINE_PID_SAFETY_V3_FEATURE = "97c1e9df2d54314098066eca7c88c7e82edc4c79"
 BASELINE_PID_SAFETY_V3_FREEZE = "00858e3f78325517c43c4d688e5547748928b3a0"
 BASELINE_PID_SAFETY_V2_FREEZE = "0ea4264440bf330f005af7447bbd6bdb6cfabb46"

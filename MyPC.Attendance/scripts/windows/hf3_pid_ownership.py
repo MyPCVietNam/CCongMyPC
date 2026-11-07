@@ -125,6 +125,34 @@ def _option_values(args: list[str], name: str) -> list[str]:
     return out
 
 
+# Safe interpreter flags (no value) allowed between python.exe and `-m uvicorn`.
+_SAFE_PY_FLAGS_NO_VALUE = frozenset(
+    {"-b", "-bb", "-B", "-E", "-I", "-O", "-OO", "-s", "-S", "-u", "-v", "-x"}
+)
+
+
+def _uvicorn_module_entrypoint_index(args: list[str]) -> int | None:
+    """Index of ``-m`` when it is the interpreter module switch (not after ``-c``/script)."""
+    if len(args) < 4:
+        return None
+    i = 1  # skip executable
+    while i < len(args):
+        a = args[i]
+        al = a.lower()
+        if al == "-c" or al.startswith("-c"):
+            return None
+        if al == "-m":
+            if i + 2 < len(args) and args[i + 1].lower() == "uvicorn" and args[i + 2] == "app.main:app":
+                return i
+            return None
+        if al in _SAFE_PY_FLAGS_NO_VALUE:
+            i += 1
+            continue
+        # Any other token (script path, -c code, unknown flag) is not HF3 uvicorn entry.
+        return None
+    return None
+
+
 def uvicorn_cmdline_matches(
     cmd: str,
     *,
@@ -132,18 +160,18 @@ def uvicorn_cmdline_matches(
     backend: str,
     host: str = "127.0.0.1",
 ) -> bool:
-    """Require exact tokenized uvicorn argv — never substring path/port trust."""
+    """Require python → ``-m uvicorn app.main:app`` entrypoint + exact host/port/app-dir."""
     args = split_windows_cmdline(cmd or "")
     if len(args) < 5:
         return False
-    found_m = False
-    for i in range(len(args) - 1):
-        if args[i].lower() == "-m" and args[i + 1].lower() == "uvicorn":
-            found_m = True
-            break
-    if not found_m:
+    # Reject foreign entrypoints and multi-process uvicorn modes.
+    lowered = [a.lower() for a in args]
+    if "-c" in lowered or any(a.startswith("-c") and a != "-c" for a in lowered):
         return False
-    if not any(a == "app.main:app" for a in args):
+    if "--reload" in lowered or "--workers" in lowered:
+        return False
+    m_idx = _uvicorn_module_entrypoint_index(args)
+    if m_idx is None:
         return False
     hosts = _option_values(args, "--host")
     ports = _option_values(args, "--port")
