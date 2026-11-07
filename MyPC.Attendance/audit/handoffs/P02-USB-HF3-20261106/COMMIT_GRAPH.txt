@@ -1,1 +1,2 @@
-97c1e9d fix(hf3): PID safety V3 — mock Stop-Process, exact app-dir, fail-closed Stop
+51b2ee9 fix(packaging): include Quality Guard root paths in FULL/CHANGED ZIPs
+daef383 chore(quality): integrate MyPC Engineering Quality Guard v1.0
