@@ -1,4 +1,10 @@
-# MyPC Attendance — P02-USB-HF3 COMPLETE AUDIT
+# MyPC Attendance — P02-USB-HF3 COMPLETE AUDIT (historical handoff folder)
+
+> **Hygiene note (V4):** Digests and raw URLs below are **historical** Quality Guard /
+> V3-additional pins. Do **not** mix them with a newer `PACKAGE_META.json`.
+> Current fail-closed corrective lives under
+> `audit/handoffs/P02-USB-HF3-V4-20261107/` with archives named `*-HF3-V4.zip`.
+
 
 PR #27 in-place: **Engineering Quality Guard v1.0** on PID safety V3
 (mocked Stop-Process harness, exact `--app-dir`, fail-closed Stop) + COM/VT_BSTR/identity.

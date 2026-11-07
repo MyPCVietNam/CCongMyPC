@@ -1,0 +1,16 @@
+# HF3 V4 test report (agent-local ≠ GitHub Actions unless URL cited)
+
+Baseline tip (RED): 8dc2dfed68464eb7ba98db6fc4efae90ee3f07a4
+- Independent invariant probe: 6 RED (F-01..F-06)
+- Behavioral pytest: 10 failed, 2 passed
+
+After fix (agent-local):
+- test_p02_usb_hf3_v4_fail_closed.py: 12 passed
+- quality_guard/check.py --strict: PASS
+- quality_guard unittest discover: 21 passed
+- node hook tests: 23 passed
+- HF3 unit (test_p02_usb_hf3*.py): 103 passed
+- backend not real_model: 535+ passed, 5 skipped (encoding BOM fixed)
+
+GitHub Actions: fill GITHUB_ACTIONS.txt after push of feature tip.
+Physical: BLOCKED

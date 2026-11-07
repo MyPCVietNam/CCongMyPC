@@ -9,6 +9,7 @@ never count as Start PASS.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -46,6 +47,27 @@ def is_conhost(name: str) -> bool:
 def is_python_process(name: str) -> bool:
     n = normalize_name(name)
     return n in ("python.exe", "python", "pythonw.exe", "pythonw")
+
+
+def _quote_win_arg(value: str) -> str:
+    if value is None:
+        return '""'
+    if not re.search(r'[\s"]', value):
+        return value
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def format_uvicorn_process_arguments(
+    *,
+    backend: str,
+    port: int,
+    host: str = "127.0.0.1",
+) -> str:
+    """Single Windows argv string with quoted --app-dir (spaces-safe)."""
+    return (
+        f"-m uvicorn app.main:app --host {_quote_win_arg(host)} "
+        f"--port {_quote_win_arg(str(port))} --app-dir {_quote_win_arg(backend)}"
+    )
 
 
 def split_windows_cmdline(cmd: str) -> list[str]:

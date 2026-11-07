@@ -44,7 +44,10 @@ def start_no_listener_branch() -> str:
 def test_start_refuses_unverified_live_launcher_when_port_free():
     branch = start_no_listener_branch()
     # A stale launch record may represent a live redirector with a free socket.
-    assert "Read-Hf3LaunchMeta" in branch and "Get-Win32ProcessById" in branch, (
+    assert (
+        ("Read-Hf3LaunchMeta" in branch or "Get-Hf3LaunchMetaState" in branch)
+        and "Get-Win32ProcessById" in branch
+    ), (
         "Start deletes persisted launch evidence with port free without checking launcher PID and creation"
     )
 

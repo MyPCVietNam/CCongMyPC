@@ -1,0 +1,14 @@
+{
+  "type": "source-level independent invariant probe (NOT Windows runtime)",
+  "baseline_tip": "8dc2dfed68464eb7ba98db6fc4efae90ee3f07a4",
+  "checks": {
+    "F-01_start_rejects_existing_malformed_meta_without_pid": false,
+    "F-02_update_rejects_existing_malformed_meta": false,
+    "F-03_update_checks_free_port_listener_pid_as_well_as_launcher": false,
+    "F-04_process_query_fails_on_WMI_error_not_silent_absence": false,
+    "F-05_tcp_query_fails_on_error_not_silent_free_port": false,
+    "F-06_stop_reports_corrupt_meta_as_not_no_data": false
+  },
+  "red_count": 6,
+  "read_hf3_returns_null_on_parse_error": true
+}

@@ -74,14 +74,39 @@ def find_issues(root: Path, strict: bool = True) -> list[str]:
             issues.append("HF3_PS_BACKEND_SUBSTRING_AUTHORIZATION")
         if block and re.search(r"for\s*\(\s*\$i\s*=\s*0;\s*\$i\s*-lt\s*\(\$argv\.Count\s*-\s*1\)", block.group(1), re.I):
             issues.append("HF3_PS_UVICORN_ANYWHERE_SCAN")
-        start = re.search(r'(?is)"Start"\s*\{(.{0,8000}?)"Stop"\s*\{', s)
+        start = re.search(r'(?is)"Start"\s*\{(.{0,12000}?)"Stop"\s*\{', s)
         if start:
             free = start.group(1)
             if "Stale metadata with free port" in free or "port is free" in free:
-                if "Read-Hf3LaunchMeta" not in free or "Get-Win32ProcessById" not in free:
+                if ("Get-Hf3LaunchMetaState" not in free and "Read-Hf3LaunchMeta" not in free) or "Get-Win32ProcessById" not in free:
                     issues.append("HF3_START_FREE_PORT_CLEARS_META_WITHOUT_PROBE")
                 if "EXIT_START_STALE_LAUNCHER" not in free:
                     issues.append("HF3_START_MISSING_STALE_LAUNCHER_EXIT")
+                if "EXIT_START_INVALID_LAUNCH_META" not in free:
+                    issues.append("HF3_START_MISSING_INVALID_META_EXIT")
+        stop = re.search(r'(?is)"Stop"\s*\{(.{0,6000}?)"Diagnose"\s*\{', s)
+        if stop and "EXIT_STOP_INVALID_LAUNCH_META" not in stop.group(1):
+            issues.append("HF3_STOP_MISSING_INVALID_META_EXIT")
+        update = re.search(r'(?is)"Update"\s*\{(.{0,14000}?)"Preflight"\s*\{', s)
+        if update:
+            u = update.group(1)
+            if "EXIT_UPDATE_INVALID_LAUNCH_META" not in u:
+                issues.append("HF3_UPDATE_MISSING_INVALID_META_EXIT")
+            if "listener_pid" not in u or "EXIT_UPDATE_STALE_LISTENER" not in u:
+                issues.append("HF3_UPDATE_FREE_PORT_MISSING_LISTENER_CHECK")
+        getproc = re.search(r"(?is)function\s+Get-Win32ProcessById\b(.{0,800}?)\bfunction\s+", s)
+        if getproc and "-ErrorAction SilentlyContinue" in getproc.group(1):
+            issues.append("HF3_PROCESS_PROBE_SILENT_ABSENCE")
+        gettcp = re.search(r"(?is)function\s+Get-Hf3PortListenerOwnerPids\b(.{0,900}?)\bfunction\s+", s)
+        if gettcp and "-ErrorAction SilentlyContinue" in gettcp.group(1):
+            issues.append("HF3_TCP_PROBE_SILENT_FREE_PORT")
+        if "function Get-Hf3LaunchMetaState" not in s:
+            issues.append("HF3_LAUNCH_META_STATE_HELPER_MISSING")
+        if "Format-Hf3UvicornProcessArguments" not in s:
+            issues.append("HF3_UVICORN_ARGV_QUOTING_HELPER_MISSING")
+        live = re.search(r"(?is)function\s+Test-LiveMatchesLaunchMeta\b(.{0,2000}?)\bfunction\s+Stop-VerifiedHf3Identity", s)
+        if live and "Test-IsPythonProcessName" not in live.group(1):
+            issues.append("HF3_LIVE_MATCH_MISSING_PYTHON_NAME")
         resolve = re.search(r"(?is)function\s+Resolve-Hf3ListenerOwnership\b(.{0,3500}?)\bfunction\s+Test-Hf3HealthStartPass", s)
         if resolve:
             direct = resolve.group(1).split("if ($listenerPid -eq $LauncherPid)", 1)

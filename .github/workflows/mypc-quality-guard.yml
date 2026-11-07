@@ -133,3 +133,13 @@ jobs:
       - name: Windows Python contract negatives (no hardware)
         shell: powershell
         run: python -m unittest discover -s quality_guard/tests -p 'test_*.py' -v
+      - name: HF3 V4 injected fail-closed behavioral (mocked CIM/TCP/kill)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File MyPC.Attendance/scripts/windows/p02_usb_hf3_v4_fail_closed_runtime_tests.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'V4 fail-closed behavioral harness failed' }
+      - name: HF3 PID safety runtime harness (mocked Stop-Process only)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File MyPC.Attendance/scripts/windows/p02_usb_hf3_pid_safety_runtime_tests.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PID safety runtime harness failed' }

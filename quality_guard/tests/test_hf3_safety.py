@@ -82,15 +82,34 @@ class Hf3Safety(unittest.TestCase):
     def test_start_free_port_probes_launch_meta(self):
         start = HF3.read_text(encoding="utf-8-sig").split('  "Start" {', 1)[1].split('  "Stop" {', 1)[0]
         free = start.split("# Stale metadata with free port", 1)[1].split("$launchNonce", 1)[0]
-        self.assertIn("Read-Hf3LaunchMeta", free)
+        self.assertTrue("Get-Hf3LaunchMetaState" in free or "Read-Hf3LaunchMeta" in free)
         self.assertIn("Get-Win32ProcessById", free)
         self.assertIn("EXIT_START_STALE_LAUNCHER", free)
+        self.assertIn("EXIT_START_INVALID_LAUNCH_META", free)
 
     def test_runtime_has_no_qualified_real_stop_process(self):
         if not RUNTIME.exists():
             self.skipTest("HF3 Windows runtime script absent")
         s = RUNTIME.read_text(encoding="utf-8-sig", errors="replace")
         self.assertNotRegex(s, r"(?i)Microsoft\.PowerShell\.Management\\Stop-Process")
+
+    def test_v4_invalid_meta_and_unknown_probes_fail_closed(self):
+        s = HF3.read_text(encoding="utf-8-sig", errors="replace")
+        self.assertIn("function Get-Hf3LaunchMetaState", s)
+        self.assertIn("EXIT_STOP_INVALID_LAUNCH_META", s)
+        self.assertIn("EXIT_UPDATE_INVALID_LAUNCH_META", s)
+        self.assertIn("EXIT_UPDATE_STALE_LISTENER", s)
+        self.assertIn("EXIT_PROCESS_PROBE_UNKNOWN", s)
+        self.assertIn("EXIT_TCP_PROBE_UNKNOWN", s)
+        getproc = s.split("function Get-Win32ProcessById", 1)[1].split("function Split-Hf3WindowsCommandLine", 1)[0]
+        self.assertNotIn("-ErrorAction SilentlyContinue", getproc)
+        gettcp = s.split("function Get-Hf3PortListenerOwnerPids", 1)[1].split("function Resolve-Hf3ListenerOwnership", 1)[0]
+        self.assertNotIn("-ErrorAction SilentlyContinue", gettcp)
+
+    def test_v4_appdir_spaces_quoted_in_formatter(self):
+        backend = r"C:\Users\Test User\p02-usb-hf3-candidate\src\backend"
+        line = self.module.format_uvicorn_process_arguments(backend=backend, port=18878)
+        self.assertIn('"C:\\Users\\Test User\\p02-usb-hf3-candidate\\src\\backend"', line)
 
 if __name__ == "__main__":
     unittest.main()

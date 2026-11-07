@@ -40,11 +40,26 @@ Describe 'MyPC HF3 Windows process-safety contract' {
         $stop | Should -BeGreaterThan $start
         $branch = $raw.Substring($start, $stop - $start)
         $branch | Should -Match 'Stale metadata with free port'
-        $branch | Should -Match 'Read-Hf3LaunchMeta'
+        $branch | Should -Match 'Get-Hf3LaunchMetaState'
         $branch | Should -Match 'Get-Win32ProcessById'
         $branch | Should -Match 'EXIT_START_STALE_LAUNCHER'
         $branch | Should -Match 'EXIT_START_STALE_IDENTITY_UNVERIFIED'
+        $branch | Should -Match 'EXIT_START_INVALID_LAUNCH_META'
         $branch | Should -Match 'EXIT_STOP_BLOCKED_LEGACY_PID'
+    }
+    It 'V4 fail-closed: INVALID meta and UNKNOWN probes are explicit' {
+        $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
+        $raw | Should -Match 'function Get-Hf3LaunchMetaState'
+        $raw | Should -Match 'EXIT_STOP_INVALID_LAUNCH_META'
+        $raw | Should -Match 'EXIT_UPDATE_INVALID_LAUNCH_META'
+        $raw | Should -Match 'EXIT_UPDATE_STALE_LISTENER'
+        $raw | Should -Match 'EXIT_PROCESS_PROBE_UNKNOWN'
+        $raw | Should -Match 'EXIT_TCP_PROBE_UNKNOWN'
+        $raw | Should -Match 'Format-Hf3UvicornProcessArguments'
+        $getProcStart = $raw.IndexOf('function Get-Win32ProcessById')
+        $getProcEnd = $raw.IndexOf('function Split-Hf3WindowsCommandLine')
+        $getProcStart | Should -BeGreaterThan -1
+        $raw.Substring($getProcStart, $getProcEnd - $getProcStart) | Should -Not -Match 'SilentlyContinue'
     }
     It 'Test-Hf3UvicornCommandLine uses contiguous -m uvicorn entrypoint walk' {
         $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
