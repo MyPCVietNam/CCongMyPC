@@ -105,6 +105,12 @@ def main() -> int:
     write_zip(HANDOFF / A_NAME, a_members)
     b_members = [(rel, REPO / rel) for rel in git_ls_files() if (REPO / rel).is_file()]
     write_zip(HANDOFF / B_NAME, b_members)
+    (HANDOFF / "FULL_MANIFEST.txt").write_text(
+        "\n".join(rel for rel, _ in b_members) + "\n", encoding="utf-8"
+    )
+    (HANDOFF / "COMPLETE_MEMBER_MANIFEST.txt").write_text(
+        "# filled after COMPLETE build\n", encoding="utf-8"
+    )
 
     with zipfile.ZipFile(HANDOFF / A_NAME) as za, zipfile.ZipFile(HANDOFF / B_NAME) as zb:
         for name in za.namelist():
@@ -183,7 +189,17 @@ def main() -> int:
         "INDEPENDENT_REVIEW_V4.md",
         "TEST_REPORT.txt",
         "GITHUB_ACTIONS.txt",
+        "FULL_MANIFEST.txt",
+        "GATE_MATRIX.txt",
+        "REMOTE_VERIFY.txt",
     ]
+    # Pre-write COMPLETE member list (docs + three inners) for inclusion inside COMPLETE.
+    planned = [n for n in docs if (HANDOFF / n).is_file()] + [A_NAME, B_NAME, C_NAME]
+    (HANDOFF / "COMPLETE_MEMBER_MANIFEST.txt").write_text(
+        "\n".join(planned) + "\n", encoding="utf-8"
+    )
+    if "COMPLETE_MEMBER_MANIFEST.txt" not in docs:
+        docs.append("COMPLETE_MEMBER_MANIFEST.txt")
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).is_file()] + [
         (A_NAME, HANDOFF / A_NAME),
         (B_NAME, HANDOFF / B_NAME),
@@ -195,6 +211,10 @@ def main() -> int:
     except ScanFailure as exc:
         raise SystemExit(f"SCAN BLOCKED outer: {exc}") from exc
     outer_hash = sha256(HANDOFF / OUTER_NAME)
+    with zipfile.ZipFile(HANDOFF / OUTER_NAME) as zo:
+        (HANDOFF / "COMPLETE_MEMBER_MANIFEST.txt").write_text(
+            "\n".join(sorted(zo.namelist())) + "\n", encoding="utf-8"
+        )
     (HANDOFF / "SHA256SUMS-COMPLETE.txt").write_text(
         (HANDOFF / "SHA256SUMS.txt").read_text() + f"{outer_hash}  {OUTER_NAME}\n", encoding="utf-8"
     )

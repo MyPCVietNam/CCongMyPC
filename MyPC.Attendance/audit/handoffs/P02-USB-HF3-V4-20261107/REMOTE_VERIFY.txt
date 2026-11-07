@@ -1,0 +1,2 @@
+# Populated after push + HTTP re-download verification.
+status=PENDING

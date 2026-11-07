@@ -1,0 +1,10 @@
+a915445 test(hf3): fix Stop-Process mock ErrorAction common-parameter collision
+ea408c2 test(hf3): align creation DateTime Kind for mocked listener stop
+2926775 test(hf3): accept mock-absent for uninjected adversarial PID
+68aff62 fix(hf3): return argv tokens via pipeline enumeration
+88c1f01 test(hf3): deeper DBG for uvicorn option parse failure on Windows CI
+8b07771 fix(hf3): stop nesting argv arrays from Split/Get-Hf3OptionValues
+2b9c731 fix(hf3): named Get-Hf3OptionValues binding and precise -c reject
+a7469e8 fix(hf3): extract PS helpers with param lists in PID safety harness
+9873091 fix(hf3): harden V4 behavioral harness function extraction on PS 5.1
+6893c78 fix(hf3): V4 fail-closed meta/probe UNKNOWN and listener proofs
