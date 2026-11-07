@@ -1,5 +1,9 @@
-feature_commit will be packaging freeze HEAD
+packaging_freeze=e0ad4aaca25bcbdeb8777bc6b509a518c97db1d2
+feature_com_release=22513784c91ccca764310e7d48953ce4a28c6ceb
 baseline_pre_fix=ff6789ecd15ede618101e6a4c4938c3290ed1748
 baseline_property_bag=05f6ba991b4b43b3719125551298b18441578bcb
 baseline_pr26=146d04cb930a446f891f48178a33672f0537b95e
-GitHub Actions status: report separately after push
+complete_sha256=00c8979d52187fbb218b8d31598de348c5cad1077cc805bea294fb49586c4d02
+complete_bytes=3800432
+GitHub Actions: report separately after push (not claimed from agent local CI)
+owner_windows_physical=BLOCKED

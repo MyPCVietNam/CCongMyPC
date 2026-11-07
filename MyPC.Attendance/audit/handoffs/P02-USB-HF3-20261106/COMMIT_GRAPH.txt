@@ -1,3 +1,2 @@
-0a4d1ad docs(audit): note COM ownership and Update leaf-rename ADRs
-c7d8419 docs(audit): HF3 COM-release evidence and packaging baseline ff6789e
-2251378 fix(usb): P02-USB-HF3 COM exactly-once release and PS5.1 Update leaf rename
+efa1593 docs(audit): HF3 CoInit signature evidence and packaging baseline 98d8d40
+29e76e4 fix(usb): P02-USB-HF3 CoInitializeEx(flags) per comtypes 1.4.17

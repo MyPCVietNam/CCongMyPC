@@ -1,37 +1,34 @@
-# P02-USB-HF3 — COM release / Update RCA (PR #27 in-place)
+# P02-USB-HF3 — CoInitializeEx signature RCA (PR #27 in-place)
 
-**Pre-fix PR #27 tip (this corrective):** `ff6789ecd15ede618101e6a4c4938c3290ed1748`
+**Pre-fix PR #27 tip (this corrective):** `98d8d40290018d688749931a9f78d4ee016b126b`
 
-**Prior property-bag tip:** `05f6ba991b4b43b3719125551298b18441578bcb`
+**Prior COM-release freeze:** `e0ad4aaca25bcbdeb8777bc6b509a518c97db1d2`
 
-## Independent audit findings (COM-RELEASE-UPDATE handoff)
+## Owner Windows (2026-11-07)
 
-### A — BLOCKER: double COM Release
-`_safe_release()` manually called `Release()` on comtypes-owned pointers. comtypes 1.4.17
-`_compointer_base.__del__` also calls `Release()`. One owned reference could be released twice →
-owner-Windows `Win32 exception occurred releasing IUnknown`.
+- Update SUCCESS; Preflight SUCCESS; PnP video=1; MODEL_PINS_PASS=true.
+- `DSHOW_ENUM_OK=false`, moniker count=0.
+- `DSHOW_BLOCKER_CODE=DSHOW_COCREATE_FAILED`, `FIRST_EXCEPTION_CLASS=TypeError`.
+- `stage_notes=["coinit:TypeError"]`, `COM_RELEASE_WARNING_COUNT=0` (early failure — **not** physical PASS).
 
-**Fix:** Never manual-Release owned comtypes pointers. Drop Python refs (`var = None`) before
-`CoUninitialize` on the STA worker; finalizer performs exactly-once Release. Force `gc.collect()`
-before uninit so finalizers run while the apartment is alive.
+## Root cause (verified vs comtypes 1.4.17)
 
-### B — PS 5.1 Update Rename-Item -NewName
-`Rename-Item $srcDir $backup` passed absolute paths as `-NewName`. PS 5.1 expects a leaf name.
+Production called `CoInitializeEx(None, _COINIT_APARTMENTTHREADED)` (two args).
 
-**Fix:** Same-parent `Rename-Item -LiteralPath … -NewName $backupLeaf` / `$srcLeaf`, validate staged
-backend + ZIP SHA256 before touching live `src`, refuse Update if port 18878 is unrelated-busy
-(stop only verified own uvicorn), rollback on promotion/pip failure. Fake-directory unit tests
-cover promote + rollback without touching a real candidate.
+Official wrapper:
 
-### C — COM_RELEASE_WARNING_COUNT frozen early
-`com_release_warning_count=len(release_warnings)` was evaluated in `try` before `finally` released
-`bind_ctx` / `enum_mon` / `devenum` and called `CoUninitialize`, so final cleanup warnings could
-falsely report zero.
+```python
+def CoInitializeEx(flags=None):
+    ...
+    _CoInitializeEx(None, flags)
+```
 
-**Fix:** Hold result in `pending`; assign `com_release_warning_count=len(release_warnings)` only
-after root cleanup in `finally` (Python still returns the mutated object).
+Two-arg call → Python `TypeError` before any CoCreateInstance; mislabeled as `DSHOW_COCREATE_FAILED`.
 
-## Unchanged
+## Fix
 
-Strict VID+PID+MI+full-instance identity + 1:1 DevicePath↔PnP bijection. Physical USB /
-CAMERA_LAB / FACE_PILOT / installer / production remain **BLOCKED** until owner evidence.
+1. `CoInitializeEx(_COINIT_APARTMENTTHREADED)` — one flags argument.
+2. New blocker `DSHOW_COINIT_FAILED` for apartment-init failures (distinct from CoCreate).
+3. Keep exactly-once comtypes Release ownership and post-cleanup warning telemetry.
+
+Physical USB / CAMERA_LAB / FACE_PILOT / installer / production remain **BLOCKED**.
