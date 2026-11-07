@@ -24,17 +24,15 @@
 **Update PS 5.1:** `Rename-Item -NewName` chỉ nhận leaf cùng thư mục cha; validate ZIP/layout trước
 khi đổi `src`; rollback nếu promote/pip lỗi; từ chối khi cổng 18878 bị process lạ giữ.
 
-**PID safety (PR #27 corrective V2):** Stop/Update chỉ dừng process khi khớp PID **và**
-`listener_creation` / `launcher_creation` đã lưu; không kill theo `uvicorn.pid` legacy;
-không kill `conhost`; không dùng chuỗi thư mục candidate làm bằng chứng sở hữu.
-Nếu Stop bị chặn (FOREIGN / LEGACY / AMBIGUOUS / INCOMPLETE) — **giữ** file bằng chứng,
-không xóa `uvicorn.launch.json`.
+**PID safety V3 (PR #27):** V2 + (1) harness runtime mặc định **mock** `Stop-Process` (không kill OS thật);
+(2) `--app-dir` khớp token chính xác, không substring; (3) Stop fail-closed nếu launcher còn sống.
+V2 COMPLETE `58017ee3…` **không** được chạy runtime harness trên máy owner.
 
 ## An toàn owner (bắt buộc đọc)
 
 - **Không** chạy `-Mode Prepare` lại nếu candidate đã Prepare.
-- **Không** Start trên bản này cho đến khi ChatGPT/audit độc lập xác nhận corrective.
-- Sau freeze: chỉ `Update` bằng FULL-SOURCE + SHA256 đã pin; rồi `Preflight` / `Diagnose`.
+- **Không** Start / Stop / runtime harness cho đến khi audit độc lập xác nhận **V3**.
+- Sau freeze V3: chỉ `Update` bằng FULL-SOURCE + SHA256 đã pin; rồi `Preflight` / `Diagnose`.
 - **Không** force-kill theo PID trần; **không** đụng cổng 18876/18877 / DataDir / venv / model / HMAC.
 
 ## Ứng viên HF3
@@ -50,12 +48,10 @@ cd <extract>\MyPC.Attendance\scripts\windows
   -FullSourceZip <FULL.zip> -ExpectedSha256 <hex>
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Preflight
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
-# Runtime PID-safety (không Start attendance, không camera):
-.\p02_usb_hf3_pid_safety_runtime_tests.ps1
-# Start CHỈ sau khi audit độc lập + CAPTURE_MAPPING_VERIFIED=true + owner ủy quyền:
-# .\p02_usb_hf3_candidate_18878.ps1 -Mode Start
+# Runtime PID-safety CHỈ sau khi audit V3 OK (mặc định mock Stop-Process):
+# .\p02_usb_hf3_pid_safety_runtime_tests.ps1
+# Start/Stop CHỈ sau audit + CAPTURE_MAPPING_VERIFIED=true + owner ủy quyền.
 .\p02_usb_hf3_candidate_18878.ps1 -Mode SafeExport
-.\p02_usb_hf3_candidate_18878.ps1 -Mode Stop
 ```
 
 Diagnose (không cần admin) in redacted stage counters:

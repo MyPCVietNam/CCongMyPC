@@ -1,5 +1,13 @@
 # P02-USB-HF3 changelog
 
+## Patch on PR #27 — PID safety corrective V3 (in-place)
+
+- Mocked Stop-Process in default Windows PID runtime harness; no real kill of synthetic PIDs.
+- Synthetic lab opt-in: health request + finally teardown + port release asserts.
+- Exact tokenized `--app-dir` / port / host ownership (no IndexOf substring).
+- Stop no-listener fail-closed on live/unverifiable launcher; preserve meta.
+- Start failure preserves redacted evidence when cleanup blocked; Update refuses live prior launcher.
+
 ## Patch on PR #27 — PID safety corrective V2 (in-place)
 
 - Rename kill iterators off automatic `$PID`; `Stop-VerifiedHf3Identity` / `LaunchTree`.

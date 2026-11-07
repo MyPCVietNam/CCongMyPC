@@ -58,6 +58,13 @@ def test_hf3_start_stop_share_launch_meta_trust_model():
     # No foreach($pid) collision with automatic $PID
     assert not re.search(r"(?i)\bforeach\s*\(\s*\$pid\b", text)
     assert "$venvMarker" not in text
+    assert "Split-Hf3WindowsCommandLine" in text
+    assert "$CommandLine.IndexOf($backendNorm" not in text
+    # Stop no-listener path must not ignore launcher stop result
+    stop = text.split('  "Stop" {', 1)[1].split('  "Diagnose" {', 1)[0]
+    no_listener = stop.split("# No listener:", 1)[1]
+    assert "[void](Stop-VerifiedHf3Identity" not in no_listener
+    assert "EXIT_STOP_INCOMPLETE" in no_listener
 
 
 def test_hf3_update_uses_leaf_rename_and_rollback():

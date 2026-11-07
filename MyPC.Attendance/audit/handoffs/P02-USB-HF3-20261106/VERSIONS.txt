@@ -1,8 +1,7 @@
 python=3.12.3
 platform=Linux-6.12.94+-x86_64-with-glibc2.39
-pytest_note=agent CI (not GitHub Actions; not owner Windows physical)
-frontend_typecheck=PASS
-frontend_vitest=13 passed
-frontend_build=PASS
-windows_ps51_runtime=BLOCKED_UNTIL_OWNER (p02_usb_hf3_pid_safety_runtime_tests.ps1)
+pytest_note=agent-local CI (not GitHub Actions; not owner Windows physical)
+frontend_typecheck=see FRONTEND_BUILD_REPORT.txt
+windows_ps51_runtime=mocked-by-default; owner-gated until V3 audit
 physical_gates=BLOCKED
+phase=USB_HF3_PID_SAFETY_V3

@@ -1,16 +1,13 @@
-# Acceptance matrix — PID safety V2
+# Acceptance matrix — PID safety V3
 
-| Check | Agent CI | Owner Windows |
-|-------|----------|---------------|
-| Independent static RED→GREEN (5) | PASS required | — |
+| Check | Agent-local | Owner Windows |
+|-------|-------------|---------------|
+| Independent V3 static 6 RED→GREEN | PASS required | — |
+| Prior V2 independent static 5 GREEN | retained | — |
 | Backend pytest | PASS/SKIP reported | — |
 | Frontend tsc/Vitest/build | PASS | — |
-| PS 5.1 `$PID` collision absent | static PASS | runtime harness |
-| Legacy pid-only Stop refuse | static PASS | runtime |
-| Creation required / launcher_creation | static PASS | runtime |
-| No venvMarker kill auth | static PASS | runtime |
-| Update SHA+stage before stop | static PASS | after Update |
-| Diagnose CAPTURE_MAPPING | — | prior PASS retained |
-| Start → READY → Stop → port-free | **not claimed** | only if owner authorizes after audit |
-| USB frame / 30-min soak / CAMERA_LAB | BLOCKED | BLOCKED |
-| FACE_PILOT / INSTALLER / PRODUCTION | BLOCKED | BLOCKED |
+| Default harness never real Stop-Process | static + mock | after V3 audit |
+| Exact `--app-dir` token match | PASS | — |
+| Stop fail-closed on live launcher | PASS | after V3 audit |
+| Start/Stop/runtime on owner | **not authorized** | only after independent review |
+| USB frame / soak / CAMERA_LAB / FACE / INSTALLER / PROD | BLOCKED | BLOCKED |

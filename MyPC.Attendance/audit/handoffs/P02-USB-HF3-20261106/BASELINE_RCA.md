@@ -1,25 +1,17 @@
-# Baseline RCA — PID safety corrective V2
+# Baseline RCA — PID safety V3
 
-## Owner Windows facts (do not reinterpret)
+## Input
 
-- PowerShell 5.1 + Python 3.12 venv redirector → child `python.exe` + `conhost.exe`.
-- Prior HF3 Diagnose PASS (`CAPTURE_MAPPING_VERIFIED=true`, COM warning 0, model pins pass).
-- Prior Start HTTP 200 failed strict launcher==listener equality (ownership V1 fixed that false-negative).
-- Ownership V1 Stop/Update path introduced new safety defects on FULL SOURCE at tip `f441da4`.
+- V2 COMPLETE SHA256 `58017ee3…` / freeze `0ea4264` / tip `a3b995e`
+- Independent suite `test_hf3_pid_safety_v3_independent.py`: **6 RED** on V2 tip
 
-## Independent static RED (5/5) on pre-fix tip
+## Defects
 
-See `PID_SAFETY_BASELINE_RED.md`. Static tests ≠ Windows OS behavior proof.
-
-## Root causes fixed
-
-1. `$pid` foreach → automatic `$PID` read-only collision on PS 5.1.
-2. Legacy pid-file Stop without creation-time proof (PID reuse hazard).
-3. Optional blank `listener_creation` short-circuit.
-4. Shared listener creation stamp applied to launcher PID list; no `launcher_creation`.
-5. Folder/`uvicorn` substring as kill authorization.
+1. Runtime harness called real `Stop-Process` for synthetic PID 4242.
+2. Synthetic lab unconditional PASS / blocked `handle_request` orphan risk.
+3. Foreign `--app-dir` accepted via cmdline path substring.
+4. Stop ignored failed launcher stop when port already free.
 
 ## Non-goals
 
-No Prepare; no 18876/18877; no DataDir/venv/model/HMAC wipe; no physical gate PASS from CI;
-no automatic owner Start from GitHub Actions.
+No Prepare; no physical gate PASS; no owner Start/Stop until V3 audit.

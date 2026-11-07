@@ -48,6 +48,83 @@ def is_python_process(name: str) -> bool:
     return n in ("python.exe", "python", "pythonw.exe", "pythonw")
 
 
+def split_windows_cmdline(cmd: str) -> list[str]:
+    """Approximate CommandLineToArgvW: whitespace split with double-quote grouping.
+
+    Escaped quotes use an odd number of preceding backslashes. Sufficient for
+    ownership checks of uvicorn argv including paths with spaces.
+    """
+    if not cmd:
+        return []
+    args: list[str] = []
+    cur: list[str] = []
+    in_quotes = False
+    i = 0
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if ch == "\\":
+            # Count run of backslashes
+            bs = 0
+            while i < n and cmd[i] == "\\":
+                bs += 1
+                i += 1
+            if i < n and cmd[i] == '"':
+                # Pairs of backslashes → literal \; odd trailing → escape the quote
+                cur.extend(["\\"] * (bs // 2))
+                if bs % 2 == 1:
+                    cur.append('"')
+                    i += 1
+                else:
+                    in_quotes = not in_quotes
+                    i += 1
+            else:
+                cur.extend(["\\"] * bs)
+            continue
+        if ch == '"':
+            in_quotes = not in_quotes
+            i += 1
+            continue
+        if (ch == " " or ch == "\t") and not in_quotes:
+            if cur:
+                args.append("".join(cur))
+                cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    if cur:
+        args.append("".join(cur))
+    return args
+
+
+def _canon_win_path(p: str) -> str:
+    return (p or "").strip().rstrip("\\/").lower().replace("/", "\\")
+
+
+def _option_values(args: list[str], name: str) -> list[str]:
+    """Collect values for --name value | --name=value. Missing value → __MISSING__."""
+    out: list[str] = []
+    i = 0
+    key = name.lower()
+    while i < len(args):
+        a = args[i]
+        al = a.lower()
+        if al == key:
+            if i + 1 >= len(args):
+                out.append("__MISSING__")
+                break
+            out.append(args[i + 1])
+            i += 2
+            continue
+        if al.startswith(key + "="):
+            out.append(a.split("=", 1)[1])
+            i += 1
+            continue
+        i += 1
+    return out
+
+
 def uvicorn_cmdline_matches(
     cmd: str,
     *,
@@ -55,24 +132,59 @@ def uvicorn_cmdline_matches(
     backend: str,
     host: str = "127.0.0.1",
 ) -> bool:
-    import re
-
-    c = cmd or ""
-    if not re.search(r"(?i)(^|[\s\"'])-m([\s\"']+|[=])uvicorn([\s\"']|$)", c):
+    """Require exact tokenized uvicorn argv — never substring path/port trust."""
+    args = split_windows_cmdline(cmd or "")
+    if len(args) < 5:
         return False
-    if not re.search(r"(?i)(^|[\s\"'])app\.main:app([\s\"']|$)", c):
+    found_m = False
+    for i in range(len(args) - 1):
+        if args[i].lower() == "-m" and args[i + 1].lower() == "uvicorn":
+            found_m = True
+            break
+    if not found_m:
         return False
-    if not re.search(rf"(?i)--host([=\s]+)\"?{re.escape(host)}\"?", c):
+    if not any(a == "app.main:app" for a in args):
         return False
-    if not re.search(rf"(?i)--port([=\s]+)\"?{re.escape(str(port))}\"?", c):
+    hosts = _option_values(args, "--host")
+    ports = _option_values(args, "--port")
+    app_dirs = _option_values(args, "--app-dir")
+    if len(hosts) != 1 or hosts[0] == "__MISSING__":
         return False
-    if not re.search(r"(?i)--app-dir", c):
+    if len(ports) != 1 or ports[0] == "__MISSING__":
         return False
-    backend_n = (backend or "").rstrip("\\/").lower().replace("/", "\\")
-    cmd_n = c.lower().replace("/", "\\")
-    if backend_n and backend_n not in cmd_n:
+    if len(app_dirs) != 1 or app_dirs[0] == "__MISSING__":
+        return False
+    if hosts[0] != host:
+        return False
+    if ports[0] != str(port):
+        return False
+    backend_n = _canon_win_path(backend)
+    app_n = _canon_win_path(app_dirs[0])
+    if not backend_n or app_n != backend_n:
         return False
     return True
+
+
+def launcher_cleanup_outcome(
+    *,
+    launcher_pid: int,
+    launcher_creation: str,
+    launcher_alive: bool,
+    stop_result: bool | None,
+) -> str:
+    """Tri-state Stop outcome when no listener remains on the port.
+
+    Returns: absent | stopped | incomplete
+    """
+    if launcher_pid <= 0:
+        return "absent"
+    if not launcher_alive:
+        return "absent"
+    if not launcher_creation:
+        return "incomplete"
+    if stop_result is True:
+        return "stopped"
+    return "incomplete"
 
 
 def kill_authorized(

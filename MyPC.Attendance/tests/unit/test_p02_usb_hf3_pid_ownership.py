@@ -204,6 +204,62 @@ def test_loose_port_substring_without_tokens_rejected():
     assert not m.uvicorn_cmdline_matches(loose, port=18878, backend=BACKEND)
 
 
+def test_foreign_app_dir_rejected_even_when_hf3_path_in_other_arg():
+    cmd = (
+        r'"C:\Python\python.exe" -m uvicorn app.main:app --host 127.0.0.1 '
+        r"--port 18878 --app-dir C:\ForeignService\backend "
+        f'--log-config "{BACKEND}\\logging.ini"'
+    )
+    assert not m.uvicorn_cmdline_matches(cmd, port=18878, backend=BACKEND)
+
+
+def test_app_dir_prefix_and_wrong_port_rejected():
+    assert not m.uvicorn_cmdline_matches(
+        f'py -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir {BACKEND}2',
+        port=18878,
+        backend=BACKEND,
+    )
+    assert not m.uvicorn_cmdline_matches(
+        f'py -m uvicorn app.main:app --host 127.0.0.1 --port 188780 --app-dir {BACKEND}',
+        port=18878,
+        backend=BACKEND,
+    )
+
+
+def test_quoted_app_dir_with_spaces_accepted():
+    spaced = BACKEND.replace("backend", "MyPC Attendance\\backend")
+    cmd = (
+        f'py -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir "{spaced}"'
+    )
+    assert m.uvicorn_cmdline_matches(cmd, port=18878, backend=spaced)
+
+
+def test_duplicate_app_dir_flags_rejected():
+    cmd = (
+        f'py -m uvicorn app.main:app --host 127.0.0.1 --port 18878 '
+        f'--app-dir {BACKEND} --app-dir C:\\Other\\backend'
+    )
+    assert not m.uvicorn_cmdline_matches(cmd, port=18878, backend=BACKEND)
+
+
+def test_launcher_cleanup_tri_state():
+    assert m.launcher_cleanup_outcome(
+        launcher_pid=0, launcher_creation="", launcher_alive=False, stop_result=None
+    ) == "absent"
+    assert m.launcher_cleanup_outcome(
+        launcher_pid=9, launcher_creation="T", launcher_alive=False, stop_result=None
+    ) == "absent"
+    assert m.launcher_cleanup_outcome(
+        launcher_pid=9, launcher_creation="", launcher_alive=True, stop_result=None
+    ) == "incomplete"
+    assert m.launcher_cleanup_outcome(
+        launcher_pid=9, launcher_creation="T", launcher_alive=True, stop_result=False
+    ) == "incomplete"
+    assert m.launcher_cleanup_outcome(
+        launcher_pid=9, launcher_creation="T", launcher_alive=True, stop_result=True
+    ) == "stopped"
+
+
 def test_health_requires_top_level_ok_ready_not_nested():
     nested = '{"status":"degraded","startup_phase":"FAIL","detail":{"status":"ok","startup_phase":"READY"}}'
     assert not m.health_is_start_pass(200, nested)

@@ -14,9 +14,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 tip before this PID-safety corrective.
+# CHANGED zip is relative to PR #27 tip before this PID-safety V3 corrective.
 # Prior tips remain in PACKAGE_META for custody; do not rewrite immutable pins.
-BASELINE = "f441da40ade699021980ee636388be9eef42b68c"
+BASELINE = "a3b995ef4e78d67830192b22b2b6cc0e69a5beb5"
+BASELINE_PID_SAFETY_V2_FREEZE = "0ea4264440bf330f005af7447bbd6bdb6cfabb46"
+BASELINE_PID_SAFETY_V2_FEATURE = "ae003b8f703e62144feb1eed77e0462b536d74dd"
 BASELINE_PID_OWNERSHIP = "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc"
 BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 BASELINE_PROPERTY_BAG = "05f6ba991b4b43b3719125551298b18441578bcb"
@@ -181,6 +183,9 @@ def main() -> int:
         "PID_SAFETY_BASELINE_RED.md",
         "PID_SAFETY_RATIONALE.md",
         "PID_SAFETY_GREEN.txt",
+        "PID_SAFETY_V3_BASELINE_RED.txt",
+        "PID_SAFETY_V3_GREEN.txt",
+        "PID_SAFETY_V3_RATIONALE.md",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -227,7 +232,9 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (PID safety corrective V2; tip f441da4)",
+        "baseline_note": "PR #27 pre-fix HEAD (PID safety V3; tip a3b995e / V2 freeze 0ea4264)",
+        "baseline_pid_safety_v2_freeze": BASELINE_PID_SAFETY_V2_FREEZE,
+        "baseline_pid_safety_v2_feature": BASELINE_PID_SAFETY_V2_FEATURE,
         "baseline_pid_ownership": BASELINE_PID_OWNERSHIP,
         "baseline_pid_ownership_feature": BASELINE_PID_OWNERSHIP_FEATURE,
         "baseline_pid_ownership_freeze": BASELINE_PID_OWNERSHIP_FREEZE,
@@ -253,7 +260,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_PID_SAFETY_CORRECTIVE",
+        "phase": "USB_HF3_PID_SAFETY_V3",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -299,6 +306,9 @@ def main() -> int:
         "PID_SAFETY_BASELINE_RED.md",
         "PID_SAFETY_RATIONALE.md",
         "PID_SAFETY_GREEN.txt",
+        "PID_SAFETY_V3_BASELINE_RED.txt",
+        "PID_SAFETY_V3_GREEN.txt",
+        "PID_SAFETY_V3_RATIONALE.md",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),
