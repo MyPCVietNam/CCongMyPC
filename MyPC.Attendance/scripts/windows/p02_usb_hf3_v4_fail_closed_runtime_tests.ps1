@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Extracts pure helpers, injects fake Get-CimInstance / Get-NetTCPConnection /
-  filesystem / Stop-Process / Start-Process boundaries. Never touches owner HF3,
+  Stop-Process / Start-Process boundaries. Never touches owner HF3,
   ports 18876/18877, cameras, or DataDir. Exit 0 = PASS.
 #>
 $ErrorActionPreference = "Stop"
@@ -15,16 +15,42 @@ function Assert-True([bool]$Cond, [string]$Msg) {
   else { Write-Host "PASS: $Msg" -ForegroundColor Green }
 }
 
+function Extract-FunctionText([string]$Source, [string]$Name) {
+  # Match "function Name" then first "{" even when param(...) sits between.
+  $pattern = "(?s)function\s+$([regex]::Escape($Name))\b[^{]*\{"
+  $m = [regex]::Match($Source, $pattern)
+  if (-not $m.Success) { return $null }
+  $start = $m.Index
+  $brace = $Source.IndexOf("{", $start)
+  if ($brace -lt 0) { return $null }
+  $depth = 0
+  for ($i = $brace; $i -lt $Source.Length; $i++) {
+    $ch = $Source[$i]
+    if ($ch -eq [char]"{") { $depth++ }
+    elseif ($ch -eq [char]"}") {
+      $depth--
+      if ($depth -eq 0) { return $Source.Substring($start, $i - $start + 1) }
+    }
+  }
+  return $null
+}
+
 $CandidateScript = Join-Path $PSScriptRoot "p02_usb_hf3_candidate_18878.ps1"
 $raw = Get-Content -LiteralPath $CandidateScript -Raw -Encoding UTF8
 
-# Extract helpers into temp scope with injected providers.
 $names = @(
-  "Format-Hf3QuotedArg", "Format-Hf3UvicornProcessArguments",
-  "Get-Hf3LaunchMetaState", "Read-Hf3LaunchMeta",
-  "Test-IsPythonProcessName", "Test-IsConhostName",
-  "Test-Hf3UvicornCommandLine", "Split-Hf3WindowsCommandLine"
+  "Format-Hf3QuotedArg",
+  "Format-Hf3UvicornProcessArguments",
+  "Get-Hf3LaunchMetaState",
+  "Read-Hf3LaunchMeta",
+  "Test-IsPythonProcessName",
+  "Test-IsConhostName",
+  "Test-Hf3UvicornCommandLine",
+  "Split-Hf3WindowsCommandLine",
+  "Get-Win32ProcessById",
+  "Get-Hf3PortListenerOwnerPids"
 )
+
 $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('$script:__CimThrow = $false')
 [void]$sb.AppendLine('$script:__TcpThrow = $false')
@@ -32,7 +58,6 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('$script:__TcpOwners = @()')
 [void]$sb.AppendLine('$script:__StopCalls = @()')
 [void]$sb.AppendLine('$script:__StartCalls = @()')
-[void]$sb.AppendLine('$script:__RemoveCalls = @()')
 [void]$sb.AppendLine('function Get-CimInstance { param($ClassName,$Filter,$ErrorAction); if ($script:__CimThrow) { throw "access denied" }; $id=0; if ($Filter -match "ProcessId=(\d+)") { $id=[int]$Matches[1] }; if ($script:__CimMap.ContainsKey($id)) { return $script:__CimMap[$id] }; return $null }')
 [void]$sb.AppendLine('function Get-NetTCPConnection { param($LocalPort,$State,$ErrorAction); if ($script:__TcpThrow) { throw "provider timeout" }; if ($script:__TcpOwners.Count -eq 0) { throw "No MSFT_NetTCPConnection objects found" }; return @($script:__TcpOwners | ForEach-Object { [pscustomobject]@{ OwningProcess = $_ } }) }')
 [void]$sb.AppendLine('function Stop-Process { param($Id,$Force,$ErrorAction); $script:__StopCalls += $Id; throw "mocked-stop-should-not-run-on-negatives" }')
@@ -40,29 +65,9 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('function Write-Log([string]$Message) { Write-Host ("[v4] " + $Message) }')
 
 foreach ($name in $names) {
-  $pattern = "(?s)function\s+$([regex]::Escape($name))\s*\{"
-  $m = [regex]::Match($raw, $pattern)
-  if (-not $m.Success) { Write-Host "WARN missing $name"; continue }
-  $start = $m.Index; $depth = 0; $i = $raw.IndexOf("{", $start)
-  for (; $i -lt $raw.Length; $i++) {
-    if ($raw[$i] -eq [char]"{") { $depth++ }
-    elseif ($raw[$i] -eq [char]"}") {
-      $depth--; if ($depth -eq 0) { [void]$sb.AppendLine($raw.Substring($start, $i - $start + 1)); break }
-    }
-  }
-}
-# Also extract Get-Win32ProcessById + Get-Hf3PortListenerOwnerPids (use real throw semantics with injected CIM/TCP)
-foreach ($name in @("Get-Win32ProcessById", "Get-Hf3PortListenerOwnerPids")) {
-  $pattern = "(?s)function\s+$([regex]::Escape($name))\s*\{"
-  $m = [regex]::Match($raw, $pattern)
-  if (-not $m.Success) { continue }
-  $start = $m.Index; $depth = 0; $i = $raw.IndexOf("{", $start)
-  for (; $i -lt $raw.Length; $i++) {
-    if ($raw[$i] -eq [char]"{") { $depth++ }
-    elseif ($raw[$i] -eq [char]"}") {
-      $depth--; if ($depth -eq 0) { [void]$sb.AppendLine($raw.Substring($start, $i - $start + 1)); break }
-    }
-  }
+  $fn = Extract-FunctionText -Source $raw -Name $name
+  if (-not $fn) { throw ("Required helper missing or unextractable: {0}" -f $name) }
+  [void]$sb.AppendLine($fn)
 }
 
 $tmp = Join-Path $env:TEMP ("hf3-v4-helpers-{0}.ps1" -f [guid]::NewGuid().ToString("N"))
@@ -109,7 +114,6 @@ Assert-True ($free.Count -eq 0) "No listener MSFT object => free port ABSENT"
 $line = Format-Hf3UvicornProcessArguments -Backend 'C:\Users\Test User\backend' -PortNum 18878
 Assert-True ($line -match '"C:\\Users\\Test User\\backend"') "app-dir with spaces is quoted as one token"
 
-# Negatives must not have called Stop/Start
 Assert-True ($script:__StopCalls.Count -eq 0) "No Stop-Process on negative probe cases"
 Assert-True ($script:__StartCalls.Count -eq 0) "No Start-Process on negative probe cases"
 
