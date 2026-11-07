@@ -114,6 +114,52 @@ def find_issues(root: Path, strict: bool = True) -> list[str]:
                 chunk = direct[1].split("if (-not (Test-IsPythonProcessName", 1)[0]
                 if "Test-IsPythonProcessName $listener.Name" not in chunk:
                     issues.append("HF3_DIRECT_LISTENER_MISSING_PYTHON_NAME_CHECK")
+        # V4.1 residual fail-closed contracts
+        if "Validate-Hf3LaunchMetaBeforeCleanup" not in s:
+            issues.append("HF3_V41_SCHEMA_VALIDATE_BEFORE_CLEANUP_MISSING")
+        if "Test-Hf3TcpEmptyQueryError" not in s:
+            issues.append("HF3_V41_TCP_EMPTY_QUERY_HELPER_MISSING")
+        gettcp2 = re.search(r"(?is)function\s+Get-Hf3PortListenerOwnerPids\b(.{0,1200}?)\bfunction\s+", s)
+        if gettcp2 and re.search(
+            r"No MSFT_NetTCPConnection\|ObjectNotFound\|No matching\|cannot find",
+            gettcp2.group(1),
+            re.I,
+        ):
+            issues.append("HF3_V41_TCP_BROAD_MESSAGE_ALLOWLIST")
+        stop = re.search(r'(?is)"Stop"\s*\{(.{0,9000}?)"Diagnose"\s*\{', s)
+        if stop:
+            no_listener = stop.group(1).split("# No listener:", 1)
+            if len(no_listener) < 2 or "EXIT_STOP_STALE_LISTENER" not in no_listener[1]:
+                issues.append("HF3_V41_STOP_MISSING_OFFPORT_LISTENER_GATE")
+        update = re.search(r'(?is)"Update"\s*\{(.{0,16000}?)"Preflight"\s*\{', s)
+        if update:
+            u = update.group(1)
+            free = u.split("Port free:", 1)
+            if len(free) > 1:
+                fp = free[1].split("$backupLeaf", 1)[0]
+                if "Validate-Hf3LaunchMetaBeforeCleanup" not in fp:
+                    issues.append("HF3_V41_UPDATE_MISSING_SCHEMA_VALIDATE")
+                if "$pidFile" not in fp:
+                    issues.append("HF3_V41_UPDATE_MISSING_LEGACY_PID_GATE")
+                if "foreach ($rolePidName" in fp:
+                    after = fp.split("foreach ($rolePidName", 1)[1]
+                    if "Stop-VerifiedHf3Identity" in after:
+                        issues.append("HF3_V41_UPDATE_KILLS_DURING_DECISION_FOREACH")
+        v4h = psdir / "p02_usb_hf3_v4_fail_closed_runtime_tests.ps1"
+        if v4h.is_file():
+            ht = v4h.read_text(encoding="utf-8-sig", errors="replace")
+            if "Invoke-Hf3StopHandler" not in ht and "Invoke-Hf3UpdateHandler" not in ht:
+                issues.append("HF3_V41_HARNESS_MISSING_HANDLER_COVERAGE")
+        helper = psdir / "hf3_pid_ownership.py"
+        if helper.is_file():
+            hy = helper.read_text(encoding="utf-8", errors="replace")
+            # Non-python listener must not be authorized (mirror PS Stop-Verified).
+            m = re.search(
+                r"def kill_authorized\([\s\S]*?role == [\"']listener[\"']:([\s\S]*?)(?:role == [\"']launcher[\"']|return False)",
+                hy,
+            )
+            if not m or "if not is_python" not in m.group(1):
+                issues.append("HF3_V41_PYTHON_MIRROR_ALLOWS_NON_PYTHON_LISTENER")
     else:
         issues.append("HF3_SCRIPT_MISSING")
     return issues

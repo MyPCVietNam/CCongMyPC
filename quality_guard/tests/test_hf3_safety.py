@@ -111,5 +111,22 @@ class Hf3Safety(unittest.TestCase):
         line = self.module.format_uvicorn_process_arguments(backend=backend, port=18878)
         self.assertIn('"C:\\Users\\Test User\\p02-usb-hf3-candidate\\src\\backend"', line)
 
+    def test_v41_schema_validate_and_tcp_empty_helpers(self):
+        s = HF3.read_text(encoding="utf-8-sig", errors="replace")
+        self.assertIn("Validate-Hf3LaunchMetaBeforeCleanup", s)
+        self.assertIn("Test-Hf3TcpEmptyQueryError", s)
+        self.assertIn("EXIT_STOP_STALE_LISTENER", s)
+        self.assertFalse(
+            self.module.kill_authorized(
+                role="listener",
+                expected_creation="2026-11-07T10:00:00Z",
+                live_creation="2026-11-07T10:00:00Z",
+                is_conhost=False,
+                cmdline_ok=True,
+                is_python=False,
+                exe_matches_expected=False,
+            )
+        )
+
 if __name__ == "__main__":
     unittest.main()

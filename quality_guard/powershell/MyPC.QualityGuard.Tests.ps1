@@ -1,4 +1,4 @@
-# Requires Pester >= 5.9.0, Windows PowerShell 5.1.
+﻿# Requires Pester >= 5.9.0, Windows PowerShell 5.1.
 # PURE static contract. Intentionally never dot-sources candidate or invokes Stop-Process.
 BeforeAll {
     $script:repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -60,6 +60,17 @@ Describe 'MyPC HF3 Windows process-safety contract' {
         $getProcEnd = $raw.IndexOf('function Split-Hf3WindowsCommandLine')
         $getProcStart | Should -BeGreaterThan -1
         $raw.Substring($getProcStart, $getProcEnd - $getProcStart) | Should -Not -Match 'SilentlyContinue'
+    }
+    It 'V4.1 residual: schema validate, TCP empty helper, off-port listener Stop gate' {
+        $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8
+        $raw | Should -Match 'Validate-Hf3LaunchMetaBeforeCleanup'
+        $raw | Should -Match 'Test-Hf3TcpEmptyQueryError'
+        $raw | Should -Match 'EXIT_STOP_STALE_LISTENER'
+        $raw | Should -Match 'EXIT_UPDATE_BLOCKED_LEGACY_PID'
+        $v4h = Join-Path $script:repoRoot 'MyPC.Attendance\scripts\windows\p02_usb_hf3_v4_fail_closed_runtime_tests.ps1'
+        $ht = Get-Content -LiteralPath $v4h -Raw -Encoding UTF8
+        $ht | Should -Match 'Invoke-Hf3StopHandler'
+        $ht | Should -Match 'Invoke-Hf3UpdateHandler'
     }
     It 'Test-Hf3UvicornCommandLine uses contiguous -m uvicorn entrypoint walk' {
         $raw = Get-Content -LiteralPath $script:hf3 -Raw -Encoding UTF8

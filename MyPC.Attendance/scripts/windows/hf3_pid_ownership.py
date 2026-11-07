@@ -254,7 +254,10 @@ def kill_authorized(
         return False
     if expected_creation != live_creation:
         return False
+    # Mirror Stop-VerifiedHf3Identity: listener requires Python process name + cmdline.
     if role == "listener":
+        if not is_python:
+            return False
         return bool(cmdline_ok)
     if role == "launcher":
         if not is_python:

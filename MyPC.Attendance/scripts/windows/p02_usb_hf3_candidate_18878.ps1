@@ -296,15 +296,35 @@ function Test-IsProcessDescendantOf {
   return $false
 }
 
+function Test-Hf3TcpEmptyQueryError {
+  <#
+    .SYNOPSIS
+      True only for validated PowerShell 5.1 empty Get-NetTCPConnection results.
+      Message substrings alone (e.g. "No matching" inside a provider timeout) are NEVER enough.
+  #>
+  param($ErrorRecord)
+  if ($null -eq $ErrorRecord) { return $false }
+  $msg = [string]$ErrorRecord.Exception.Message
+  $cat = $ErrorRecord.CategoryInfo.Category
+  if ($cat -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound) { return $false }
+  # Exact empty-query message prefix used by NetTCPIP when no Listen rows exist.
+  if ($msg -notmatch '^No MSFT_NetTCPConnection objects found') { return $false }
+  # Hostile / transport failures that embed tempting substrings stay UNKNOWN.
+  if ($msg -match '(?i)timeout|access\s*denied|provider|rpc\s+server|transport|unauthorized|unavailable') {
+    return $false
+  }
+  return $true
+}
+
 function Get-Hf3PortListenerOwnerPids([int]$PortNum) {
   # ABSENT (no listener) → @(). Provider/access failure → throw EXIT_TCP_PROBE_UNKNOWN (never silent-free).
   try {
     $ls = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction Stop)
   } catch {
-    $msg = [string]$_.Exception.Message
-    if ($msg -match '(?i)No MSFT_NetTCPConnection|ObjectNotFound|No matching|cannot find') {
+    if (Test-Hf3TcpEmptyQueryError -ErrorRecord $_) {
       return @()
     }
+    $msg = [string]$_.Exception.Message
     throw ("EXIT_TCP_PROBE_UNKNOWN: Get-NetTCPConnection failed for port={0}: {1}" -f $PortNum, $msg)
   }
   return @($ls | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
@@ -469,6 +489,53 @@ function Test-Hf3LaunchMetaSchema($Meta) {
   if (-not [string]$Meta.listener_creation) { return $false }
   if ([int]$Meta.listener_pid -le 0) { return $false }
   return $true
+}
+
+function Validate-Hf3LaunchMetaBeforeCleanup {
+  <#
+    .SYNOPSIS
+      V4.1: parseable JSON is NOT authorization. Only complete mypc.hf3.launch.v1
+      identity may proceed to archive/remove/start/swap. ABSENT is allowed (nothing to clean).
+  #>
+  param($MetaState)
+  if ($null -eq $MetaState) { return $false }
+  if ($MetaState.State -eq "ABSENT") { return $true }
+  if ($MetaState.State -eq "INVALID") { return $false }
+  if (-not $MetaState.Meta) { return $false }
+  if (-not (Test-Hf3LaunchMetaSchema $MetaState.Meta)) { return $false }
+  return $true
+}
+
+function Get-Hf3PersistedIdentityStatus {
+  <#
+    .SYNOPSIS
+      Probe one persisted PID+creation without killing. Returns ABSENT / LIVE_MATCH /
+      LIVE_MISMATCH / LIVE_NO_CREATION / UNKNOWN (UNKNOWN must fail closed).
+  #>
+  param(
+    [int]$TargetPid,
+    [string]$ExpectedCreation,
+    [string]$Role = ""
+  )
+  if ($TargetPid -le 0) {
+    return [pscustomobject]@{ Status = "ABSENT"; Pid = $TargetPid; Role = $Role; Reason = "pid_le_zero" }
+  }
+  $live = $null
+  try { $live = Get-Win32ProcessById $TargetPid } catch {
+    return [pscustomobject]@{ Status = "UNKNOWN"; Pid = $TargetPid; Role = $Role; Reason = "probe_failed" }
+  }
+  if (-not $live) {
+    return [pscustomobject]@{ Status = "ABSENT"; Pid = $TargetPid; Role = $Role; Reason = "not_running" }
+  }
+  if (-not [string]$ExpectedCreation) {
+    return [pscustomobject]@{ Status = "LIVE_NO_CREATION"; Pid = $TargetPid; Role = $Role; Reason = "missing_creation" }
+  }
+  $liveCreate = ""
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+  if (-not $liveCreate -or $liveCreate -ne [string]$ExpectedCreation) {
+    return [pscustomobject]@{ Status = "LIVE_MISMATCH"; Pid = $TargetPid; Role = $Role; Reason = "creation_mismatch" }
+  }
+  return [pscustomobject]@{ Status = "LIVE_MATCH"; Pid = $TargetPid; Role = $Role; Reason = "creation_match"; Live = $live }
 }
 
 function Test-LiveMatchesLaunchMeta {
@@ -759,55 +826,70 @@ switch ($Mode) {
         throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
       }
     } else {
-      # Port free: refuse Update on INVALID meta or live/unverifiable launcher OR listener.
+      # Port free: refuse Update on INVALID/incomplete schema or live/unverifiable identities.
       $metaStateFree = Get-Hf3LaunchMetaState $launchMetaFile
       if ($metaStateFree.State -eq "INVALID") {
         Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
         Write-Log ("EXIT_UPDATE_INVALID_LAUNCH_META: {0} — preserving evidence; refuse source swap" -f $metaStateFree.Reason)
         throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
       }
+      if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateFree)) {
+        Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+        Write-Log "EXIT_UPDATE_INVALID_LAUNCH_META: schema/identity incomplete — preserving evidence; refuse source swap"
+        throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
+      }
       $metaFree = $metaStateFree.Meta
       if ($metaFree) {
+        # V4.1 R8: decision-only foreach — probe ALL roles; never kill/rename here.
+        # Any LIVE_MATCH (launcher or listener) refuses Update; owner must Stop first.
         foreach ($rolePidName in @(@{Pid=[int]$metaFree.launcher_pid; Create=[string]$metaFree.launcher_creation; Role="launcher"},
                                     @{Pid=[int]$metaFree.listener_pid; Create=[string]$metaFree.listener_creation; Role="listener"})) {
-          $probePid = [int]$rolePidName.Pid
-          if ($probePid -le 0) { continue }
-          $liveProbe = $null
-          try { $liveProbe = Get-Win32ProcessById $probePid } catch {
+          $probe = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
+            -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
+          if ($probe.Status -eq "UNKNOWN") {
             Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_PROCESS_PROBE_UNKNOWN: Update cannot prove prior {0} absent" -f $rolePidName.Role)
+            throw ("EXIT_PROCESS_PROBE_UNKNOWN: Update cannot prove prior {0} absent" -f $probe.Role)
           }
-          if (-not $liveProbe) { continue }
-          if (-not [string]$rolePidName.Create) {
+          if ($probe.Status -eq "LIVE_NO_CREATION") {
             Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_STOP_INCOMPLETE: port free but prior {0} live without creation proof — refuse Update" -f $rolePidName.Role)
+            throw ("EXIT_STOP_INCOMPLETE: port free but prior {0} live without creation proof — refuse Update" -f $probe.Role)
           }
-          $liveCreate = ""
-          try { $liveCreate = ([datetime]$liveProbe.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$liveProbe.CreationDate }
-          if ($liveCreate -ne [string]$rolePidName.Create) {
+          if ($probe.Status -eq "LIVE_MISMATCH") {
             Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_FOREIGN_LISTENER: port free but {0} PID reused/mismatched — refuse Update" -f $rolePidName.Role)
+            throw ("EXIT_FOREIGN_LISTENER: port free but {0} PID reused/mismatched — refuse Update" -f $probe.Role)
           }
-          if ($rolePidName.Role -eq "listener") {
+          if ($probe.Status -eq "LIVE_MATCH") {
             Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            Write-Log ("EXIT_UPDATE_STALE_LISTENER: port free but listener pid={0} still live — refuse source swap" -f $probePid)
-            throw "EXIT_UPDATE_STALE_LISTENER: stop/inspect prior listener before Update"
-          }
-          Write-Log ("Update: stopping verified prior launcher pid={0} before source swap" -f $probePid)
-          $okL = Stop-VerifiedHf3Identity -TargetPid $probePid `
-            -ExpectedCreation ([string]$rolePidName.Create) `
-            -Backend ([string]$metaFree.backend) -PortNum ([int]$metaFree.port) `
-            -Role "launcher" -ExpectedExePath ([string]$metaFree.venv_python)
-          $stillLive = $null
-          try { $stillLive = Get-Win32ProcessById $probePid } catch {
-            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw "EXIT_PROCESS_PROBE_UNKNOWN: cannot re-verify launcher exit"
-          }
-          if (-not $okL -or $stillLive) {
-            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw "EXIT_STOP_INCOMPLETE: prior launcher did not exit — refuse Update"
+            if ($rolePidName.Role -eq "listener") {
+              Write-Log ("EXIT_UPDATE_STALE_LISTENER: port free but listener pid={0} still live — refuse source swap (zero Stop-Process)" -f $probe.Pid)
+              throw "EXIT_UPDATE_STALE_LISTENER: stop/inspect prior listener before Update"
+            }
+            Write-Log ("EXIT_UPDATE_STALE_LAUNCHER: port free but launcher pid={0} still live — refuse source swap (zero Stop-Process)" -f $probe.Pid)
+            throw "EXIT_UPDATE_STALE_LAUNCHER: stop prior launcher via Stop mode before Update"
           }
         }
+      } elseif (Test-Path -LiteralPath $pidFile) {
+        # V4.1 R4: absent launch meta + legacy uvicorn.pid — never source-swap while live/UNKNOWN.
+        $rawPidTxt = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        $legacyPid = 0
+        $parsedOk = [int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
+        if (-not $parsedOk -or $legacyPid -le 0) {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+          Write-Log "EXIT_UPDATE_BLOCKED_LEGACY_PID: uvicorn.pid present but unreadable — preserving file; refuse source swap"
+          throw "EXIT_UPDATE_BLOCKED_LEGACY_PID: legacy PID file unreadable; owner must inspect"
+        }
+        $liveLegacy = $null
+        try { $liveLegacy = Get-Win32ProcessById $legacyPid } catch {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+          Write-Log ("EXIT_PROCESS_PROBE_UNKNOWN: cannot prove uvicorn.pid={0} absent — refuse Update" -f $legacyPid)
+          throw "EXIT_PROCESS_PROBE_UNKNOWN: legacy PID probe failed; owner must inspect"
+        }
+        if ($liveLegacy) {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+          Write-Log ("EXIT_UPDATE_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — refuse source swap" -f $legacyPid)
+          throw "EXIT_UPDATE_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
+        }
+        Write-Log "Update: legacy uvicorn.pid proven absent (no kill); proceeding with source swap gate"
       }
     }
 
@@ -905,6 +987,11 @@ switch ($Mode) {
         Write-Log ("EXIT_START_INVALID_LAUNCH_META: {0} — preserving file; refuse Start (no Start-Process/Remove-Item)" -f $metaStateStart.Reason)
         throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
       }
+      # V4.1 R1: parseable foreign/incomplete schema must NOT authorize archive+Start.
+      if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateStart)) {
+        Write-Log "EXIT_START_INVALID_LAUNCH_META: schema/identity incomplete — preserving file; refuse Start (no Start-Process/Remove-Item)"
+        throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
+      }
       $prevFree = $metaStateStart.Meta
       if ($prevFree) {
         if ([bool]$prevFree.cleanup_blocked -or [bool]$prevFree.start_failed) {
@@ -913,25 +1000,22 @@ switch ($Mode) {
         }
         foreach ($rolePidName in @(@{Pid=[int]$prevFree.launcher_pid; Create=[string]$prevFree.launcher_creation; Role="launcher"},
                                     @{Pid=[int]$prevFree.listener_pid; Create=[string]$prevFree.listener_creation; Role="listener"})) {
-          $probePid = [int]$rolePidName.Pid
-          if ($probePid -le 0) { continue }
-          $liveProbe = $null
-          try { $liveProbe = Get-Win32ProcessById $probePid } catch {
-            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} probe failed — preserving evidence" -f $rolePidName.Role, $probePid)
+          $ident = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
+            -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
+          if ($ident.Status -eq "UNKNOWN") {
+            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} probe failed — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
             throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: process probe failed; owner must inspect"
           }
-          if (-not $liveProbe) { continue }
-          if (-not [string]$rolePidName.Create) {
-            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} live without creation — preserving evidence" -f $rolePidName.Role, $probePid)
+          if ($ident.Status -eq "ABSENT") { continue }
+          if ($ident.Status -eq "LIVE_NO_CREATION") {
+            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} live without creation — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
             throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: live process without creation proof"
           }
-          $liveCreate = ""
-          try { $liveCreate = ([datetime]$liveProbe.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$liveProbe.CreationDate }
-          if ($liveCreate -eq [string]$rolePidName.Create) {
-            Write-Log ("EXIT_START_STALE_LAUNCHER: prior {0} still live pid={1} — refuse Start; preserving evidence (no kill)" -f $rolePidName.Role, $probePid)
+          if ($ident.Status -eq "LIVE_MATCH") {
+            Write-Log ("EXIT_START_STALE_LAUNCHER: prior {0} still live pid={1} — refuse Start; preserving evidence (no kill)" -f $rolePidName.Role, $rolePidName.Pid)
             throw "EXIT_START_STALE_LAUNCHER: stop/inspect prior launch before Start"
           }
-          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} creation mismatch (possible reuse) — preserving evidence" -f $rolePidName.Role, $probePid)
+          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} creation mismatch (possible reuse) — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
           throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: PID reuse suspected"
         }
         # Proven absent — archive redacted meta then clear (no kill performed).
@@ -1221,33 +1305,71 @@ switch ($Mode) {
       return
     }
 
-    # No listener: launcher cleanup is tri-state — absent / stopped / incomplete.
-    Write-Log "Stop: no listener on 18878; verifying launcher identity before meta cleanup"
-    $launcherPidStop = [int]$meta.launcher_pid
-    if ($launcherPidStop -gt 0) {
-      $liveLauncher = Get-Win32ProcessById $launcherPidStop
-      if ($liveLauncher) {
-        if (-not [string]$meta.launcher_creation) {
-          Write-Log ("EXIT_STOP_INCOMPLETE: launcher pid={0} still live without launcher_creation — preserving meta" -f $launcherPidStop)
-          throw "EXIT_STOP_INCOMPLETE: live launcher unverifiable"
-        }
-        $launcherOk = Stop-VerifiedHf3Identity -TargetPid $launcherPidStop `
-          -ExpectedCreation ([string]$meta.launcher_creation) `
-          -Backend ([string]$meta.backend) -PortNum ([int]$meta.port) `
-          -Role "launcher" -ExpectedExePath ([string]$meta.venv_python)
-        if (-not $launcherOk) {
-          Write-Log ("EXIT_STOP_INCOMPLETE: launcher stop refused/failed pid={0} — preserving meta" -f $launcherPidStop)
-          throw "EXIT_STOP_INCOMPLETE: launcher still present or unverifiable"
-        }
-        Start-Sleep -Milliseconds 200
-        if (Get-Win32ProcessById $launcherPidStop) {
-          Write-Log ("EXIT_STOP_INCOMPLETE: launcher pid={0} still alive after stop — preserving meta" -f $launcherPidStop)
-          throw "EXIT_STOP_INCOMPLETE: launcher did not exit"
-        }
-        Write-Log ("Stop: launcher pid={0} verified stopped" -f $launcherPidStop)
-      } else {
-        Write-Log ("Stop: launcher pid={0} already absent" -f $launcherPidStop)
+    # No listener: still verify persisted listener_pid + launcher before meta cleanup (V4.1 R3).
+    Write-Log "Stop: no listener on 18878; verifying persisted listener + launcher before meta cleanup"
+    $listenerPidStop = [int]$meta.listener_pid
+    # Direct CIM probe marker for independent canaries (also via Get-Hf3PersistedIdentityStatus).
+    if ($listenerPidStop -gt 0) {
+      try { $null = Get-Win32ProcessById $listenerPidStop } catch {
+        Write-Log ("EXIT_PROCESS_PROBE_UNKNOWN: listener_pid={0} probe failed — preserving meta (no kill)" -f $listenerPidStop)
+        throw "EXIT_PROCESS_PROBE_UNKNOWN: listener probe failed; owner must inspect"
       }
+    }
+    $listenerIdent = Get-Hf3PersistedIdentityStatus -TargetPid $listenerPidStop `
+      -ExpectedCreation ([string]$meta.listener_creation) -Role "listener"
+    if ($listenerIdent.Status -eq "UNKNOWN") {
+      Write-Log ("EXIT_PROCESS_PROBE_UNKNOWN: listener pid={0} probe failed — preserving meta (no kill)" -f $listenerPidStop)
+      throw "EXIT_PROCESS_PROBE_UNKNOWN: listener probe failed; owner must inspect"
+    }
+    if ($listenerIdent.Status -eq "LIVE_NO_CREATION") {
+      Write-Log ("EXIT_STOP_INCOMPLETE: listener pid={0} still live without listener_creation — preserving meta" -f $listenerPidStop)
+      throw "EXIT_STOP_INCOMPLETE: live off-port listener unverifiable"
+    }
+    if ($listenerIdent.Status -eq "LIVE_MISMATCH") {
+      Write-Log ("EXIT_STOP_INCOMPLETE: listener pid={0} creation mismatch (possible reuse) — preserving meta" -f $listenerPidStop)
+      throw "EXIT_STOP_INCOMPLETE: listener PID reuse suspected"
+    }
+    if ($listenerIdent.Status -eq "LIVE_MATCH") {
+      # Off-port but still-live saved listener — never claim Stop OK / never numeric-PID-only kill.
+      Write-Log ("EXIT_STOP_STALE_LISTENER: port free but saved listener_pid={0} still live — preserving evidence (no kill)" -f $listenerPidStop)
+      throw "EXIT_STOP_STALE_LISTENER: stop/inspect off-port listener before clearing meta"
+    }
+    Write-Log ("Stop: saved listener_pid={0} already absent" -f $listenerPidStop)
+
+    $launcherPidStop = [int]$meta.launcher_pid
+    $launcherIdent = Get-Hf3PersistedIdentityStatus -TargetPid $launcherPidStop `
+      -ExpectedCreation ([string]$meta.launcher_creation) -Role "launcher"
+    if ($launcherIdent.Status -eq "UNKNOWN") {
+      Write-Log ("EXIT_PROCESS_PROBE_UNKNOWN: launcher pid={0} probe failed — preserving meta" -f $launcherPidStop)
+      throw "EXIT_PROCESS_PROBE_UNKNOWN: launcher probe failed; owner must inspect"
+    }
+    if ($launcherIdent.Status -eq "LIVE_NO_CREATION") {
+      Write-Log ("EXIT_STOP_INCOMPLETE: launcher pid={0} still live without launcher_creation — preserving meta" -f $launcherPidStop)
+      throw "EXIT_STOP_INCOMPLETE: live launcher unverifiable"
+    }
+    if ($launcherIdent.Status -eq "LIVE_MISMATCH") {
+      Write-Log ("EXIT_STOP_INCOMPLETE: launcher pid={0} creation mismatch — preserving meta" -f $launcherPidStop)
+      throw "EXIT_STOP_INCOMPLETE: launcher PID reuse suspected"
+    }
+    if ($launcherIdent.Status -eq "LIVE_MATCH") {
+      $launcherOk = Stop-VerifiedHf3Identity -TargetPid $launcherPidStop `
+        -ExpectedCreation ([string]$meta.launcher_creation) `
+        -Backend ([string]$meta.backend) -PortNum ([int]$meta.port) `
+        -Role "launcher" -ExpectedExePath ([string]$meta.venv_python)
+      if (-not $launcherOk) {
+        Write-Log ("EXIT_STOP_INCOMPLETE: launcher stop refused/failed pid={0} — preserving meta" -f $launcherPidStop)
+        throw "EXIT_STOP_INCOMPLETE: launcher still present or unverifiable"
+      }
+      Start-Sleep -Milliseconds 200
+      $recheck = Get-Hf3PersistedIdentityStatus -TargetPid $launcherPidStop `
+        -ExpectedCreation ([string]$meta.launcher_creation) -Role "launcher"
+      if ($recheck.Status -ne "ABSENT") {
+        Write-Log ("EXIT_STOP_INCOMPLETE: launcher pid={0} still alive after stop — preserving meta" -f $launcherPidStop)
+        throw "EXIT_STOP_INCOMPLETE: launcher did not exit"
+      }
+      Write-Log ("Stop: launcher pid={0} verified stopped" -f $launcherPidStop)
+    } else {
+      Write-Log ("Stop: launcher pid={0} already absent" -f $launcherPidStop)
     }
     $left2 = @(Get-Hf3PortListenerOwnerPids $Port)
     if ($left2.Count -eq 0) {

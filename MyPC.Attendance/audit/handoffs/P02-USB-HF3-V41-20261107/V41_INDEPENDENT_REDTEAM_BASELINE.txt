@@ -1,0 +1,20 @@
+FFFFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:37: AssertionError: Start accepts JSON-object meta with invalid schema and 0/absent PIDs as VALID; then archives+removes meta without complete identity proof
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:46: AssertionError: Update with syntactically parseable invalid-schema meta proceeds to src rename/swap
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:53: AssertionError: Stop free-port path probes launcher only and removes persisted meta without checking saved listener PID+creation; an off-port live listener can be orphaned
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:61: AssertionError: Update with free port + absent launch meta + legacy uvicorn.pid does not check whether PID is still live/unverifiable before source swap
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:69: AssertionError: Broad message substring allowlist can treat provider error e.g. "Provider timeout: No matching response" as no listener
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:82: AssertionError: Python mirror incorrectly AUTHORIZES non-Python listener; diverges from PowerShell stop guard
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:88: AssertionError: V4 PowerShell harness only extracts helper functions; no Start/Stop/Update handler behavior or blocked side effects are exercised
+/tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py:97: AssertionError: Update iterates launcher first: may kill valid launcher before checking saved listener PID; then throws EXIT_UPDATE_STALE_LISTENER after partial side effect
+=========================== short test summary info ============================
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r1_start_rejects_syntactically_valid_but_invalid_schema_before_metadata_cleanup
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r2_update_rejects_invalid_schema_before_source_swap
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r3_stop_checks_saved_listener_when_port_free
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r4_update_no_meta_requires_legacy_pid_safety_check
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r5_tcp_unknown_cannot_be_downgraded_via_generic_exception_message
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r6_python_mirror_refuses_non_python_listener_even_with_matching_argv
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r7_v4_behavioral_harness_does_not_cover_main_mode_control_flows
+FAILED ../tmp/hf3-v41-reaudit/MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py::test_r8_update_must_validate_both_identities_before_stopping_any_process
+8 failed in 0.02s
