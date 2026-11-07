@@ -14,11 +14,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 pre-fix tip (COM release / Update corrective).
-# Prior property-bag tip 05f6ba9 and PR #26 tip remain in PACKAGE_META.
-BASELINE = "ff6789ecd15ede618101e6a4c4938c3290ed1748"
+# CHANGED zip is relative to PR #27 pre-fix tip (CoInitializeEx signature corrective).
+# Prior tips remain in PACKAGE_META for custody.
+BASELINE = "98d8d40290018d688749931a9f78d4ee016b126b"
 BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 BASELINE_PROPERTY_BAG = "05f6ba991b4b43b3719125551298b18441578bcb"
+BASELINE_COM_RELEASE = "ff6789ecd15ede618101e6a4c4938c3290ed1748"
 A_NAME = "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip"
 B_NAME = "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip"
 C_NAME = "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip"
@@ -161,6 +162,8 @@ def main() -> int:
         "INDEPENDENT_REPRO_test_p02_usb_hf3_identity_boundary.py",
         "COM_RELEASE_REPRO_RED.txt",
         "INDEPENDENT_REPRO_test_p02_usb_hf3_com_release_update.py",
+        "INDEPENDENT_REPRO_test_p02_usb_hf3_coinit_signature.py",
+        "COINIT_REPRO_RED.txt",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -205,9 +208,10 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (COM exactly-once release / PS5.1 Update corrective)",
+        "baseline_note": "PR #27 pre-fix HEAD (comtypes CoInitializeEx flags-only signature)",
         "baseline_pr26": BASELINE_PR26,
         "baseline_property_bag": BASELINE_PROPERTY_BAG,
+        "baseline_com_release": BASELINE_COM_RELEASE,
         "baseline_pr": 27,
         "feature_commit": head,
         "packaging_freeze_commit": head,
@@ -224,7 +228,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_COM_RELEASE_UPDATE",
+        "phase": "USB_HF3_COINIT_SIGNATURE",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -259,6 +263,8 @@ def main() -> int:
         "INDEPENDENT_REPRO_test_p02_usb_hf3_identity_boundary.py",
         "COM_RELEASE_REPRO_RED.txt",
         "INDEPENDENT_REPRO_test_p02_usb_hf3_com_release_update.py",
+        "INDEPENDENT_REPRO_test_p02_usb_hf3_coinit_signature.py",
+        "COINIT_REPRO_RED.txt",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

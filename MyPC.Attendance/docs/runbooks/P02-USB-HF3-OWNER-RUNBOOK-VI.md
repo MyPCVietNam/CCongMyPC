@@ -13,6 +13,10 @@
 **COM release (PR #27 corrective):** không gọi thủ công `Release()` trên pointer do comtypes sở hữu
 (finalizer gọi đúng một lần); gán `COM_RELEASE_WARNING_COUNT` **sau** cleanup/`CoUninitialize`.
 
+**CoInitializeEx (PR #27 corrective):** comtypes 1.4.17 nhận **một** arg `flags`
+(`CoInitializeEx(COINIT_APARTMENTTHREADED)`). Lỗi init → `DSHOW_COINIT_FAILED` (không nhầm
+`DSHOW_COCREATE_FAILED`). `COM_RELEASE_WARNING_COUNT=0` lúc fail sớm **không** phải physical PASS.
+
 **Update PS 5.1:** `Rename-Item -NewName` chỉ nhận leaf cùng thư mục cha; validate ZIP/layout trước
 khi đổi `src`; rollback nếu promote/pip lỗi; từ chối khi cổng 18878 bị process lạ giữ.
 

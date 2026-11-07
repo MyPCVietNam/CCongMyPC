@@ -15,5 +15,6 @@
 | A11 | COM exactly-once release (no manual Release + finalizer) | CI PASS (repro was RED) |
 | A12 | COM_RELEASE_WARNING_COUNT finalized after root cleanup | CI PASS (repro was RED) |
 | A13 | Update leaf Rename-Item + rollback fake-directory | CI PASS (repro was RED) |
+| A14 | CoInitializeEx(flags) one-arg; DSHOW_COINIT_FAILED distinct | CI PASS (owner TypeError RED) |
 | G-PHYS | USB_WINDOWS_PHYSICAL | **BLOCKED** until owner Diagnose |
 | G-SOAK / LAB / FP / INST / PROD | physical/release | **BLOCKED** |

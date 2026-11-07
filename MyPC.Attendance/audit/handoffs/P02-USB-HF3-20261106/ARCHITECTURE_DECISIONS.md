@@ -7,3 +7,4 @@
 5. **Candidate isolation:** HF3 DataDir under `p02-usb-hf3-candidate`, port 18878 only.
 6. **comtypes ownership:** never manual `Release()` on owned pointers; drop Python refs before `CoUninitialize` on the STA worker; finalize release-warning telemetry after cleanup.
 7. **Update rename:** PowerShell 5.1 `Rename-Item -NewName` is a same-parent leaf only; stage+validate before swap; rollback on failure.
+8. **CoInitializeEx:** call comtypes 1.4.17 wrapper as `CoInitializeEx(flags)` only; apartment-init failures use `DSHOW_COINIT_FAILED` (never mislabel as CoCreate).

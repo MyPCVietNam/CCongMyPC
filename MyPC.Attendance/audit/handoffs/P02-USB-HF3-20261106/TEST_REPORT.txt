@@ -1,24 +1,18 @@
-P02-USB-HF3 COM release / Update corrective — local agent CI
-utc_note: machine clock UTC; owner zone Asia/Bangkok (UTC+7)
+P02-USB-HF3 CoInitializeEx signature corrective — local agent CI
+Owner zone Asia/Bangkok (UTC+7); machine clock UTC.
 
-Command:
-  cd MyPC.Attendance && PYTHONPATH=backend python -m pytest -q
+Command: cd MyPC.Attendance && PYTHONPATH=backend python -m pytest -q
+Result: 495 passed, 3 skipped
+  (3 owner Windows tests SKIP without MYPC_OWNER_WINDOWS_USB=1)
 
-Result:
-  492 passed, 2 skipped
-  (owner Windows integration tests SKIP without MYPC_OWNER_WINDOWS_USB=1)
+Independent coinit repro: tests/unit/test_p02_usb_hf3_coinit_signature.py → PASS
+(was RED on tip 98d8d40 with coinit:TypeError)
 
-Independent repro (was 3 FAIL on ff6789e):
-  tests/unit/test_p02_usb_hf3_com_release_update.py → 3 PASS
-
-HF3-focused:
-  44 passed, 2 skipped (unit + owner-guard)
-
-NOT claimed:
-  USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN,
-  FACE_PILOT, INSTALLER, PRODUCTION_READY
+NOT claimed: USB_WINDOWS_PHYSICAL, soak, CAMERA_LAB, FACE_PILOT, INSTALLER, PRODUCTION
 
 Tail:
-........................................................................ [ 87%]
-..............................................................           [100%]
-492 passed, 2 skipped in 91.94s (0:01:31)
+........................................................................ [ 57%]
+........................................................................ [ 72%]
+........................................................................ [ 86%]
+..................................................................       [100%]
+495 passed, 3 skipped in 90.46s (0:01:30)

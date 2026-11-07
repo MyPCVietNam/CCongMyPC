@@ -1,4 +1,6 @@
-Independent audit RED on tip ff6789e (3 FAIL):
-- double Release via _safe_release + finalizer
-- Rename-Item absolute NewName
-- com_release_warning_count frozen before finally
+Owner Diagnose RED on tip 98d8d40 / freeze e0ad4aa:
+DSHOW_ENUM_OK=false monikers=0
+DSHOW_BLOCKER_CODE=DSHOW_COCREATE_FAILED (mislabeled)
+FIRST_EXCEPTION_CLASS=TypeError
+stage_notes=["coinit:TypeError"]
+Root: CoInitializeEx(None, flags) vs comtypes 1.4.17 CoInitializeEx(flags=None)
