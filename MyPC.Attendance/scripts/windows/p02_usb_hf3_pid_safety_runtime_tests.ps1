@@ -130,7 +130,12 @@ $foreignAppDirCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127
 $wrongPortCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 --port 188780 --app-dir $backend"
 $prefixCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir ${backend}2"
 
-Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $goodCmd -Backend $backend -PortNum 18878) -eq $true) "Exact tokenized cmdline accepted"
+$cmdOk = Test-Hf3UvicornCommandLine -CommandLine $goodCmd -Backend $backend -PortNum 18878
+if (-not $cmdOk) {
+  $dbgArgs = @(Split-Hf3WindowsCommandLine $goodCmd)
+  Write-Host ("DBG goodCmd argv({0}): {1}" -f $dbgArgs.Count, ($dbgArgs -join ' || ')) -ForegroundColor Yellow
+}
+Assert-True ($cmdOk -eq $true) "Exact tokenized cmdline accepted"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $goodCmdSpaced -Backend $backendSpaced -PortNum 18878) -eq $true) "Quoted path with spaces accepted"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $foreignAppDirCmd -Backend $backend -PortNum 18878) -eq $false) "Foreign --app-dir rejected despite HF3 path elsewhere"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $wrongPortCmd -Backend $backend -PortNum 18878) -eq $false) "Wrong port 188780 rejected"

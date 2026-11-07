@@ -222,11 +222,12 @@ function Test-Hf3UvicornCommandLine {
   $argv = @(Split-Hf3WindowsCommandLine $CommandLine)
   if ($argv.Count -lt 5) { return $false }
   # Reject -c / --reload / --workers — not HF3 uvicorn interpreter entrypoints.
+  # Only exact -c or -c<rest> short-form (never treat long options like --host as -c*).
   foreach ($tok in $argv) {
     $tl = ([string]$tok).ToLowerInvariant()
-    if ($tl -eq "-c" -or $tl.StartsWith("-c") -or $tl -eq "--reload" -or $tl -eq "--workers") {
-      return $false
-    }
+    if ($tl -eq "--reload" -or $tl -eq "--workers") { return $false }
+    if ($tl -eq "-c") { return $false }
+    if ($tl.Length -ge 2 -and $tl.StartsWith("-c") -and -not $tl.StartsWith("--")) { return $false }
   }
   # Require contiguous interpreter entry: [safeFlags*] -m uvicorn app.main:app (never -m anywhere).
   $safeNoVal = @("-b", "-bb", "-B", "-E", "-I", "-O", "-OO", "-s", "-S", "-u", "-v", "-x")
@@ -246,12 +247,13 @@ function Test-Hf3UvicornCommandLine {
     break
   }
   if (-not $entryOk) { return $false }
-  $hosts = @(Get-Hf3OptionValues $argv "--host")
-  $ports = @(Get-Hf3OptionValues $argv "--port")
-  $appDirs = @(Get-Hf3OptionValues $argv "--app-dir")
-  if ($hosts.Count -ne 1 -or $hosts[0] -eq "__MISSING__") { return $false }
-  if ($ports.Count -ne 1 -or $ports[0] -eq "__MISSING__") { return $false }
-  if ($appDirs.Count -ne 1 -or $appDirs[0] -eq "__MISSING__") { return $false }
+  $argvStr = [string[]]@($argv)
+  $hosts = @(Get-Hf3OptionValues -Argv $argvStr -Name "--host")
+  $ports = @(Get-Hf3OptionValues -Argv $argvStr -Name "--port")
+  $appDirs = @(Get-Hf3OptionValues -Argv $argvStr -Name "--app-dir")
+  if ($hosts.Count -ne 1 -or [string]$hosts[0] -eq "__MISSING__") { return $false }
+  if ($ports.Count -ne 1 -or [string]$ports[0] -eq "__MISSING__") { return $false }
+  if ($appDirs.Count -ne 1 -or [string]$appDirs[0] -eq "__MISSING__") { return $false }
   if ([string]$hosts[0] -ne $HostAddr) { return $false }
   if ([string]$ports[0] -ne "$PortNum") { return $false }
   $backendNorm = (($Backend -replace '/', '\').TrimEnd('\')).ToLowerInvariant()
