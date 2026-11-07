@@ -1,0 +1,17 @@
+# repository-overlay/ vs tip <_io.TextIOWrapper name='/dev/null' mode='r' encoding='UTF-8'>
+UTC: 2026-11-07T08:37:01.587515+00:00
+Uploaded Guard ZIP SHA256: 06d904a6b4b5da6c163aac61d3ce077e9de9d73939bbdd539e8aae31e2a6c707
+Tip: b4652d497bc7cceb53d510ab70bdccd50db2724a (at verification; tip may advance with this docs commit)
+
+Overlay files: 28
+Identical to tip: 24
+Intentionally strengthened beyond overlay (do NOT revert to weaker overlay):
+- .github/workflows/mypc-quality-guard.yml (fetch-depth:0 for ancestry; strict gate wording)
+- quality_guard/check.py (Start free-port / -c / DIRECT / synthetic lab gates)
+- quality_guard/powershell/MyPC.QualityGuard.Tests.ps1 (extended Pester)
+- quality_guard/tests/test_hf3_safety.py (V3-additional negatives)
+
+Missing from tip: 0
+V2 freeze 0ea4264 + original overlay check: BLOCKED 3 codes; hf3_safety 5 FAIL (RED preserved)
+HEAD tip Guard check --strict: PASS; test_hf3_safety 11 OK
+Actions tip b4652d4: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355748368 SUCCESS 4/4

@@ -1,18 +1,18 @@
-MyPC Engineering Quality Guard v1.0 independent build verification
-Baseline snapshot: MyPC Attendance PR #27 freeze 0ea4264440bf330f005af7447bbd6bdb6cfabb46
-Source input COMPLETE ZIP SHA256 58017ee3f09b5e6f21dd6097c390058ff48616cf83cc8b1932e93a32627a0e6a
-Input FULL SOURCE ZIP SHA256 7bd8b000b43cbd832094582816f3c04a05af7585c934ed940c97623e85a10148
+MyPC Engineering Quality Guard v1.0 — verification on PR #27 tip
 
-FRAMEWORK SELFTEST: 4 PASS (Python pure)
-ARCHIVE VERIFIER SELFTEST: 4 PASS (Python pure)
-CURSOR SHELL HOOK: 23 PASS (Node 22 unit tests and stdio)
-WORKFLOW YAML: PARSE PASS (4 jobs present, not executed in GitHub)
-EXISTING HF3 SAMPLED UNIT TESTS: 26 PASS (local non-Windows/non-production env)
-INTEGRATED INDEPENDENT SAFETY TESTS ON BASELINE: 11 PASS / 5 FAIL; exact negative failures expected
-STATIC STRICT CONTRACT ON BASELINE: BLOCKED 3 codes (fake PID kill, actual Stop-Process in synthetic lab, backend substring)
-NEW WINDOWS GITHUB ACTIONS: UNRUN (must integrate into actual source branch)
-OWNER WINDOWS PHYSICAL / 30 MIN SOAK / CAMERA_LAB: BLOCKED
+FRAMEWORK SELFTEST: 4 PASS
+ARCHIVE VERIFIER SELFTEST: 4 PASS
+CURSOR SHELL HOOK: 23 PASS
+check.py --selftest: PASS
+check.py --strict on HEAD: PASS (0 issues)
+test_hf3_safety on HEAD: 11 PASS
+Independent HF3 pytest (ownership/v3/v3-additional/pid-owner-red): 37 PASS
 
-Do not weaken negative tests to get green checks. Do not run old HF3 PID runtime test or Start on owner machine.
+V2 freeze 0ea4264 disposable + original overlay gates:
+- check.py --strict: BLOCKED 3 codes (fake PID 4242, real Stop-Process, backend IndexOf)
+- test_hf3_safety: 5 FAIL (expected RED)
 
-Live PR #27 moved after snapshot to ab1161dd... with a V3 PID fix. Tests here refer to the immutable uploaded V2 freeze only; V3 source is NOT fully independently retested.
+GitHub Actions (tip b4652d4): https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355748368
+- guard-contract, backend-linux, frontend, windows-contract: SUCCESS
+
+OWNER USB PHYSICAL / 30 MIN / CAMERA_LAB / FACE_PILOT / INSTALLER / PRODUCTION_READY: BLOCKED
