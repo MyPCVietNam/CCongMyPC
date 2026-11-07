@@ -325,21 +325,48 @@ def _create_bind_ctx(IBindCtx: Any, warnings: list[str]) -> Any:
     return ppbc
 
 
-def _read_propbag_str(prop_bag: Any, name: str) -> str:
-    """IPropertyBag::Read — check HRESULT semantics via raised COMError; clear VARIANT."""
-    from ctypes import byref
+# Owner-Windows HRESULT: E_INVALIDARG when VT/ABI wrong; ERROR_FILE_NOT_FOUND when
+# the moniker property bag simply omits DevicePath (common on non-target rows).
+_HRESULT_E_INVALIDARG = -2147024809  # 0x80070057
+_HRESULT_FILE_NOT_FOUND = -2147024894  # 0x80070002
 
-    from comtypes.automation import VARIANT
+
+def _is_missing_prop_exc(exc: BaseException) -> bool:
+    """True when the bag truly lacks the named property (not an ABI/TypeError)."""
+    if isinstance(exc, FileNotFoundError):
+        return True
+    _, hr = _exc_meta(exc)
+    return hr == _HRESULT_FILE_NOT_FOUND
+
+
+def _read_propbag_str(prop_bag: Any, name: str) -> str:
+    """IPropertyBag::Read with comtypes 1.4.17 VT_BSTR + direct VARIANT.
+
+    Owner Windows evidence (HF3 session-only probe):
+    - VT_EMPTY + ctypes pointer wrap → HRESULT 0x80070057 (fail).
+    - VT_BSTR + VARIANT instance passed directly → FriendlyName 3/3 and
+      DevicePath on the unique target moniker.
+
+    Do **not** silently fall back to a pointer-wrapped VARIANT on TypeError —
+    that path is proven broken on real UVC monikers. Missing properties raise
+    (caller classifies 0x80070002 as absent DevicePath on non-target rows).
+    """
+    from comtypes.automation import VARIANT, VT_BSTR
 
     var = VARIANT()
     try:
-        # comtypes IPropertyBag.Read(pszPropName, pVar, pErrorLog)
-        # Pass VARIANT by reference for POINTER(VARIANT) in/out correctness.
-        try:
-            prop_bag.Read(name, byref(var), None)  # type: ignore[call-arg]
-        except TypeError:
-            prop_bag.Read(name, var, None)  # type: ignore[call-arg]
+        var.vt = VT_BSTR
+        # Pass the VARIANT instance directly (owner-proven); never wrap with byref.
+        result = prop_bag.Read(name, var, None)  # type: ignore[call-arg]
         val = var.value
+        if val is None or (isinstance(val, str) and not str(val).strip()):
+            # Some wrappers also return the BSTR as the method result.
+            if isinstance(result, str) and result.strip():
+                val = result
+            elif isinstance(result, (tuple, list)) and result:
+                first = result[0]
+                if first is not None and str(first).strip():
+                    val = first
         if val is None:
             return ""
         return str(val).strip()
@@ -520,11 +547,16 @@ def _enumerate_on_com_thread() -> DshowEnumResult:
                                 mon_blocker = BLOCKER_DEVICE_PATH_MISSING
                     except Exception as exc:  # noqa: BLE001
                         mon_exc, mon_hr = _exc_meta(exc)
-                        mon_blocker = BLOCKER_DEVICE_PATH_READ_FAILED
-                        if not first_blocker:
-                            first_blocker = mon_blocker
-                            first_exc = mon_exc
-                            first_hr = mon_hr
+                        # 0x80070002 on a non-target moniker = property absent, not ABI fail.
+                        # That row stays unverified; it must not poison a unique matched target.
+                        if _is_missing_prop_exc(exc):
+                            mon_blocker = BLOCKER_DEVICE_PATH_MISSING
+                        else:
+                            mon_blocker = BLOCKER_DEVICE_PATH_READ_FAILED
+                            if not first_blocker:
+                                first_blocker = mon_blocker
+                                first_exc = mon_exc
+                                first_hr = mon_hr
 
                 fp = ""
                 if path_ok:
