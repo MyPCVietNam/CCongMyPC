@@ -1,0 +1,4 @@
+Owner Start RED on tip 2fcb5bf:
+launcher_pid != listener_pid; HEALTH 200 then ownership abort;
+catch {} hid EXIT_LISTENER_OWNERSHIP as generic health failure.
+Venv probe: RedirectorChildObserved=True (python.exe + conhost.exe); LISTENERS=0.

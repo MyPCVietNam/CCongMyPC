@@ -1,0 +1,3 @@
+66abdc8 docs(hf3): package HF3 V4.1 COMPLETE audit archives
+979349f test(hf3): use real Remove-Item when staging R4 absent-meta case
+1976266 fix(hf3): V4.1 residual fail-closed Start/Stop/Update gates

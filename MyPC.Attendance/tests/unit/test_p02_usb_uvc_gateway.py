@@ -28,6 +28,7 @@ class _FakeCap:
     props: dict | None = None
     read_i: int = 0
     fail_after: int | None = None
+    read_delay_s: float = 0.0
 
     def isOpened(self) -> bool:
         return self.opened
@@ -40,6 +41,8 @@ class _FakeCap:
         return props.get(prop, 0)
 
     def read(self):
+        if self.read_delay_s > 0:
+            time.sleep(self.read_delay_s)
         if self.fail_after is not None and self.read_i >= self.fail_after:
             return False, None
         if self.read_i >= len(self.frames):
@@ -108,9 +111,11 @@ def test_gateway_publishes_live_frames_no_forge_on_fail(usb_sid):
 
     def open_capture(index: int, backend: str):
         assert index == 2
+        # Slow reads so CI can observe DecoderStatus.OK before fail_after clears good frames.
         cap = _FakeCap(
             frames=frames,
-            fail_after=2,
+            fail_after=6,
+            read_delay_s=0.05,
             props={
                 3: 1920,  # WIDTH — cv2 constants vary; gateway also uses frame.shape
                 4: 1080,
@@ -145,13 +150,13 @@ def test_gateway_publishes_live_frames_no_forge_on_fail(usb_sid):
     )
     # Injected open_capture skips _reresolve (production path re-resolves)
     gw.start()
-    deadline = time.time() + 3.0
+    deadline = time.time() + 5.0
     fr = None
     while time.time() < deadline:
         fr = gw.get_latest_good_frame()
         if fr is not None:
             break
-        time.sleep(0.02)
+        time.sleep(0.01)
     assert fr is not None
     assert fr.provenance == StreamProvenance.CAMERA_LIVE
     assert fr.width == 1920 and fr.height == 1080
@@ -160,8 +165,10 @@ def test_gateway_publishes_live_frames_no_forge_on_fail(usb_sid):
     assert h.extras.get("source_type") == "USB_UVC"
     assert h.extras.get("transport") == "USB_UVC"
     assert h.camera_lab_pass is False
-    # After fail_after, no forged good frame
-    time.sleep(0.35)
+    # After fail_after, status leaves OK and good frame must not be forged.
+    deadline_fail = time.time() + 5.0
+    while time.time() < deadline_fail and gw.health().decoder_status == DecoderStatus.OK:
+        time.sleep(0.02)
     assert gw.get_latest_good_frame() is None or gw.health().decoder_status != DecoderStatus.OK
     gw.stop()
     assert gw.health().decoder_status == DecoderStatus.STOPPED

@@ -1,0 +1,58 @@
+Exit status 1
+FF.                                                                      [100%]
+=================================== FAILURES ===================================
+_______________________ test_friendlyname_vtbstr_direct ________________________
+
+fake_comtypes = None
+
+    def test_friendlyname_vtbstr_direct(fake_comtypes):
+        bag = DirectVariantBag({"FriendlyName": "UGREEN Camera 4K"})
+>       assert dce._read_propbag_str(bag, "FriendlyName") == "UGREEN Camera 4K"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/app/vision/camera/dshow_com_enum.py:339: in _read_propbag_str
+    prop_bag.Read(name, byref(var), None)  # type: ignore[call-arg]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <test_hf3_owner_vtbstr_direct.DirectVariantBag object at 0x7ffb4afbaf90>
+name = 'FriendlyName', var = <cparam 'P' (0x7ffb4b0063a0)>, err = None
+
+    def Read(self, name, var, err):
+        if not isinstance(var, FakeVariant) or var.vt != 8:
+>           raise ValueError("expected direct VT_BSTR VARIANT, not byref / VT_EMPTY")
+E           ValueError: expected direct VT_BSTR VARIANT, not byref / VT_EMPTY
+
+../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py:49: ValueError
+________________________ test_devicepath_vtbstr_direct _________________________
+
+fake_comtypes = None
+
+    def test_devicepath_vtbstr_direct(fake_comtypes):
+        path = r"\\?\usb#vid_0bda&pid_58b0&mi_00#instance#{guid}\global"
+        bag = DirectVariantBag({"DevicePath": path})
+>       assert dce._read_propbag_str(bag, "DevicePath") == path
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/app/vision/camera/dshow_com_enum.py:339: in _read_propbag_str
+    prop_bag.Read(name, byref(var), None)  # type: ignore[call-arg]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <test_hf3_owner_vtbstr_direct.DirectVariantBag object at 0x7ffb4afc1450>
+name = 'DevicePath', var = <cparam 'P' (0x7ffb4b1fc720)>, err = None
+
+    def Read(self, name, var, err):
+        if not isinstance(var, FakeVariant) or var.vt != 8:
+>           raise ValueError("expected direct VT_BSTR VARIANT, not byref / VT_EMPTY")
+E           ValueError: expected direct VT_BSTR VARIANT, not byref / VT_EMPTY
+
+../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py:49: ValueError
+=========================== short test summary info ============================
+FAILED ../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py::test_friendlyname_vtbstr_direct - ValueError: expected direct VT_BSTR VARIANT, not byref / VT_EMPTY
+FAILED ../../../MYPC_HF3_BSTR_DIRECT_HANDOFF_20261107/tests/test_hf3_owner_vtbstr_direct.py::test_devicepath_vtbstr_direct - ValueError: expected direct VT_BSTR VARIANT, not byref / VT_EMPTY
+2 failed, 1 passed in 0.08s

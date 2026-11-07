@@ -1,0 +1,11 @@
+test_r10_update_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10_update_checks_pid_file_even_with_valid_meta) ... ok
+test_r10b_start_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10b_start_checks_pid_file_even_with_valid_meta) ... ok
+test_r11_python_mirror_direct_listener_blank_name_is_unverified (__main__.ResidualSafety.test_r11_python_mirror_direct_listener_blank_name_is_unverified) ... ok
+test_r12_real_mode_handler_coverage_not_duplicate_facades (__main__.ResidualSafety.test_r12_real_mode_handler_coverage_not_duplicate_facades) ... ok
+test_r9_prepare_process_guard_before_destructive_source_replace (__main__.ResidualSafety.test_r9_prepare_process_guard_before_destructive_source_replace) ... ok
+test_r9b_prepare_essential_model_inputs_checked_before_deletion (__main__.ResidualSafety.test_r9b_prepare_essential_model_inputs_checked_before_deletion) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+OK

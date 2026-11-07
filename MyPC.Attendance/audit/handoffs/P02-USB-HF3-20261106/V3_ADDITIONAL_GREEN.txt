@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.7.0
+rootdir: /workspace/MyPC.Attendance
+configfile: pytest.ini
+plugins: asyncio-0.24.0, anyio-4.16.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collected 6 items
+
+tests/unit/test_p02_usb_hf3_v3_safety_additional.py ......               [100%]
+
+============================== 6 passed in 0.02s ===============================

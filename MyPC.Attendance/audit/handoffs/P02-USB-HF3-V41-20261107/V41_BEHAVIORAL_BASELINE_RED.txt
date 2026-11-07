@@ -1,0 +1,14 @@
+Baseline tip (V4 packaged HEAD): 7c6a324da7a22c704b33a8ad1b0319099f38f1da
+V4 feature code: a915445289132cec50466ee616c90baa8d2f0cac
+Independent redteam canary on unchanged V4 tip: 8 failed / 8 total
+
+R1 Start foreign schema: Get-Hf3LaunchMetaState VALID for parseable JSON; free Start archives/deletes without Test-Hf3LaunchMetaSchema/Validate-Hf3LaunchMetaBeforeCleanup (~412-440, ~903-948)
+R2 Update same incomplete schema proceeds to source swap (~763-814)
+R3 Stop no-listener ignores saved listener_pid (~1227-1257)
+R4 Update free-port skips legacy uvicorn.pid (~762-815)
+R5 TCP broad regex ObjectNotFound|No matching|cannot find (~299-309)
+R6 kill_authorized(is_python=False) returned True (~hf3_pid_ownership.py:240)
+R7 V4 harness lacks Invoke-Hf3* / Stop-VerifiedHf3LaunchTree handler coverage
+R8 Update foreach kills launcher before listener decision (~773-809)
+
+Command: HF3_REPO_ROOT=/workspace python -m pytest MYPC-HF3-V4-INDEPENDENT-REDTEAM-20261107.py -q

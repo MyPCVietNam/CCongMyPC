@@ -1,0 +1,58 @@
+PASS: Extract-ModeText Prepare production body
+PASS: Missing meta => ABSENT
+PASS: Malformed JSON => INVALID
+PASS: Read-Hf3LaunchMeta throws on INVALID (not null)
+PASS: Parseable JSON => VALID (schema gate is Validate-*)
+PASS: Incomplete schema fails Validate-Hf3LaunchMetaBeforeCleanup
+PASS: CIM failure => EXIT_PROCESS_PROBE_UNKNOWN (not silent null)
+PASS: Missing process => null ABSENT
+PASS: TCP provider timeout with 'No matching' substring => UNKNOWN (not free)
+PASS: TCP access denied with 'cannot find' substring => UNKNOWN
+PASS: ObjectNotFound empty MSFT query => free port ABSENT
+PASS: app-dir with spaces is quoted as one token
+PASS: R1 Start blocks foreign schema
+PASS: R1 meta preserved
+PASS: R1 zero Start-Process
+PASS: R1 zero Stop-Process
+PASS: R2 Update blocks foreign schema
+PASS: R2 meta preserved
+PASS: R2 zero Rename-Item
+PASS: R3 Stop blocks off-port live listener
+PASS: R3 meta preserved
+PASS: R3 zero Stop-Process (no numeric kill)
+PASS: R4 setup: meta absent
+PASS: R4 Update blocks live legacy pid (got=EXIT_UPDATE_BLOCKED_LEGACY_PID: MISMATCH/legacy_pid_live)
+PASS: R4 legacy pid preserved
+PASS: R8 Update blocks when launcher+listener live
+PASS: R8 zero Stop-Process before listener gate
+PASS: R8 zero Rename-Item
+[v4] SHA256 PIN_MATCH for FULL-SOURCE ZIP
+PASS: R9 Prepare refuses existing src
+PASS: R9 existing src preserved
+PASS: R9 zero Remove-Item on refuse
+PASS: R9 zero Stop-Process
+PASS: R9b Prepare missing models
+PASS: R9c protected HF1 root refused
+PASS: R9c 18876 overlap refused
+[v4] SHA256 PIN_MATCH for FULL-SOURCE ZIP
+PASS: R9d Prepare refuses live listener
+PASS: R9d zero Stop-Process
+[v4] SHA256 PIN_MATCH for FULL-SOURCE ZIP
+PASS: R9e fresh Prepare authorized
+PASS: R9e authorization does not mutate
+PASS: R10 unexpected pid vs meta => MISMATCH
+PASS: R10 Start refuses pid mismatch
+PASS: R10 pid file preserved
+PASS: R10 zero Stop-Process
+PASS: R10b malformed pid => INVALID
+PASS: R10c Start authorizes CLEAR_STALE_META when identities absent
+PASS: R10c zero Stop-Process on stale clear auth
+PASS: R12 harness Extract-ModeText present
+PASS: Harness covers Invoke-Hf3PrepareHandler
+PASS: Harness covers Invoke-Hf3StopHandler
+PASS: Harness covers Invoke-Hf3UpdateHandler
+PASS: Harness extracts Stop-VerifiedHf3LaunchTree
+PASS: R12 Prepare mode body invokes production handler
+PASS: R12 harness does not redefine Start facade
+PASS: No Start-Process on negative handler cases
+RESULT: PASS (V4.2 injected fail-closed behavioral; production handlers; no real kill/Start)

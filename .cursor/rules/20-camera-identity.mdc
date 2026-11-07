@@ -1,0 +1,10 @@
+---
+description: Camera identity, RTSP/USB UVC, OpenCV/COM, biometrics and CAMERA_LAB trust gates
+alwaysApply: false
+globs: "MyPC.Attendance/backend/app/vision/camera/**/*.py, MyPC.Attendance/backend/app/api/cameras.py, MyPC.Attendance/tests/**/*usb*.py"
+---
+Never identify a camera by name, OpenCV index, VID/PID alone, or substring/prefix match. Trust only a unique 1:1 full USB video-function identity (VID/PID/MI/full instance token) from PnP and DirectShow DevicePath. Audio/video siblings or unverified monikers remain untrusted. Re-resolve before live use; index is ephemeral.
+
+COM calls must match the installed `comtypes` API; correct `CoInitializeEx(flags)` on the STA worker and `IPropertyBag.Read` with an appropriate `VT_BSTR` direct VARIANT on verified Windows. Balance COM teardown and never manually double-release comtypes-owned pointers.
+
+Keep video provenance honest: ENUM/BIND/PATH/MAPPING PASS is not FRAME_RECEIVED. Frames must be physically captured and validated for real WxH/FPS/quality; no synthetic biometric or HMAC evidence may claim physical pass. Preserve model SHA256 pins and original evidence; never emit faces, embeddings, video or raw PnP identities in diagnostic archives.

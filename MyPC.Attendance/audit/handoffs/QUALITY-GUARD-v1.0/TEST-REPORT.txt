@@ -1,0 +1,18 @@
+MyPC Engineering Quality Guard v1.0 — verification on PR #27 tip
+
+FRAMEWORK SELFTEST: 4 PASS
+ARCHIVE VERIFIER SELFTEST: 4 PASS
+CURSOR SHELL HOOK: 23 PASS
+check.py --selftest: PASS
+check.py --strict on HEAD: PASS (0 issues)
+test_hf3_safety on HEAD: 11 PASS
+Independent HF3 pytest (ownership/v3/v3-additional/pid-owner-red): 37 PASS
+
+V2 freeze 0ea4264 disposable + original overlay gates:
+- check.py --strict: BLOCKED 3 codes (fake PID 4242, real Stop-Process, backend IndexOf)
+- test_hf3_safety: 5 FAIL (expected RED)
+
+GitHub Actions (tip b4652d4): https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355748368
+- guard-contract, backend-linux, frontend, windows-contract: SUCCESS
+
+OWNER USB PHYSICAL / 30 MIN / CAMERA_LAB / FACE_PILOT / INSTALLER / PRODUCTION_READY: BLOCKED

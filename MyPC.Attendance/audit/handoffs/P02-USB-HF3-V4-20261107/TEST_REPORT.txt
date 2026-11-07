@@ -1,0 +1,35 @@
+# HF3 V4 test report
+
+## Immutable pins
+- baseline_tip (RED custody): 8dc2dfed68464eb7ba98db6fc4efae90ee3f07a4
+- feature_tip (CI GREEN):     a915445289132cec50466ee616c90baa8d2f0cac
+- historical HF3 freeze cited by independent audit: 30d93f1d0baaafce433828deb426cc2673830dd4 (pre-V4; not this PACKAGE_META)
+
+## Baseline RED (against 8dc2dfe; no host process kill)
+Independent invariant probe: 6 RED (F-01..F-06) — source-only, not Windows runtime.
+Behavioral pytest on baseline snapshot: 10 failed, 2 passed (see V4_BEHAVIORAL_BASELINE_RED.txt).
+Symptoms (file:line approx on baseline tip):
+1. F-01 Read-Hf3LaunchMeta ~391-397: absent file AND malformed JSON both → $null; Start ~804-865 proceeds when meta null + no uvicorn.pid.
+2. F-02 Update ~686-715: free port + malformed meta not rejected before Rename/Remove; Stop ~1082-1092 reports nothing-to-stop on unreadable meta.
+3. F-03 Update free-port: only launcher_pid/creation; ignores live listener_pid+creation when port free.
+4. F-04/F-05 Get-Win32ProcessById ~132-135 / Get-Hf3PortListenerOwnerPids ~287-290: SilentlyContinue → UNKNOWN indistinguishable from ABSENT/free.
+5. F-06 Listener kill / live-match: missing Python process-name proof (non-Python uvicorn-like argv).
+6. --app-dir spaces: argv formatting unsafe for paths with spaces (contracted + fixed).
+
+## Agent-local GREEN (after V4 fix; not a substitute for Actions)
+Commands (cwd=/workspace unless noted):
+1. python quality_guard/check.py --root . --strict → PASS issue_count=0
+2. python -m unittest discover -s quality_guard/tests -p 'test_*.py' -v → 21 passed
+3. node --test .cursor/hooks/guard-shell.test.cjs → 23 passed
+4. python -m pytest MyPC.Attendance/tests/unit/test_p02_usb_hf3*.py -q → 103 passed
+5. cd MyPC.Attendance && python -m pytest -q -m "not real_model" tests/unit tests/integration tests/acceptance → 536 passed, 5 skipped, 4 deselected
+6. cd MyPC.Attendance/frontend && npm ci && npm run ci → typecheck+vitest 13+build PASS
+
+Windows Pester (agent VM has no Windows PowerShell 5.1): deferred to GitHub windows-contract job.
+
+## GitHub Actions (authoritative CODE_GATE)
+See GITHUB_ACTIONS.txt — run 42362887883 on a915445 — 4/4 PASS
+  guard-contract, windows-contract, backend-linux, frontend
+
+## Physical
+All owner Prepare/Start/Stop/Update/Prepare/runtime harness: NOT REQUESTED / BLOCKED

@@ -1,0 +1,12 @@
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/CHANGELOG.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/FREEZE_VS_TIP_TIMELINE.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/FRONTEND_BUILD_REPORT.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/GITHUB_ACTIONS.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/INDEPENDENT_REPRO_test_hf3_v3_safety_additional.py
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/OMITTED_HISTORICAL_ARCHIVES.md
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/TEST_REPORT.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/V3_ADDITIONAL_BASELINE_RED.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/V3_ADDITIONAL_GREEN.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/V3_ADDITIONAL_HF3_84_PASS.txt
+MyPC.Attendance/audit/handoffs/P02-USB-HF3-20261106/V3_ADDITIONAL_RATIONALE.md
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GUARD_AFTER_V3_ADD.txt

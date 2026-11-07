@@ -1,0 +1,2 @@
+b86555f docs(audit): HF3 PID ownership evidence and packaging baseline 2fcb5bf
+3c989fa fix(usb): P02-USB-HF3 verify venv redirector descendant listener ownership

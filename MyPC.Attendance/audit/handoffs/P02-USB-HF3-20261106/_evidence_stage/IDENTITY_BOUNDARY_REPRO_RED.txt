@@ -1,0 +1,26 @@
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+_________________ test_distinct_instance_prefix_must_not_match _________________
+tests/unit/test_p02_usb_hf3_identity_boundary.py:36: in test_distinct_instance_prefix_must_not_match
+    assert not capture_instances_match(dshow_path("A&ONE2"), pnp_path("A&ONE"))
+E   AssertionError: assert not True
+E    +  where True = capture_instances_match('\\\\?\\usb#vid_0bda&pid_58b0&mi_00#A&ONE2#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global', 'USB\\VID_0BDA&PID_58B0&MI_00\\A&ONE')
+E    +    where '\\\\?\\usb#vid_0bda&pid_58b0&mi_00#A&ONE2#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global' = dshow_path('A&ONE2')
+E    +    and   'USB\\VID_0BDA&PID_58B0&MI_00\\A&ONE' = pnp_path('A&ONE')
+________________ test_distinct_usb_interface_mi_must_not_match _________________
+tests/unit/test_p02_usb_hf3_identity_boundary.py:43: in test_distinct_usb_interface_mi_must_not_match
+    assert not capture_instances_match(dshow_path("A&ONE", mi="01"), pnp_path("A&ONE", mi="00"))
+E   AssertionError: assert not True
+E    +  where True = capture_instances_match('\\\\?\\usb#vid_0bda&pid_58b0&mi_01#A&ONE#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global', 'USB\\VID_0BDA&PID_58B0&MI_00\\A&ONE')
+E    +    where '\\\\?\\usb#vid_0bda&pid_58b0&mi_01#A&ONE#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global' = dshow_path('A&ONE', mi='01')
+E    +    and   'USB\\VID_0BDA&PID_58B0&MI_00\\A&ONE' = pnp_path('A&ONE', mi='00')
+__________ test_linker_fails_closed_when_dshow_has_different_instance __________
+tests/unit/test_p02_usb_hf3_identity_boundary.py:63: in test_linker_fails_closed_when_dshow_has_different_instance
+    assert not out[0].mapping_verified
+E   AssertionError: assert not True
+E    +  where True = UsbDeviceInfo(stable_id='uvc:df8e59f55a71ec1f1550b0a1bd1869124d696985ab92e7b91b195b75355d5b7c', friendly_name='UGREEN ... nhất; OpenCV CAP_DSHOW index tạm=2 (ephemeral, không phải identity).', _pnp_raw='USB\\VID_0BDA&PID_58B0&MI_00\\A&ONE').mapping_verified
+=========================== short test summary info ============================
+FAILED tests/unit/test_p02_usb_hf3_identity_boundary.py::test_distinct_instance_prefix_must_not_match
+FAILED tests/unit/test_p02_usb_hf3_identity_boundary.py::test_distinct_usb_interface_mi_must_not_match
+FAILED tests/unit/test_p02_usb_hf3_identity_boundary.py::test_linker_fails_closed_when_dshow_has_different_instance
+3 failed, 1 passed in 0.04s

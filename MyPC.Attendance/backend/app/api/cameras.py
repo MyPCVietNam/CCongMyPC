@@ -689,18 +689,23 @@ def diagnose_usb_device(
         "friendly_name": dev.friendly_name,
         "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
         "capture_mapping_verified": bool(getattr(dev, "capture_mapping_verified", False)),
+        "device_path_fingerprint_present": bool(getattr(dev, "device_path_fingerprint", "")),
         "ambiguous": bool(dev.ambiguous),
         "trusted_live_eligible": bool(
             (not dev.ambiguous)
             and getattr(dev, "mapping_verified", False)
             and getattr(dev, "capture_mapping_verified", False)
+            and bool(getattr(dev, "device_path_fingerprint", ""))
             and dev.index_hint is not None
         ),
         "index_hint": dev.index_hint,
         "open_by_name": False,
         "stages": {
             "PNP_ID_FOUND": bool(getattr(dev, "pnp_id_found", True)),
-            "CAPTURE_MAPPING_VERIFIED": bool(getattr(dev, "capture_mapping_verified", False)),
+            "CAPTURE_MAPPING_VERIFIED": bool(
+                getattr(dev, "capture_mapping_verified", False)
+                and getattr(dev, "device_path_fingerprint", "")
+            ),
             "OPENED": bool(opened),
             "FRAME_RECEIVED": bool(frame_ok),
         },
@@ -800,14 +805,15 @@ def configure_live_usb_gateway(
     if not (
         getattr(dev, "mapping_verified", False)
         and getattr(dev, "capture_mapping_verified", False)
+        and getattr(dev, "device_path_fingerprint", "")
     ):
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "USB_CAPTURE_UNVERIFIED",
                 "message_vi": (
-                    "CAPTURE_MAPPING_VERIFIED=false — chưa liên kết PnP hashed với "
-                    "DirectShow index. Không đoán tên/index."
+                    "CAPTURE_MAPPING_VERIFIED=false — chưa liên kết PnP video với "
+                    "DirectShow DevicePath duy nhất. FriendlyName/index không đủ định danh."
                 ),
             },
         )
@@ -817,7 +823,7 @@ def configure_live_usb_gateway(
             detail={
                 "code": "USB_INDEX_UNKNOWN",
                 "message_vi": (
-                    "Không có chỉ số DirectShow đã xác minh sau khi khớp stable_id. "
+                    "Không có chỉ số DirectShow đã xác minh sau khi khớp DevicePath. "
                     "CAP_DSHOW không chấp nhận video=Name."
                 ),
             },
@@ -978,10 +984,14 @@ def configure_live_usb_gateway(
         "stable_id_short": (dev.stable_id[:12] + "…") if len(dev.stable_id) > 12 else dev.stable_id,
         "mapping_verified": bool(getattr(dev, "mapping_verified", False)),
         "capture_mapping_verified": bool(getattr(dev, "capture_mapping_verified", False)),
+        "device_path_fingerprint_present": bool(getattr(dev, "device_path_fingerprint", "")),
         "open_by_name": False,
         "stages": {
             "PNP_ID_FOUND": bool(getattr(dev, "pnp_id_found", True)),
-            "CAPTURE_MAPPING_VERIFIED": bool(getattr(dev, "capture_mapping_verified", False)),
+            "CAPTURE_MAPPING_VERIFIED": bool(
+                getattr(dev, "capture_mapping_verified", False)
+                and getattr(dev, "device_path_fingerprint", "")
+            ),
             "OPENED": False,
             "FRAME_RECEIVED": False,
         },

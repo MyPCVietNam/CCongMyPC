@@ -1,0 +1,16 @@
+test_accepts_exact_appdir_positive (test_hf3_safety.Hf3Safety.test_accepts_exact_appdir_positive) ... ok
+test_health_fail_closed (test_hf3_safety.Hf3Safety.test_health_fail_closed) ... ok
+test_pid_creation_required (test_hf3_safety.Hf3Safety.test_pid_creation_required) ... ok
+test_ps_has_no_substring_backend_authorization (test_hf3_safety.Hf3Safety.test_ps_has_no_substring_backend_authorization) ... ok
+test_rejects_foreign_appdir_even_with_hf3_in_log_config (test_hf3_safety.Hf3Safety.test_rejects_foreign_appdir_even_with_hf3_in_log_config) ... ok
+test_rejects_python_dash_c_with_uvicorn_tokens (test_hf3_safety.Hf3Safety.test_rejects_python_dash_c_with_uvicorn_tokens) ... ok
+test_rejects_wrong_appdir_with_backend_as_unrelated_token (test_hf3_safety.Hf3Safety.test_rejects_wrong_appdir_with_backend_as_unrelated_token) ... ok
+test_runtime_has_no_qualified_real_stop_process (test_hf3_safety.Hf3Safety.test_runtime_has_no_qualified_real_stop_process) ... ok
+test_start_free_port_probes_launch_meta (test_hf3_safety.Hf3Safety.test_start_free_port_probes_launch_meta) ... ok
+test_synthetic_does_not_call_fake_numeric_pid_stop (test_hf3_safety.Hf3Safety.test_synthetic_does_not_call_fake_numeric_pid_stop) ... ok
+test_synthetic_never_executes_real_stop_process (test_hf3_safety.Hf3Safety.test_synthetic_never_executes_real_stop_process) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.005s
+
+OK

@@ -1,0 +1,57 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_comtypes_coinitializeex_uses_flags_only _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe74cf83100>
+
+    def test_comtypes_coinitializeex_uses_flags_only(monkeypatch):
+        calls = []
+        fake = ModuleType("comtypes")
+    
+        # Actual comtypes 1.4.17 wrapper signature: CoInitializeEx(flags=None).
+        def coinit(flags=None):
+            calls.append(("coinit", flags))
+    
+        def couninit():
+            calls.append(("couninit",))
+    
+        def cocreate(*args, **kwargs):
+            calls.append(("cocreate",))
+            raise RuntimeError("intentional fake COM stop; no hardware opened")
+    
+        fake.CoInitializeEx = coinit
+        fake.CoUninitialize = couninit
+        fake.CoCreateInstance = cocreate
+        fake.GUID = lambda s: s
+        fake.CLSCTX_INPROC_SERVER = 1
+        monkeypatch.setitem(sys.modules, "comtypes", fake)
+        monkeypatch.setattr(dce, "_build_com_interfaces", lambda: (None, None, None, None, None))
+    
+        result = dce._enumerate_on_com_thread()
+    
+        # Wrong two-argument call never reaches CoCreateInstance and yields coinit:TypeError.
+>       assert ("coinit", 2) in calls, (calls, result.stage_notes)
+E       AssertionError: ([], ['coinit:TypeError'])
+E       assert ('coinit', 2) in []
+
+mnt/data/MYPC_HF3_COINIT_DIAG/repro/test_p02_usb_hf3_coinit_signature.py:42: AssertionError
+_________________ test_coinit_failure_has_distinct_stage_code __________________
+
+    def test_coinit_failure_has_distinct_stage_code():
+        """An initialization failure must not be mislabeled as CoCreateInstance failure."""
+        import inspect
+        code = inspect.getsource(dce._enumerate_on_com_thread)
+>       assert "BLOCKER_COINIT_FAILED" in code, (
+            "Classify CoInitializeEx failures as DSHOW_COINIT_FAILED, "
+            "not DSHOW_COCREATE_FAILED."
+        )
+E       AssertionError: Classify CoInitializeEx failures as DSHOW_COINIT_FAILED, not DSHOW_COCREATE_FAILED.
+E       assert 'BLOCKER_COINIT_FAILED' in 'def _enumerate_on_com_thread() -> DshowEnumResult:\n    """Run entirely on the worker thread that owns the COM apartm..._warnings[:5]\n                ]\n            else:\n                pending.stage_notes = list(pending.stage_notes)\n'
+
+mnt/data/MYPC_HF3_COINIT_DIAG/repro/test_p02_usb_hf3_coinit_signature.py:52: AssertionError
+=========================== short test summary info ============================
+FAILED mnt/data/MYPC_HF3_COINIT_DIAG/repro/test_p02_usb_hf3_coinit_signature.py::test_comtypes_coinitializeex_uses_flags_only - AssertionError: ([], ['coinit:TypeError'])
+assert ('coinit', 2) in []
+FAILED mnt/data/MYPC_HF3_COINIT_DIAG/repro/test_p02_usb_hf3_coinit_signature.py::test_coinit_failure_has_distinct_stage_code - AssertionError: Classify CoInitializeEx failures as DSHOW_COINIT_FAILED, not DSHOW_COCREATE_FAILED.
+assert 'BLOCKER_COINIT_FAILED' in 'def _enumerate_on_com_thread() -> DshowEnumResult:\n    """Run entirely on the worker thread that owns the COM apartm..._warnings[:5]\n                ]\n            else:\n                pending.stage_notes = list(pending.stage_notes)\n'
+2 failed in 0.08s

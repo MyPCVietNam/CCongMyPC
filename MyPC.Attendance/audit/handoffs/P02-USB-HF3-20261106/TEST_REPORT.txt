@@ -1,0 +1,20 @@
+# Test report — code gates vs physical gates
+
+UTC: 2026-11-07T08:24:06.532313+00:00
+Feature tip (pre-packaging): a0e88efb74c850c21526501f3f343357965f649c
+
+## GitHub Actions (authoritative for CI)
+Workflow run SUCCESS: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763
+- guard-contract: PASS
+- windows-contract: PASS (PS 5.1 / Pester / ScriptAnalyzer)
+- backend-linux: PASS
+- frontend: PASS
+
+## Agent-local (supplementary; not a GitHub check run)
+- independent V3 additional 6: PASS
+- HF3 unit suite: 91 PASS
+- backend not real_model: 524 passed, 5 skipped
+- quality_guard check --strict: PASS
+
+## Owner Windows / physical (BLOCKED — do not Start)
+USB_WINDOWS_PHYSICAL, USB_STABILITY_30_MIN, USB_CAMERA_LAB_OWNER_SIGN, FACE_PILOT, INSTALLER, PRODUCTION_READY = BLOCKED

@@ -1,0 +1,14 @@
+GATE                              STATUS
+CODE_GATE                         PASS (Actions 4/4 on feature 98ee96e3ec1c44eb54cf4f0293cfd0a63b7e2a8b — run 42369485182)
+WINDOWS_SIMULATION                PASS (injected harness + windows-contract job)
+OWNER_PHYSICAL                    BLOCKED
+SOAK_30_MIN                       BLOCKED
+CAMERA_LAB                        BLOCKED
+USB_WINDOWS_PHYSICAL              BLOCKED
+USB_STABILITY_30_MIN              BLOCKED
+USB_CAMERA_LAB_OWNER_SIGN         BLOCKED
+FACE_PILOT                        BLOCKED
+INSTALLER                         BLOCKED
+PRODUCTION_READY                  BLOCKED
+OWNER_START_APPROVED              NO
+VERDICT                           READY_FOR_INDEPENDENT_REAUDIT

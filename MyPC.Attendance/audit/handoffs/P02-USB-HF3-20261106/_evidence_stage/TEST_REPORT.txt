@@ -1,0 +1,16 @@
+P02-USB-HF3 PID ownership corrective — local agent CI
+Owner zone Asia/Bangkok (UTC+7).
+
+Command: PYTHONPATH=backend python -m pytest -q
+Result: 512 passed, 3 skipped
+
+PID ownership unit matrix: tests/unit/test_p02_usb_hf3_pid_ownership.py PASS
+NOT claimed: USB_WINDOWS_PHYSICAL / soak / CAMERA_LAB / FACE_PILOT / INSTALLER / PRODUCTION
+Healthy Start on owner Windows still required before any frame claim.
+
+Tail:
+........................................................................ [ 69%]
+........................................................................ [ 83%]
+........................................................................ [ 97%]
+...........                                                              [100%]
+512 passed, 3 skipped in 89.96s (0:01:29)

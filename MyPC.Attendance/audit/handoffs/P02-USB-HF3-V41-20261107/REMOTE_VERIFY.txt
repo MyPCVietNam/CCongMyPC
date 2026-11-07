@@ -1,0 +1,18 @@
+status=VERIFIED
+verified_at_utc=2026-11-07T11:10:00Z
+download_tip_sha=7137baea75e994e34b9df6d33939c7fe2ab97c56
+feature_tip_ci_green=979349f52c755474ab3cecd7ab8c701bf43acd5b
+baseline=7c6a324da7a22c704b33a8ad1b0319099f38f1da
+prior_v4_complete_sha256=068ee217304cd17ce366b768882b84297b7e89617955186ef1b9405d1881bf48
+
+COMPLETE_URL=https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/7137baea75e994e34b9df6d33939c7fe2ab97c56/MyPC.Attendance/audit/handoffs/P02-USB-HF3-V41-20261107/MYPC-HF3-V41-COMPLETE-AUDIT.zip
+COMPLETE_SHA256=ebcaf153c4eafa3c46646f2bd93f85c91b8823e9f8d64fb19619d8d1062b7654
+COMPLETE_BYTES=4049024
+http=200
+nested_crc=OK
+
+INNER_CHANGED_SHA256=cc4679e708b3643c3213c195518f9ba4b9de7ebb73a95a1d41a6f697d75fba5e
+INNER_FULL_SHA256=2151a8e5847df33292352793e87304de2058cdaa6bea324b17276d5941a7f94b
+INNER_EVIDENCE_SHA256=adf522e7aaaa5c88d51da1adfb0256979ff1e917e87306ff6c9f6f176949ab06
+
+NOTE=COMPLETE bytes are immutable at tip 7137bae. This sidecar may be newer than the PENDING REMOTE_VERIFY baked inside that COMPLETE; do not rebuild COMPLETE after verify.

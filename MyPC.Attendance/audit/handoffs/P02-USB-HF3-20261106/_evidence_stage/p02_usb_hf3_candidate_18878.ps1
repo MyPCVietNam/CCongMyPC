@@ -1,0 +1,849 @@
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+  P02-USB-HF3 isolated candidate on 127.0.0.1:18878 — Prepare/Update/Preflight/Start/Stop/Diagnose/SafeExport.
+  Native DirectShow COM enum (comtypes). NEVER touches 18876/18877 DataDirs or secrets.
+
+.EXAMPLE
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Prepare -FullSourceZip C:\path\FULL.zip -ExpectedSha256 <hex> -ModelsSourceDir C:\path\weights
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Update -FullSourceZip C:\path\FULL.zip -ExpectedSha256 <hex>
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Preflight
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Start
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode Stop
+  .\p02_usb_hf3_candidate_18878.ps1 -Mode SafeExport
+#>
+param(
+  [ValidateSet("Prepare", "Update", "Preflight", "Start", "Stop", "Diagnose", "SafeExport", "Export")]
+  [string]$Mode = "Preflight",
+  [string]$CandidateRoot = "$env:LOCALAPPDATA\MyPC.Attendance\p02-usb-hf3-candidate",
+  [string]$FullSourceZip = "",
+  [string]$ExpectedSha256 = "",
+  [string]$ModelsSourceDir = "",
+  [int]$Port = 18878,
+  [string]$PythonExe = "py"
+)
+
+$ErrorActionPreference = "Stop"
+$Utf8Bom = New-Object System.Text.UTF8Encoding $true
+
+function Write-Log([string]$Msg) {
+  $line = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString("o"), $Msg
+  Write-Host $line
+  $logDir = Join-Path $CandidateRoot "logs"
+  New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+  [System.IO.File]::AppendAllText((Join-Path $logDir "candidate.log"), $line + "`r`n", $Utf8Bom)
+}
+
+function Assert-PortSafe {
+  if ($Port -ne 18878) { throw "Port must be 18878 (got $Port). Refusing." }
+}
+
+function Get-Sha256Lower([string]$Path) {
+  return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Find-BackendDir([string]$Root) {
+  $direct = Join-Path $Root "MyPC.Attendance\backend"
+  if (Test-Path (Join-Path $direct "app\main.py")) { return $direct }
+  $hit = Get-ChildItem -Path $Root -Recurse -Filter "main.py" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match '[\\/]app[\\/]main\.py$' } |
+    Select-Object -First 1
+  if ($hit) { return $hit.Directory.Parent.FullName }
+  throw "backend app/main.py not found under $Root — run Prepare first"
+}
+
+function Find-RepoRoot([string]$BackendDir) {
+  $cand = Split-Path $BackendDir -Parent
+  if (Test-Path (Join-Path $cand "models\manifest.json")) { return $cand }
+  $up = Split-Path $cand -Parent
+  if (Test-Path (Join-Path $up "MyPC.Attendance\models\manifest.json")) {
+    return (Join-Path $up "MyPC.Attendance")
+  }
+  return $cand
+}
+
+function Find-Python312 {
+  $candidates = @()
+  try { $candidates += & $PythonExe -3.12 -c "import sys; print(sys.executable)" 2>$null } catch {}
+  try { $candidates += & python -c "import sys; print(sys.executable)" 2>$null } catch {}
+  foreach ($c in $candidates) {
+    if ($c -and (Test-Path $c)) { return $c.Trim() }
+  }
+  throw "Python 3.12 executable not found. Install Python 3.12 and retry."
+}
+
+function Invoke-VenvPip([string]$VenvPy, [string[]]$PipArgs) {
+  & $VenvPy -m pip @PipArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw ("pip failed exit={0} args={1}" -f $LASTEXITCODE, ($PipArgs -join ' '))
+  }
+}
+
+function Resolve-ManifestPath([string]$SrcDir, [string]$ModelsSourceDir, [string]$CandidateRoot) {
+  $candidates = @(
+    (Join-Path $SrcDir "MyPC.Attendance\models\manifest.json"),
+    (Join-Path $SrcDir "models\manifest.json")
+  )
+  $backend = $null
+  try { $backend = Find-BackendDir $SrcDir } catch {}
+  if ($backend) {
+    $repo = Find-RepoRoot $backend
+    $candidates += (Join-Path $repo "models\manifest.json")
+  }
+  if ($ModelsSourceDir) {
+    $candidates += (Join-Path $ModelsSourceDir "..\manifest.json")
+    $candidates += (Join-Path (Split-Path $ModelsSourceDir -Parent) "manifest.json")
+  }
+  $candidates += (Join-Path $CandidateRoot "models\manifest.json")
+  foreach ($c in $candidates) {
+    $full = [System.IO.Path]::GetFullPath($c)
+    if (Test-Path $full) { return $full }
+  }
+  return $null
+}
+
+function Get-ManifestPinMap([string]$ManifestPath) {
+  # Returns hashtable filename -> sha256 from models[] array OR flat object
+  $map = @{}
+  if (-not $ManifestPath -or -not (Test-Path $ManifestPath)) { return $map }
+  $json = Get-Content $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($json.models) {
+    foreach ($m in $json.models) {
+      if ($m.filename -and $m.sha256) {
+        $map[[string]$m.filename] = ([string]$m.sha256).ToLowerInvariant()
+      }
+    }
+  } else {
+    foreach ($p in $json.PSObject.Properties) {
+      if ($p.Name -match '\.onnx$' -and $p.Value) {
+        $map[$p.Name] = ([string]$p.Value).ToLowerInvariant()
+      }
+    }
+  }
+  return $map
+}
+
+# --- HF3 PID ownership (venv redirector → real python.exe child) ---
+# Trust model: HTTP 200 alone never proves ownership. Accept listener owned by
+# launcher OR a verified python.exe descendant with exact uvicorn cmdline.
+# conhost.exe is NEVER a server. Persist listener PID + CreationDate + nonce.
+
+function Get-Win32ProcessById([int]$ProcessId) {
+  if ($ProcessId -le 0) { return $null }
+  return Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $ProcessId) -ErrorAction SilentlyContinue
+}
+
+function Test-Hf3UvicornCommandLine {
+  param(
+    [string]$CommandLine,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$HostAddr = "127.0.0.1"
+  )
+  if (-not $CommandLine) { return $false }
+  if ($CommandLine -notmatch 'uvicorn') { return $false }
+  if ($CommandLine -notmatch 'app\.main:app') { return $false }
+  if ($CommandLine -notmatch [regex]::Escape($HostAddr)) { return $false }
+  if ($CommandLine -notmatch [regex]::Escape("$PortNum")) { return $false }
+  $backendNorm = ($Backend -replace '/', '\').TrimEnd('\')
+  if (-not $backendNorm) { return $false }
+  if ($CommandLine.IndexOf($backendNorm, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    return $false
+  }
+  return $true
+}
+
+function Test-IsPythonProcessName([string]$Name) {
+  $n = ([string]$Name).ToLowerInvariant()
+  return @("python.exe", "python", "pythonw.exe", "pythonw") -contains $n
+}
+
+function Test-IsConhostName([string]$Name) {
+  $n = ([string]$Name).ToLowerInvariant()
+  return @("conhost.exe", "conhost") -contains $n
+}
+
+function Test-IsProcessDescendantOf {
+  param([int]$ChildPid, [int]$AncestorPid, [int]$MaxDepth = 8)
+  if ($ChildPid -le 0 -or $AncestorPid -le 0) { return $false }
+  if ($ChildPid -eq $AncestorPid) { return $true }
+  $cur = $ChildPid
+  $seen = @{}
+  for ($i = 0; $i -lt $MaxDepth; $i++) {
+    if ($seen.ContainsKey("$cur")) { return $false }
+    $seen["$cur"] = $true
+    $p = Get-Win32ProcessById $cur
+    if (-not $p) { return $false }
+    $pp = [int]$p.ParentProcessId
+    if ($pp -eq $AncestorPid) { return $true }
+    if ($pp -le 0) { return $false }
+    $cur = $pp
+  }
+  return $false
+}
+
+function Get-Hf3PortListenerOwnerPids([int]$PortNum) {
+  $ls = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue)
+  return @($ls | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
+}
+
+function Resolve-Hf3ListenerOwnership {
+  param(
+    [int]$LauncherPid,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$HostAddr = "127.0.0.1"
+  )
+  $owners = @(Get-Hf3PortListenerOwnerPids $PortNum)
+  if ($owners.Count -eq 0) {
+    return [pscustomobject]@{
+      Relationship = "NONE"; ListenerPid = 0; Reason = "no_listener"; ListenerCreation = ""
+    }
+  }
+  if ($owners.Count -gt 1) {
+    return [pscustomobject]@{
+      Relationship = "AMBIGUOUS"; ListenerPid = 0; Reason = "multiple_listener_owners"; ListenerCreation = ""
+    }
+  }
+  $listenerPid = [int]$owners[0]
+  $listener = Get-Win32ProcessById $listenerPid
+  if (-not $listener) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_process_missing"; ListenerCreation = ""
+    }
+  }
+  if (Test-IsConhostName $listener.Name) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_is_conhost"; ListenerCreation = ""
+    }
+  }
+  $cmd = [string]$listener.CommandLine
+  if (-not (Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum -HostAddr $HostAddr)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_cmdline_mismatch"; ListenerCreation = ""
+    }
+  }
+  $creation = ""
+  try { $creation = ([datetime]$listener.CreationDate).ToUniversalTime().ToString("o") } catch { $creation = [string]$listener.CreationDate }
+
+  if ($listenerPid -eq $LauncherPid) {
+    return [pscustomobject]@{
+      Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation
+    }
+  }
+  if (-not (Test-IsPythonProcessName $listener.Name)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "descendant_not_python"; ListenerCreation = ""
+    }
+  }
+  if (-not (Test-IsProcessDescendantOf -ChildPid $listenerPid -AncestorPid $LauncherPid)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "not_in_launcher_tree"; ListenerCreation = ""
+    }
+  }
+  $launcher = Get-Win32ProcessById $LauncherPid
+  if ($launcher) {
+    $lCreate = ""
+    try { $lCreate = ([datetime]$launcher.CreationDate).ToUniversalTime().ToString("o") } catch { $lCreate = [string]$launcher.CreationDate }
+    if ($lCreate -and $creation -and ($creation -lt $lCreate)) {
+      return [pscustomobject]@{
+        Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_creation_before_launcher"; ListenerCreation = ""
+      }
+    }
+  }
+  return [pscustomobject]@{
+    Relationship = "VERIFIED_DESCENDANT"; ListenerPid = $listenerPid; Reason = "python_descendant_with_uvicorn_cmdline"; ListenerCreation = $creation
+  }
+}
+
+function Test-Hf3HealthStartPass([int]$StatusCode, [string]$Body) {
+  if ($StatusCode -ne 200) { return $false }
+  if ($Body -notmatch '"status"\s*:\s*"ok"') { return $false }
+  if ($Body -notmatch '"startup_phase"\s*:\s*"READY"') { return $false }
+  if ($Body -match '"status"\s*:\s*"degraded"') { return $false }
+  if ($Body -match '"startup_phase"\s*:\s*"FAIL"') { return $false }
+  return $true
+}
+
+function Save-Hf3LaunchMeta {
+  param(
+    [string]$Path,
+    [hashtable]$Meta
+  )
+  ($Meta | ConvertTo-Json -Depth 6) | Set-Content -Path $Path -Encoding UTF8
+}
+
+function Read-Hf3LaunchMeta([string]$Path) {
+  if (-not (Test-Path $Path)) { return $null }
+  try {
+    return (Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
+  } catch {
+    return $null
+  }
+}
+
+function Test-LiveMatchesLaunchMeta {
+  param($Meta, [int]$LivePid)
+  if (-not $Meta) { return $false }
+  $live = Get-Win32ProcessById $LivePid
+  if (-not $live) { return $false }
+  $liveCreate = ""
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+  if ([string]$Meta.listener_creation -and $liveCreate -ne [string]$Meta.listener_creation) {
+    return $false
+  }
+  if (-not (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend ([string]$Meta.backend) -PortNum ([int]$Meta.port))) {
+    return $false
+  }
+  if (Test-IsConhostName $live.Name) { return $false }
+  return $true
+}
+
+function Stop-VerifiedHf3Pids {
+  param(
+    [int[]]$Pids,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$ExpectedCreation = ""
+  )
+  $stopped = @()
+  foreach ($pid in ($Pids | Select-Object -Unique)) {
+    if ($pid -le 0) { continue }
+    $p = Get-Win32ProcessById $pid
+    if (-not $p) { continue }
+    if (Test-IsConhostName $p.Name) {
+      Write-Log ("Refusing to kill conhost pid={0}" -f $pid)
+      continue
+    }
+    $cmd = [string]$p.CommandLine
+    $okCmd = Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum
+    # Launcher may be a short redirector without full uvicorn args — allow python under candidate venv path
+    $venvMarker = "p02-usb-hf3-candidate"
+    $okLauncher = (Test-IsPythonProcessName $p.Name) -and ($cmd.Contains($venvMarker) -or $cmd.Contains("uvicorn"))
+    if (-not ($okCmd -or $okLauncher)) {
+      Write-Log ("Refusing to kill unverified pid={0} name={1}" -f $pid, $p.Name)
+      continue
+    }
+    if ($ExpectedCreation -and $okCmd) {
+      $liveCreate = ""
+      try { $liveCreate = ([datetime]$p.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$p.CreationDate }
+      if ($liveCreate -ne $ExpectedCreation) {
+        Write-Log ("Refusing to kill pid={0} — creation-time mismatch (possible PID reuse)" -f $pid)
+        continue
+      }
+    }
+    try {
+      Stop-Process -Id $pid -Force -ErrorAction Stop
+      $stopped += $pid
+      Write-Log ("Stopped verified pid={0} name={1}" -f $pid, $p.Name)
+    } catch {
+      Write-Log ("Stop-Process failed pid={0}: {1}" -f $pid, $_.Exception.Message)
+    }
+  }
+  return $stopped
+}
+
+Assert-PortSafe
+New-Item -ItemType Directory -Force -Path $CandidateRoot | Out-Null
+$dataDir = Join-Path $CandidateRoot "DataDir"
+$srcDir = Join-Path $CandidateRoot "src"
+$venvDir = Join-Path $CandidateRoot "venv"
+$modelsDir = Join-Path $CandidateRoot "models\weights"
+$exportDir = Join-Path $CandidateRoot "export"
+$pidFile = Join-Path $CandidateRoot "uvicorn.pid"
+$launchMetaFile = Join-Path $CandidateRoot "uvicorn.launch.json"
+$outLog = Join-Path $CandidateRoot "logs\uvicorn.out.log"
+$errLog = Join-Path $CandidateRoot "logs\uvicorn.err.log"
+
+if ($Mode -eq "Export") { $Mode = "SafeExport" }
+
+switch ($Mode) {
+  "Prepare" {
+    if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {
+      throw "Prepare requires -FullSourceZip pointing to FULL-SOURCE ZIP"
+    }
+    if (-not $ExpectedSha256) { throw "Prepare requires -ExpectedSha256 (lowercase hex)" }
+    $got = Get-Sha256Lower $FullSourceZip
+    if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
+      throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
+    }
+    Write-Log "SHA256 PIN_MATCH for FULL-SOURCE ZIP"
+    if (Test-Path $srcDir) { Remove-Item -Recurse -Force $srcDir }
+    New-Item -ItemType Directory -Force -Path $srcDir | Out-Null
+    Expand-Archive -Path $FullSourceZip -DestinationPath $srcDir -Force
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
+
+    $py = Find-Python312
+    Write-Log "Using Python: $py"
+    if (-not (Test-Path $venvDir)) {
+      & $py -m venv $venvDir
+      if ($LASTEXITCODE -ne 0) { throw "venv create failed" }
+    } else {
+      Write-Log "Reusing existing venv at $venvDir (no wipe)"
+    }
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv python missing at $venvPy" }
+
+    # Prefer python -m pip (avoids pip.exe self-upgrade path quirks)
+    try {
+      Invoke-VenvPip $venvPy @("install", "--upgrade", "pip")
+    } catch {
+      Write-Log ("WARN: pip upgrade skipped/failed: {0}" -f $_.Exception.Message)
+    }
+
+    $backend = Find-BackendDir $srcDir
+    $req = Join-Path $backend "requirements.txt"
+    $reqWin = Join-Path $backend "requirements-windows.txt"
+    if (-not (Test-Path $req)) { throw "requirements.txt missing: $req" }
+    Invoke-VenvPip $venvPy @("install", "-r", $req)
+    if (Test-Path $reqWin) {
+      Invoke-VenvPip $venvPy @("install", "-r", $reqWin)
+      Write-Log "Installed requirements-windows.txt (pywin32/WMI/comtypes)"
+    } else {
+      throw "requirements-windows.txt missing — refuse Prepare without COM enum deps"
+    }
+
+    $manifestPath = Resolve-ManifestPath $srcDir $ModelsSourceDir $CandidateRoot
+    if (-not $manifestPath) {
+      throw "models/manifest.json not found — refuse silent model install"
+    }
+    Write-Log "Using manifest: $manifestPath"
+    $pins = Get-ManifestPinMap $manifestPath
+    if ($pins.Count -lt 2) {
+      throw "manifest must pin at least YuNet + SFace ONNX filenames"
+    }
+
+    if (-not $ModelsSourceDir -or -not (Test-Path $ModelsSourceDir)) {
+      throw "Prepare requires -ModelsSourceDir with existing ONNX weights (owner already has PIN_MATCH models — do not redownload)"
+    }
+    $required = @(
+      "face_detection_yunet_2023mar.onnx",
+      "face_recognition_sface_2021dec.onnx"
+    )
+    foreach ($name in $required) {
+      if (-not $pins.ContainsKey($name)) { throw "manifest missing pin for $name" }
+      $srcFile = Join-Path $ModelsSourceDir $name
+      if (-not (Test-Path $srcFile)) { throw "Missing weight file: $srcFile" }
+      $dst = Join-Path $modelsDir $name
+      Copy-Item $srcFile -Destination $dst -Force
+      $sha = Get-Sha256Lower $dst
+      $exp = $pins[$name]
+      if ($sha -ne $exp) {
+        throw "MODEL PIN_MISMATCH $name got=$sha expected=$exp"
+      }
+      Write-Log ("PIN_MATCH model {0} sha={1}" -f $name, $sha)
+    }
+    Write-Log "MODEL_PINS_PASS=true"
+    Write-Log "Prepare OK — DataDir=$dataDir models=$modelsDir venv=$venvDir"
+  }
+  "Update" {
+    # Source-only refresh for an already-prepared HF3 candidate.
+    # NEVER wipe DataDir, models/weights, or venv. NEVER touch 18876/18877.
+    # PowerShell 5.1: Rename-Item -NewName must be a leaf name (same parent), not a path.
+    if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {
+      throw "Update requires -FullSourceZip pointing to FULL-SOURCE ZIP"
+    }
+    if (-not $ExpectedSha256) { throw "Update requires -ExpectedSha256 (lowercase hex)" }
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare once before Update" }
+    if (-not (Test-Path $dataDir)) { throw "DataDir missing — run Prepare first (Update will not create secrets)" }
+
+    # Refuse Update while 18878 is listening unless ownership re-validates against launch meta.
+    $owners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($owners.Count -gt 0) {
+      $meta = Read-Hf3LaunchMeta $launchMetaFile
+      $backendGuess = $null
+      try { $backendGuess = Find-BackendDir $srcDir } catch {}
+      $stoppedOwn = $false
+      if ($meta -and $backendGuess -and $owners.Count -eq 1) {
+        $livePid = [int]$owners[0]
+        if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
+          Write-Log ("Update: stopping verified listener pid={0} (rel={1}) before source swap" -f $livePid, $meta.relationship)
+          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend ([string]$meta.backend) -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          $still = @(Get-Hf3PortListenerOwnerPids $Port)
+          if ($still.Count -eq 0) { $stoppedOwn = $true }
+        }
+      }
+      if (-not $stoppedOwn) {
+        throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
+      }
+    }
+
+    $got = Get-Sha256Lower $FullSourceZip
+    if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
+      throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
+    }
+    Write-Log "Update SHA256 PIN_MATCH — staging source (DataDir/models/venv preserved)"
+
+    $stageSrc = Join-Path $CandidateRoot "src-update-staging"
+    if (Test-Path $stageSrc) { Remove-Item -Recurse -Force $stageSrc }
+    New-Item -ItemType Directory -Force -Path $stageSrc | Out-Null
+    Expand-Archive -Path $FullSourceZip -DestinationPath $stageSrc -Force
+
+    # Validate staged backend layout BEFORE touching live src.
+    $stagedBackend = $null
+    try { $stagedBackend = Find-BackendDir $stageSrc } catch {
+      Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+      throw ("Update refused: staged ZIP missing backend app/main.py ({0})" -f $_.Exception.Message)
+    }
+    if (-not (Test-Path (Join-Path $stagedBackend "app\main.py"))) {
+      Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+      throw "Update refused: staged backend layout invalid"
+    }
+    Write-Log ("Update staged backend OK: {0}" -f $stagedBackend)
+
+    $backupLeaf = "src-backup-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+    $backup = Join-Path $CandidateRoot $backupLeaf
+    $srcLeaf = Split-Path -Path $srcDir -Leaf
+    $promoted = $false
+    try {
+      if (Test-Path $srcDir) {
+        # Same-parent leaf rename — NewName must NOT be an absolute path (PS 5.1).
+        Rename-Item -LiteralPath $srcDir -NewName $backupLeaf
+      }
+      Rename-Item -LiteralPath $stageSrc -NewName $srcLeaf
+      $promoted = $true
+
+      $backend = Find-BackendDir $srcDir
+      $reqWin = Join-Path $backend "requirements-windows.txt"
+      if (Test-Path $reqWin) {
+        Invoke-VenvPip $venvPy @("install", "-r", $reqWin)
+        Write-Log "Update reinstalled requirements-windows.txt into existing venv"
+      }
+      Write-Log ("Update OK — src refreshed; backup={0}; DataDir untouched" -f $backup)
+    } catch {
+      Write-Log ("Update FAILED — attempting rollback: {0}" -f $_.Exception.Message)
+      if ($promoted) {
+        if (Test-Path $srcDir) {
+          $failedLeaf = "src-update-failed-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+          try { Rename-Item -LiteralPath $srcDir -NewName $failedLeaf } catch {
+            Remove-Item -Recurse -Force $srcDir -ErrorAction SilentlyContinue
+          }
+        }
+        if (Test-Path $backup) {
+          Rename-Item -LiteralPath $backup -NewName $srcLeaf
+          Write-Log "Update rollback restored previous src from backup"
+        }
+      } else {
+        if (Test-Path $stageSrc) {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+        }
+        if ((Test-Path $backup) -and -not (Test-Path $srcDir)) {
+          Rename-Item -LiteralPath $backup -NewName $srcLeaf
+          Write-Log "Update rollback restored src after failed promotion"
+        }
+      }
+      throw
+    }
+  }
+  "Preflight" {
+    Write-Log "Preflight port=$Port candidate=$CandidateRoot"
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare first" }
+    & $venvPy -c "import fastapi,uvicorn,cv2,comtypes; print('deps-ok', fastapi.__version__, cv2.__version__, comtypes.__version__)"
+    if ($LASTEXITCODE -ne 0) { throw "Preflight import failed" }
+    $backend = Find-BackendDir $srcDir
+    if (-not (Test-Path (Join-Path $backend "app\main.py"))) { throw "backend layout invalid" }
+    $busy = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    if ($busy) { Write-Log "WARN: port $Port in use" } else { Write-Log "Port $Port free" }
+    foreach ($name in @("face_detection_yunet_2023mar.onnx","face_recognition_sface_2021dec.onnx")) {
+      if (-not (Test-Path (Join-Path $modelsDir $name))) { throw "Preflight missing model $name" }
+    }
+    Write-Log "Preflight OK"
+  }
+  "Start" {
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare first" }
+    $backend = Find-BackendDir $srcDir
+    New-Item -ItemType Directory -Force -Path (Split-Path $outLog) | Out-Null
+
+    # Require uncontested 18878, or stop only a re-validated previous candidate launch.
+    $preOwners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($preOwners.Count -gt 0) {
+      $prevMeta = Read-Hf3LaunchMeta $launchMetaFile
+      $restarted = $false
+      if ($prevMeta -and $preOwners.Count -eq 1) {
+        $livePid = [int]$preOwners[0]
+        if (([int]$prevMeta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $prevMeta -LivePid $livePid)) {
+          Write-Log ("Port $Port owned by previous verified listener pid={0} — stopping before relaunch" -f $livePid)
+          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$prevMeta.launcher_pid) -Backend ([string]$prevMeta.backend) -PortNum $Port -ExpectedCreation ([string]$prevMeta.listener_creation))
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          if (@(Get-Hf3PortListenerOwnerPids $Port).Count -eq 0) { $restarted = $true }
+        }
+      }
+      if (-not $restarted) {
+        throw ("EXIT_FOREIGN_LISTENER: Port 18878 already in use by process(es): {0}. Refusing Start (no kill)." -f ($preOwners -join ','))
+      }
+    } else {
+      # Stale metadata with free port — never kill by PID alone
+      if (Test-Path $pidFile) {
+        Write-Log "Ignoring stale uvicorn.pid while port is free (no kill)"
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      }
+      if (Test-Path $launchMetaFile) {
+        Write-Log "Clearing stale uvicorn.launch.json while port is free"
+        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+      }
+    }
+
+    $launchNonce = [guid]::NewGuid().ToString("N")
+    $env:MYPC_DATA_DIR = $dataDir
+    $env:DATA_DIR = $dataDir
+    $env:MYPC_MODELS_DIR = $modelsDir
+    $env:MYPC_HF3_LAUNCH_NONCE = $launchNonce
+    Write-Log "Starting uvicorn cwd=$backend DATA_DIR=$dataDir MODELS_DIR=$modelsDir bind=127.0.0.1:$Port nonce=$launchNonce"
+    $argList = @(
+      "-m", "uvicorn", "app.main:app",
+      "--host", "127.0.0.1",
+      "--port", "$Port",
+      "--app-dir", $backend
+    )
+    $proc = Start-Process -FilePath $venvPy -ArgumentList $argList `
+      -WorkingDirectory $backend `
+      -RedirectStandardOutput $outLog `
+      -RedirectStandardError $errLog `
+      -PassThru -WindowStyle Hidden
+    $launcherPid = [int]$proc.Id
+    Set-Content -Path $pidFile -Value $launcherPid -Encoding ASCII
+    Write-Log ("launcher_pid={0} — waiting for READY + verified listener ownership" -f $launcherPid)
+
+    $ok = $false
+    $failCode = "EXIT_HEALTH_NOT_READY"
+    $acceptedRel = ""
+    $acceptedListener = 0
+    $acceptedCreation = ""
+    # Capture parent→child proof while the venv redirector is still alive; after the
+    # launcher exits Windows may reparent the child, so live PPID walks can fail.
+    $sessionProofPid = 0
+    $sessionProofCreation = ""
+    $sessionProofRel = ""
+    for ($i = 0; $i -lt 40; $i++) {
+      Start-Sleep -Seconds 1
+
+      $own = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      Write-Log ("ownership_probe rel={0} listener_pid={1} reason={2}" -f $own.Relationship, $own.ListenerPid, $own.Reason)
+
+      if ($own.Relationship -eq "AMBIGUOUS") {
+        $failCode = "EXIT_AMBIGUOUS_LISTENERS"
+        break
+      }
+      if ($own.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $own.ListenerPid -gt 0) {
+        $sessionProofPid = [int]$own.ListenerPid
+        $sessionProofCreation = [string]$own.ListenerCreation
+        $sessionProofRel = [string]$own.Relationship
+      }
+
+      $body = ""
+      $statusCode = 0
+      try {
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/health" -UseBasicParsing -TimeoutSec 2
+        $statusCode = [int]$r.StatusCode
+        $body = [string]$r.Content
+      } catch [System.Net.WebException], [System.IO.IOException], [System.TimeoutException] {
+        # Transient connect errors while server boots — do not swallow ownership failures.
+        continue
+      } catch {
+        Write-Log ("health_transport_error class={0}" -f $_.Exception.GetType().FullName)
+        continue
+      }
+
+      if (-not (Test-Hf3HealthStartPass -StatusCode $statusCode -Body $body)) {
+        if ($statusCode -eq 200) {
+          Write-Log "HEALTH 200 but payload not status=ok + startup_phase=READY (FAIL/degraded rejected)"
+          $failCode = "EXIT_HEALTH_NOT_READY"
+        }
+        continue
+      }
+
+      # Re-check ownership AFTER successful health payload (race-safe).
+      $own2 = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      $relOk = $false
+      if ($own2.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $own2.ListenerPid -gt 0) {
+        $relOk = $true
+        $acceptedRel = [string]$own2.Relationship
+        $acceptedListener = [int]$own2.ListenerPid
+        $acceptedCreation = [string]$own2.ListenerCreation
+      } elseif (
+        $sessionProofPid -gt 0 -and
+        $own2.Relationship -ne "AMBIGUOUS"
+      ) {
+        # Launcher may have exited; accept sole listener only if it matches session proof.
+        $ownersNow = @(Get-Hf3PortListenerOwnerPids $Port)
+        if ($ownersNow.Count -eq 1 -and [int]$ownersNow[0] -eq $sessionProofPid) {
+          $live = Get-Win32ProcessById $sessionProofPid
+          if ($live -and -not (Test-IsConhostName $live.Name) -and
+              (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend $backend -PortNum $Port)) {
+            $liveCreate = ""
+            try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+            if ($sessionProofCreation -and $liveCreate -eq $sessionProofCreation) {
+              $relOk = $true
+              $acceptedRel = if ($sessionProofRel) { $sessionProofRel } else { "VERIFIED_DESCENDANT" }
+              $acceptedListener = $sessionProofPid
+              $acceptedCreation = $sessionProofCreation
+              Write-Log ("ownership_session_proof_ok listener_pid={0} (launcher may have exited)" -f $sessionProofPid)
+            }
+          }
+        }
+      }
+      if (-not $relOk) {
+        Write-Log ("EXIT_LISTENER_OWNERSHIP: HEALTH READY but ownership rel={0} reason={1}" -f $own2.Relationship, $own2.Reason)
+        $failCode = "EXIT_LISTENER_OWNERSHIP"
+        break
+      }
+      Write-Log ("HEALTH READY ownership={0} launcher_pid={1} listener_pid={2}" -f $acceptedRel, $launcherPid, $acceptedListener)
+      $ok = $true
+      break
+    }
+
+    if (-not $ok) {
+      Write-Log ("Start FAILED code={0} — see {1}" -f $failCode, $errLog)
+      # Cleanup: only stop proven members of THIS launch tree (incl. session-proof child).
+      $ownFail = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      $killList = @($launcherPid)
+      $expectCreate = ""
+      if ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $ownFail.ListenerPid -gt 0) {
+        $killList += [int]$ownFail.ListenerPid
+        $expectCreate = [string]$ownFail.ListenerCreation
+      } elseif ($sessionProofPid -gt 0) {
+        $killList += $sessionProofPid
+        $expectCreate = $sessionProofCreation
+      }
+      if ($killList.Count -gt 1 -or ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT")) -or $sessionProofPid -gt 0) {
+        [void](Stop-VerifiedHf3Pids -Pids $killList -Backend $backend -PortNum $Port -ExpectedCreation $expectCreate)
+      } else {
+        [void](Stop-VerifiedHf3Pids -Pids @($launcherPid) -Backend $backend -PortNum $Port)
+        $foreignOwners = @(Get-Hf3PortListenerOwnerPids $Port)
+        if ($foreignOwners.Count -gt 0) {
+          Write-Log ("BLOCKED cleanup: listener owner(s)={0} unverified — not killing; manual resolution required" -f ($foreignOwners -join ','))
+        }
+      }
+      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+      throw ("{0}: Backend Start failed on 127.0.0.1:{1}" -f $failCode, $Port)
+    }
+
+    # Persist durable launch identity (listener PID + creation + nonce). PID file alone is insufficient.
+    $meta = @{
+      schema = "mypc.hf3.launch.v1"
+      port = $Port
+      host = "127.0.0.1"
+      backend = $backend
+      venv_python = $venvPy
+      launcher_pid = $launcherPid
+      listener_pid = $acceptedListener
+      listener_creation = $acceptedCreation
+      relationship = $acceptedRel
+      nonce = $launchNonce
+      started_utc = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    Save-Hf3LaunchMeta -Path $launchMetaFile -Meta $meta
+    Set-Content -Path $pidFile -Value $acceptedListener -Encoding ASCII
+    Write-Log ("Start OK — http://127.0.0.1:{0} listener_pid={1} rel={2}" -f $Port, $acceptedListener, $acceptedRel)
+  }
+  "Stop" {
+    $meta = Read-Hf3LaunchMeta $launchMetaFile
+    $backend = $null
+    try { $backend = Find-BackendDir $srcDir } catch {}
+    if (-not $backend -and $meta) { $backend = [string]$meta.backend }
+    if (-not $backend) { $backend = "" }
+
+    $listeners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($meta -and $listeners.Count -eq 1) {
+      $livePid = [int]$listeners[0]
+      if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
+        Write-Log ("Stop: verified listener_pid={0} rel={1} creation_match=true" -f $livePid, $meta.relationship)
+        [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend $backend -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
+      } else {
+        Write-Log ("Stop: port listener pid={0} does not match launch meta — refusing kill" -f $livePid)
+      }
+    } elseif ($meta -and $listeners.Count -gt 1) {
+      Write-Log "Stop: AMBIGUOUS listeners — refusing kill"
+    } elseif ($meta -and $listeners.Count -eq 0) {
+      # No listener; still try launcher if alive and matches candidate python
+      Write-Log "Stop: no listener; attempting verified launcher cleanup only"
+      [void](Stop-VerifiedHf3Pids -Pids @([int]$meta.launcher_pid) -Backend $backend -PortNum $Port)
+    } elseif (Test-Path $pidFile) {
+      # Legacy pid file without meta — only stop if live process still matches exact uvicorn cmdline
+      $old = 0
+      try { $old = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+      if ($old -gt 0 -and $backend) {
+        $p = Get-Win32ProcessById $old
+        if ($p -and (Test-Hf3UvicornCommandLine -CommandLine ([string]$p.CommandLine) -Backend $backend -PortNum $Port)) {
+          [void](Stop-VerifiedHf3Pids -Pids @($old) -Backend $backend -PortNum $Port)
+        } else {
+          Write-Log ("Stop: refusing legacy pid={0} without launch meta / cmdline proof" -f $old)
+        }
+      }
+    } else {
+      Write-Log "No launch meta / pid file — nothing to stop"
+    }
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+    $left = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($left.Count -eq 0) {
+      Write-Log "Stop OK — port 18878 has no listener"
+    } else {
+      Write-Log ("Stop finished with remaining listener owner pid(s): {0} (manual check if foreign)" -f ($left -join ','))
+    }
+  }
+  "Diagnose" {
+    $venvPy = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare first" }
+    $backend = Find-BackendDir $srcDir
+    $diagPy = Join-Path (Split-Path $backend -Parent) "scripts\windows\p02_usb_hf3_readonly_diag.py"
+    # Prefer packaged script next to this ps1, then under src tree
+    $localDiag = Join-Path $PSScriptRoot "p02_usb_hf3_readonly_diag.py"
+    if (Test-Path $localDiag) { $diagPy = $localDiag }
+    else {
+      $alt = Get-ChildItem -Path $srcDir -Recurse -Filter "p02_usb_hf3_readonly_diag.py" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($alt) { $diagPy = $alt.FullName }
+    }
+    if (-not (Test-Path $diagPy)) { throw "readonly diag script missing" }
+    $env:MYPC_MODELS_DIR = $modelsDir
+    $env:PYTHONPATH = $backend
+    Write-Log "Running read-only USB diag (no admin required)"
+    & $venvPy $diagPy --models-dir $modelsDir
+    if ($LASTEXITCODE -ne 0) { throw "Diagnose failed exit=$LASTEXITCODE" }
+  }
+  "SafeExport" {
+    New-Item -ItemType Directory -Force -Path $exportDir | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $stage = Join-Path $exportDir "stage-$stamp"
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    $notes = Join-Path $stage "owner-status.txt"
+    $health = "UNAVAILABLE"
+    try {
+      $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/health" -UseBasicParsing -TimeoutSec 3
+      $health = "HTTP_" + $r.StatusCode
+    } catch { $health = "ERROR" }
+    @"
+P02-USB-HF3 owner SafeExport (redacted)
+utc=$([DateTime]::UtcNow.ToString('o'))
+port=$Port
+candidate_root=$CandidateRoot
+health=$health
+gates_blocked=USB_WINDOWS_PHYSICAL,USB_STABILITY_30_MIN,USB_CAMERA_LAB_OWNER_SIGN,FACE_PILOT,INSTALLER,PRODUCTION_READY
+excluded=frames,embeddings,pnp_raw,device_path_raw,cookies,hmac,admin_password,sqlite,secrets,uvicorn_full_logs
+"@ | Out-File -FilePath $notes -Encoding utf8
+    if (Test-Path (Join-Path $CandidateRoot "logs\candidate.log")) {
+      # Keep only last 100 lines of candidate log (already redacted statuses)
+      Get-Content (Join-Path $CandidateRoot "logs\candidate.log") -Tail 100 |
+        Out-File (Join-Path $stage "candidate-tail.log") -Encoding utf8
+    }
+    if (Test-Path (Join-Path $CandidateRoot "logs\diag-redacted.json")) {
+      Copy-Item (Join-Path $CandidateRoot "logs\diag-redacted.json") (Join-Path $stage "diag-redacted.json") -Force
+    }
+    $zipOut = Join-Path $exportDir "p02-usb-hf3-safe-export-$stamp.zip"
+    if (Test-Path $zipOut) { Remove-Item $zipOut -Force }
+    Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipOut -Force
+    Write-Log ("SafeExport ZIP={0} sha={1}" -f $zipOut, (Get-Sha256Lower $zipOut))
+  }
+}

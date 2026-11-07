@@ -1,0 +1,66 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "baseline": "e04a34121f3bf00253685a8512e2b835aa86b7ab",
+  "baseline_note": "PR #27 tip before V3-additional corrective (Quality Guard on e04a341; audited V3 freeze 00858e3)",
+  "baseline_pid_safety_v3_feature": "97c1e9df2d54314098066eca7c88c7e82edc4c79",
+  "baseline_pid_safety_v3_freeze": "00858e3f78325517c43c4d688e5547748928b3a0",
+  "audited_v3_complete_sha256": "508f4fbc444f1ebb5fa7782a52ba8bb236448822e679718de344aeab10fce80f",
+  "historical_zip_digests_omitted_from_full_source": true,
+  "historical_zip_digests_note": "Tracked SHA256SUMS*.txt under older handoffs list digests for intentionally omitted .zip archives; see OMITTED_HISTORICAL_ARCHIVES.md \u2014 do not claim those binaries are verified inside FULL-SOURCE.",
+  "baseline_pid_safety_v2_freeze": "0ea4264440bf330f005af7447bbd6bdb6cfabb46",
+  "baseline_pid_safety_v2_feature": "ae003b8f703e62144feb1eed77e0462b536d74dd",
+  "baseline_pid_ownership": "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc",
+  "baseline_pid_ownership_feature": "3c989facccc9443c351e0526dc76db7ee2f742a0",
+  "baseline_pid_ownership_freeze": "59148ebd1d545aa887c4cb4a6288d9c8c394ba1b",
+  "baseline_pr26": "146d04cb930a446f891f48178a33672f0537b95e",
+  "baseline_property_bag": "05f6ba991b4b43b3719125551298b18441578bcb",
+  "baseline_com_release": "ff6789ecd15ede618101e6a4c4938c3290ed1748",
+  "baseline_coinit": "98d8d40290018d688749931a9f78d4ee016b126b",
+  "baseline_vtbstr": "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e",
+  "baseline_pr": 27,
+  "feature_commit": "a0e88efb74c850c21526501f3f343357965f649c",
+  "packaging_freeze_commit": "30d93f1d0baaafce433828deb426cc2673830dd4",
+  "audit_staging_note": "feature_commit=code/docs fix; packaging_freeze_commit=HEAD when ZIP built; tip pin may advance after freeze",
+  "generated_at_utc": "2026-11-07T08:24:32.820128+00:00",
+  "code_paths": [
+    ".github/workflows/mypc-quality-guard.yml",
+    "MyPC.Attendance/scripts/windows/Inspect-LocalRuntime.ps1",
+    "MyPC.Attendance/scripts/windows/hf3_pid_ownership.py",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf3_pid_safety_runtime_tests.ps1",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_ownership.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_v3_safety_additional.py",
+    "MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py",
+    "quality_guard/check.py",
+    "quality_guard/powershell/MyPC.QualityGuard.Tests.ps1",
+    "quality_guard/tests/test_hf3_safety.py"
+  ],
+  "deleted_paths": [],
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "948ee800caeb4de84be5f0a754f34ec28717632508c4c7d114b5dc56db0e66f3",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "7ca1aec48a451840ebe5f10bf45338c5fa81303bd804b62d6772d76fe1ff9d32",
+    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "2d88d81c23f2a578fc375e023c0f1d4f20407f620a465a086be56b9b12fd1610"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "candidate_port": 18878,
+  "phase": "USB_HF3_QUALITY_GUARD_V1",
+  "github_actions": {
+    "feature_tip": "a0e88efb74c850c21526501f3f343357965f649c",
+    "workflow_run_url": "https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763",
+    "conclusion": "success",
+    "jobs": [
+      "guard-contract",
+      "windows-contract",
+      "backend-linux",
+      "frontend"
+    ],
+    "note": "Check runs on feature tip before packaging-freeze commit; freeze may re-trigger Actions."
+  }
+}

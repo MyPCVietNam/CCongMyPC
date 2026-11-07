@@ -1,0 +1,9 @@
+test_hook_restricts_shell_and_fails_closed (test_framework.FrameworkContract.test_hook_restricts_shell_and_fails_closed) ... ok
+test_no_user_data_in_quality_overlay (test_framework.FrameworkContract.test_no_user_data_in_quality_overlay) ... ok
+test_required_gates_not_mislabeled_as_physical (test_framework.FrameworkContract.test_required_gates_not_mislabeled_as_physical) ... ok
+test_selftest_contract (test_framework.FrameworkContract.test_selftest_contract) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+OK

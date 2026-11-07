@@ -35,11 +35,11 @@ $profiles = @(
     @{Name='PROGRAMDATA'; Path=(Join-Path $env:ProgramData 'MyPC\Attendance\data')},
     @{Name='REPO_LOCAL'; Path=(Join-Path $ApplicationRoot 'data')}
 )
-foreach ($profile in $profiles) {
-    $exists = Test-Path -LiteralPath $profile.Path -PathType Container
-    $db = Test-Path -LiteralPath (Join-Path $profile.Path 'mypc_attendance.sqlite3') -PathType Leaf
-    $first = Test-Path -LiteralPath (Join-Path $profile.Path 'FIRST_RUN_ADMIN.txt') -PathType Leaf
-    Check ("DataProfile_" + $profile.Name) 'MEASURED' ("dir=" + $exists + "; db=" + $db + "; bootstrapFile=" + $first)
+foreach ($dataProfile in $profiles) {
+    $exists = Test-Path -LiteralPath $dataProfile.Path -PathType Container
+    $db = Test-Path -LiteralPath (Join-Path $dataProfile.Path 'mypc_attendance.sqlite3') -PathType Leaf
+    $first = Test-Path -LiteralPath (Join-Path $dataProfile.Path 'FIRST_RUN_ADMIN.txt') -PathType Leaf
+    Check ("DataProfile_" + $dataProfile.Name) 'MEASURED' ("dir=" + $exists + "; db=" + $db + "; bootstrapFile=" + $first)
 }
 if ($env:MYPC_DATA_DIR) { Check 'MYPC_DATA_DIR' 'SET' 'Explicit env profile selected (value redacted)' }
 else { Check 'MYPC_DATA_DIR' 'UNSET' 'Check process environment; another process may use a different path' }

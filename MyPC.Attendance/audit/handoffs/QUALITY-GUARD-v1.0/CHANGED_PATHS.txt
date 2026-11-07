@@ -1,0 +1,17 @@
+.github/workflows/mypc-quality-guard.yml
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GITHUB_ACTIONS.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GUARD_AFTER_V3_ADD.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GUARD_ARCHIVE_SELFTEST.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GUARD_FRAMEWORK_SELFTEST.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/GUARD_HOOK_SELFTEST.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/HEAD_HF3_SAFETY_GREEN.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/HEAD_SELFTEST_PASS.json
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/INDEPENDENT_REVIEW_V3ADD.md
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/INTEGRATION_NOTES.md
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/OVERLAY_INTEGRITY.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/OWNER_NEXT_STEPS_VI.md
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/TEST-REPORT.txt
+MyPC.Attendance/audit/handoffs/QUALITY-GUARD-v1.0/V2_FREEZE_HF3_SAFETY_RED.txt
+quality_guard/check.py
+quality_guard/powershell/MyPC.QualityGuard.Tests.ps1
+quality_guard/tests/test_hf3_safety.py

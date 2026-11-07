@@ -1,0 +1,12 @@
+repo=MyPCVietNam/CCongMyPC
+pr=27
+branch=cursor/p02-usb-hf3-dshow-com-enum-83a8
+base_branch=cursor/p02-usb-hf2-verified-binding-83a8
+immutable_v4_tip_red=7c6a324da7a22c704b33a8ad1b0319099f38f1da
+prior_v4_feature=a915445289132cec50466ee616c90baa8d2f0cac
+v41_feature_ci_green=979349f52c755474ab3cecd7ab8c701bf43acd5b
+prior_v4_complete_sha256=068ee217304cd17ce366b768882b84297b7e89617955186ef1b9405d1881bf48
+classification=SECURITY_SENSITIVE + WINDOWS_HOST (mocked only; no owner runtime)
+verdict=READY_FOR_INDEPENDENT_REAUDIT
+owner_start_approved=false
+candidate_port=127.0.0.1:18878

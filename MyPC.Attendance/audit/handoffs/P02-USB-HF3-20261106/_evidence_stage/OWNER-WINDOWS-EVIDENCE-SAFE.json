@@ -1,0 +1,44 @@
+{
+  "source": "Owner Windows, PowerShell MYPC-HF3-VTBSTR-SESSION-ONLY.ps1, 2026-11-07",
+  "result_type": "in_memory_session_only_not_production",
+  "ds_enum_ok": true,
+  "moniker_count": 3,
+  "property_bag_bind_ok": 3,
+  "friendly_name_read_ok": 3,
+  "device_path_read_ok": 1,
+  "device_path_canonical_ok": 1,
+  "pnp_video_count": 1,
+  "verified_pair_count": 1,
+  "capture_mapping_verified_in_diagnostic": true,
+  "com_release_warning_count": 0,
+  "read_probe_stats": {
+    "FriendlyName": {
+      "calls": 3,
+      "original_success": 0,
+      "original_hresult": -2147024809,
+      "bstr_byref_success": 0,
+      "bstr_byref_hresult": -2147024809,
+      "bstr_direct_success": 3
+    },
+    "DevicePath": {
+      "calls": 3,
+      "original_success": 0,
+      "original_hresult": -2147024894,
+      "bstr_byref_success": 0,
+      "bstr_byref_hresult": -2147024894,
+      "bstr_direct_success": 1,
+      "remaining_hresult": -2147024894
+    }
+  },
+  "source_disk_edited": false,
+  "frames_captured": false,
+  "hmac_changed": false,
+  "owner_gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ]
+}

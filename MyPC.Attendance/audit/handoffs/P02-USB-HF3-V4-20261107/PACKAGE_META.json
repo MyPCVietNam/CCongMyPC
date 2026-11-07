@@ -1,0 +1,24 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "phase": "HF3_PID_SAFETY_V4_FAIL_CLOSED",
+  "baseline": "8dc2dfed68464eb7ba98db6fc4efae90ee3f07a4",
+  "feature_commit": "a915445289132cec50466ee616c90baa8d2f0cac",
+  "packaging_freeze_commit": "9988136922859296f1e3ab7ad4ed8b8e99599c3f",
+  "generated_at_utc": "2026-11-07T10:23:59.749248+00:00",
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-HF3-V4.zip": "51ac09cd3720a75b8b7d0787992dd4f5b018815e8cba41769e8e4ebed22a27e4",
+    "MyPC.Attendance-FULL-SOURCE-HF3-V4.zip": "6c37b888ff6592b4342e5e181b03215473b499a4fb1eea09a48f494d1726dc78",
+    "MYPC-HF3-V4-WINDOWS-SAFE-EVIDENCE.zip": "96d8e96aab100ca86f876caee6044cce75101c0fca2b80a69001f32777c5b61f"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "verdict": "READY_FOR_INDEPENDENT_REAUDIT",
+  "owner_start_approved": false,
+  "candidate_port": 18878
+}

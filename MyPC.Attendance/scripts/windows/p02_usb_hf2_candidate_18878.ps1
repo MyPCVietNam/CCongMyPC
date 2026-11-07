@@ -100,11 +100,15 @@ switch ($Mode) {
     $req = Join-Path $backend "requirements.txt"
     $reqWin = Join-Path $backend "requirements-windows.txt"
     if (-not (Test-Path $req)) { throw "requirements.txt missing: $req" }
-    & $pip install --upgrade pip
-    & $pip install -r $req
+    # Prefer python -m pip (avoids pip.exe self-upgrade CO_E / path quirks on Win)
+    & $venvPy -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { Write-Log "WARN: pip upgrade failed exit=$LASTEXITCODE — continuing" }
+    & $venvPy -m pip install -r $req
+    if ($LASTEXITCODE -ne 0) { throw "pip install requirements.txt failed" }
     if (Test-Path $reqWin) {
-      & $pip install -r $reqWin
-      Write-Log "Installed requirements-windows.txt (pywin32/WMI)"
+      & $venvPy -m pip install -r $reqWin
+      if ($LASTEXITCODE -ne 0) { throw "pip install requirements-windows.txt failed" }
+      Write-Log "Installed requirements-windows.txt (pywin32/WMI/comtypes)"
     } else {
       Write-Log "WARN: requirements-windows.txt missing — USB PnP linkage may stay unverified"
     }

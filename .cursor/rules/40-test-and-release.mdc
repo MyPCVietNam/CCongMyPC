@@ -1,0 +1,10 @@
+---
+description: Test-first bug fixes, independent red-team regressions, source custody, CI and packaging
+alwaysApply: false
+globs: "MyPC.Attendance/tests/**/*, MyPC.Attendance/tools/**/*, .github/workflows/**/*, quality_guard/**/*"
+---
+For a fix, record one or more baseline tests that fail on the old revision for the correct reason. Require positive, negative, adversarial and rollback/retry tests. Never use a fake object that can cross into a real OS API, including `Stop-Process` on fake numeric PID.
+
+Do not classify `SKIPPED`, `BLOCKED`, `UNRUN`, `MISSING_DEPENDENCY`, or a timeout as PASS. GitHub Actions CI must run on Windows (PowerShell 5.1), Linux/backend and frontend; GitHub check statuses and the actual immutable head are authoritative. Tests that read real hardware run only in authorized owner lab, never on public runners.
+
+Before packaging: verify no secret files are bundled, no path traversal, no sensitive logs, exact relative paths for changes and deletions, each internal ZIP SHA256, all source file hashes, frozen and remote head identity. Preserve physical gates as BLOCKED until signed evidence.

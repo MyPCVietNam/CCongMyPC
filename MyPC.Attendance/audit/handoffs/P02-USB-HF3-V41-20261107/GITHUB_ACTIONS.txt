@@ -1,0 +1,14 @@
+feature_tip_sha=979349f52c755474ab3cecd7ab8c701bf43acd5b
+run_url=https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42366402413
+run_id=42366402413
+created_at_utc=2026-11-07T10:59:00Z approx
+conclusion=success
+
+jobs (4/4 PASS):
+- guard-contract  PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42366402413/job/128385277987
+- windows-contract PASS https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42366402413/job/128385277986
+- backend-linux   PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42366402413/job/128385278068
+- frontend        PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42366402413/job/128385277929
+
+Prior failed tip 1976266 windows-contract R4 harness mock Remove-Item left meta; fixed in 979349f.
+Physical Windows owner lab: NOT RUN / BLOCKED.

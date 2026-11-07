@@ -1,0 +1,9 @@
+test_basic_crc_manifest_and_nested (test_archive_verifier.ArchiveContract.test_basic_crc_manifest_and_nested) ... ok
+test_refuses_bad_digest (test_archive_verifier.ArchiveContract.test_refuses_bad_digest) ... ok
+test_refuses_secret_path (test_archive_verifier.ArchiveContract.test_refuses_secret_path) ... ok
+test_refuses_traversal (test_archive_verifier.ArchiveContract.test_refuses_traversal) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.002s
+
+OK

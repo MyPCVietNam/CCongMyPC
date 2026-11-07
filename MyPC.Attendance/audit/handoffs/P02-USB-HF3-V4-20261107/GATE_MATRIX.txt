@@ -1,0 +1,15 @@
+# Gate matrix — HF3 PID Safety V4 (code vs physical)
+
+CODE_GATE                  PASS   GitHub Actions 4/4 on a915445289132cec50466ee616c90baa8d2f0cac
+WINDOWS_SIMULATION         PASS   Injected/mocked Pester + Python contracts (no real kill/start)
+OWNER_PHYSICAL             BLOCKED
+USB_WINDOWS_PHYSICAL       BLOCKED
+USB_STABILITY_30_MIN       BLOCKED
+USB_CAMERA_LAB_OWNER_SIGN  BLOCKED
+SOAK_30_MIN                BLOCKED
+CAMERA_LAB                 BLOCKED
+FACE_PILOT                 BLOCKED
+INSTALLER                  BLOCKED
+PRODUCTION_READY           BLOCKED
+OWNER_START_APPROVED       NO
+VERDICT                    READY_FOR_INDEPENDENT_REAUDIT

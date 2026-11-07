@@ -1,0 +1,18 @@
+# GitHub Actions — MyPC Quality Guard (authoritative for CODE_GATE)
+
+feature_tip_sha=a915445289132cec50466ee616c90baa8d2f0cac
+run_url=https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42362887883
+run_id=42362887883
+created_at_utc=2026-11-07T10:11:25Z
+conclusion=success
+
+jobs (4/4 PASS):
+- guard-contract  PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42362887883/job/128374761982
+- windows-contract PASS https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42362887883/job/128374762025
+- backend-linux   PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42362887883/job/128374761854
+- frontend        PASS  https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42362887883/job/128374762076
+
+Notes:
+- windows-contract includes PSScriptAnalyzer, Pester QualityGuard, HF3 PID safety harness, HF3 V4 fail-closed harness (mocked Stop-Process / CIM / TCP only).
+- Agent-local pytest/npm totals are supplementary; do not substitute for this run.
+- Physical Windows owner lab: NOT RUN / BLOCKED.

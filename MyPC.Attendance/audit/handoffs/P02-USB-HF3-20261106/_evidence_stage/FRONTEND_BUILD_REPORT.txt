@@ -1,0 +1,10 @@
+P02-USB-HF3 frontend CI
+
+transforming...
+✓ 1608 modules transformed.
+rendering chunks...
+computing gzip size...
+../backend/app/static/index.html                   0.43 kB │ gzip:  0.29 kB
+../backend/app/static/assets/index-DCP3Ovnp.css   15.71 kB │ gzip:  3.99 kB
+../backend/app/static/assets/index-BF6qSwhf.js   284.47 kB │ gzip: 87.09 kB
+✓ built in 1.42s

@@ -1,0 +1,6 @@
+a7df391 docs(hf3): package HF3 V4.2 COMPLETE audit archives
+98ee96e fix(hf3): Start free-port refuses live legacy pid with contract exit
+4c9db12 fix(hf3): V4.2 Prepare safety and PID record consistency (R9-R12)
+a58659f docs(hf3): record verified V4.1 COMPLETE raw URL and SHA256
+7137bae docs(hf3): freeze V4.1 COMPLETE without superseded REMOTE_VERIFY digests
+66abdc8 docs(hf3): package HF3 V4.1 COMPLETE audit archives

@@ -1,0 +1,10 @@
+{
+  "mode": "strict",
+  "result": "BLOCKED",
+  "issue_count": 3,
+  "codes": [
+    "HF3_SYNTHETIC_FAKE_PID_REACHES_KILL_BOUNDARY",
+    "HF3_SYNTHETIC_RUNTIME_CALLS_REAL_STOP_PROCESS",
+    "HF3_PS_BACKEND_SUBSTRING_AUTHORIZATION"
+  ]
+}

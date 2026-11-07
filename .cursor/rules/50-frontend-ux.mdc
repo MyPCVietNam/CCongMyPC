@@ -1,0 +1,8 @@
+---
+description: Frontend UI, Vietnamese accessibility, API alignment and honest camera status
+alwaysApply: false
+globs: "MyPC.Attendance/frontend/src/**/*.tsx, MyPC.Attendance/frontend/src/**/*.ts, MyPC.Attendance/frontend/package.json"
+---
+Run `npm ci`, `npm run typecheck`, `npm run test`, and `npm run build`. Keep Vietnamese-first UI, keyboard-accessible controls, explicit loading/error states, real source status (MOCK vs LIVE vs CAMERA_LAB), and display actual measured camera resolution rather than vendor marketing claims. Update API clients alongside backend schemas; never fabricate frames or images to hide a failed decoder.
+
+Brand: charcoal/black base with yellow accent when appropriate. Attribution link must retain `Phát triển bởi MyPC Việt Nam` -> https://mypc.vn. Avoid unrelated UX rewrites in reliability/security PRs.

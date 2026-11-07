@@ -1,0 +1,19 @@
+# GitHub Actions — MyPC Quality Guard on tip b4652d4
+commit: b4652d497bc7cceb53d510ab70bdccd50db2724a
+workflow_run: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355748368
+conclusion: success (all four jobs)
+
+jobs:
+- guard-contract: success
+- windows-contract: success (Windows PowerShell 5.1 + Pester + ScriptAnalyzer)
+- backend-linux: success
+- frontend: success
+
+Also green on feature tip a0e88ef: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763
+Also green on docs tip 5b6661d: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355437064
+
+Physical gates remain BLOCKED.
+
+## Packaging tip 05363f6
+workflow_run: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42356324401
+conclusion: success (all four jobs)

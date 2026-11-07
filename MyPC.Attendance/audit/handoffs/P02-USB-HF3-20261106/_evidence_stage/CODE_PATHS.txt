@@ -1,0 +1,7 @@
+MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md
+MyPC.Attendance/scripts/windows/MYPC-HF3-PID-OWNER-READONLY.ps1
+MyPC.Attendance/scripts/windows/hf3_pid_ownership.py
+MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py
+MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_ownership.py
+MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py
