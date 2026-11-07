@@ -1,18 +1,37 @@
 {
+  "schema": "mypc.package-meta.v2",
   "package": "MYPC-ENGINEERING-QUALITY-GUARD-v1.0",
   "version": "1.0.0",
-  "date": "2026-11-07",
-  "repository": "MyPCVietNam/CCongMyPC",
-  "reviewed_immutable_baseline": "0ea4264440bf330f005af7447bbd6bdb6cfabb46",
-  "baseline_complete_sha256": "58017ee3f09b5e6f21dd6097c390058ff48616cf83cc8b1932e93a32627a0e6a",
-  "baseline_full_sha256": "7bd8b000b43cbd832094582816f3c04a05af7585c934ed940c97623e85a10148",
-  "repo_root_overlay": "repository-overlay/",
-  "windows_runtime_tested": false,
-  "github_actions_executed": false,
-  "owner_usb_physical_approved": false,
-  "source_code_modified_in_git": false,
-  "known_negative_baseline_failures": 5,
-  "expected_strict_blocker_codes": 3,
-  "chatgpt_skill": "ChatGPT-skill/skill.zip",
-  "notes": "File bundle and independent local static tests only. CI remains unrun until installed in real source branch. Never merge/start camera with blocked required checks."
+  "baseline_v2_freeze": "0ea4264440bf330f005af7447bbd6bdb6cfabb46",
+  "baseline_v2_complete_sha256": "58017ee3f09b5e6f21dd6097c390058ff48616cf83cc8b1932e93a32627a0e6a",
+  "v3_feature": "97c1e9df2d54314098066eca7c88c7e82edc4c79",
+  "feature_commit": "e3b00a529445d11aaaf9725aeb45213241574023",
+  "packaging_freeze_commit": "e3b00a529445d11aaaf9725aeb45213241574023",
+  "generated_at_utc": "2026-11-07T08:37:53.227326+00:00",
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-QUALITY-GUARD-v1.0.zip": "6c61e31753cd22a9fd3f966d0bd896ede7543fc3dada9db9d045482a9462ff99",
+    "MyPC.Attendance-FULL-SOURCE-QUALITY-GUARD-v1.0.zip": "64d0e3002409cbd04275570d803eaa19cf7774db90d50b407424adb580c0ced5",
+    "MYPC-QUALITY-GUARD-v1.0-WINDOWS-SAFE-EVIDENCE.zip": "2424141a29da136352374996bc80ed02a6ae809b5d6c97629b77d49d98c8a605"
+  },
+  "overlay_zip_sha256": "06d904a6b4b5da6c163aac61d3ce077e9de9d73939bbdd539e8aae31e2a6c707",
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "github_actions": {
+    "tip": "b4652d497bc7cceb53d510ab70bdccd50db2724a",
+    "workflow_run_url": "https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355748368",
+    "conclusion": "success",
+    "jobs": [
+      "guard-contract",
+      "backend-linux",
+      "frontend",
+      "windows-contract"
+    ]
+  },
+  "owner_usb_physical_approved": false
 }
