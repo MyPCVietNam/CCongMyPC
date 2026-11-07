@@ -1,3 +1,4 @@
+b3f31fd docs(hf3): package HF3 V4 fail-closed COMPLETE audit
 a915445 test(hf3): fix Stop-Process mock ErrorAction common-parameter collision
 ea408c2 test(hf3): align creation DateTime Kind for mocked listener stop
 2926775 test(hf3): accept mock-absent for uninjected adversarial PID
