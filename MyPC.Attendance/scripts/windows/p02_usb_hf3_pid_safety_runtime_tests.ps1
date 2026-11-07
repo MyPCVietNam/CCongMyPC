@@ -138,7 +138,12 @@ Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $wrongPortCmd -Backend $ba
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $prefixCmd -Backend $backend -PortNum 18878) -eq $false) "backend2 prefix rejected"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine "note uvicorn 18878 path $backend" -Backend $backend -PortNum 18878) -eq $false) "Loose substring rejected"
 
-$createIso = ([datetime]::Parse("2026-11-07T01:00:00Z")).ToUniversalTime().ToString("o")
+$createDt = [datetime]::Parse(
+  "2026-11-07T01:00:00Z",
+  [System.Globalization.CultureInfo]::InvariantCulture,
+  [System.Globalization.DateTimeStyles]::RoundtripKind
+)
+$createIso = $createDt.ToUniversalTime().ToString("o")
 # Synthetic fixture PID lives only in the injection map; Stop-Process is mocked.
 # Never pass a bare numeric literal into production stop helpers in a way static
 # audits can confuse with a real OS kill (use a variable + mocked cmdlet).
@@ -146,13 +151,16 @@ $synthListenerPid = 4242
 $synthConhostPid = 5151
 $script:__InjectedProcs[$synthListenerPid] = [pscustomobject]@{
   ProcessId = $synthListenerPid; Name = "python.exe"; CommandLine = $goodCmd
-  ExecutablePath = "C:\Python\python.exe"; CreationDate = [datetime]::Parse("2026-11-07T01:00:00Z")
+  ExecutablePath = "C:\Python\python.exe"; CreationDate = $createDt
   ParentProcessId = 1
 }
 $script:__StopProcessCalls.Clear()
 
 # Identity allow → mocked Stop-Process records call; never touches a real OS process.
 $ok = Stop-VerifiedHf3Identity -TargetPid $synthListenerPid -ExpectedCreation $createIso -Backend $backend -PortNum 18878 -Role "listener"
+if (-not $ok) {
+  Write-Host ("DBG stop refused createIso={0} liveCreate would be {1}" -f $createIso, $createDt.ToUniversalTime().ToString("o")) -ForegroundColor Yellow
+}
 Assert-True ($ok -eq $true) "Mocked verified listener stop returns true"
 Assert-True ($script:__StopProcessCalls.Count -eq 1) "Exactly one mocked Stop-Process call recorded"
 Assert-True ([int]$script:__StopProcessCalls[0].Id -eq $synthListenerPid) "Mock recorded synthetic TargetPid"
@@ -161,7 +169,7 @@ Assert-True (-not $script:__InjectedProcs.ContainsKey($synthListenerPid)) "Injec
 # Re-inject for refusal cases — Stop-Process must NOT be called.
 $script:__InjectedProcs[$synthListenerPid] = [pscustomobject]@{
   ProcessId = $synthListenerPid; Name = "python.exe"; CommandLine = $goodCmd
-  ExecutablePath = "C:\Python\python.exe"; CreationDate = [datetime]::Parse("2026-11-07T01:00:00Z")
+  ExecutablePath = "C:\Python\python.exe"; CreationDate = $createDt
   ParentProcessId = 1
 }
 $before = $script:__StopProcessCalls.Count
@@ -175,7 +183,7 @@ Assert-True ($script:__StopProcessCalls.Count -eq $before) "No Stop-Process on b
 
 $script:__InjectedProcs[$synthConhostPid] = [pscustomobject]@{
   ProcessId = $synthConhostPid; Name = "conhost.exe"; CommandLine = "conhost"; ExecutablePath = "C:\Windows\System32\conhost.exe"
-  CreationDate = [datetime]::Parse("2026-11-07T01:00:00Z"); ParentProcessId = $synthListenerPid
+  CreationDate = $createDt; ParentProcessId = $synthListenerPid
 }
 $con = Stop-VerifiedHf3Identity -TargetPid $synthConhostPid -ExpectedCreation $createIso -Backend $backend -PortNum 18878 -Role "listener"
 Assert-True ($con -eq $false) "conhost never killed"
