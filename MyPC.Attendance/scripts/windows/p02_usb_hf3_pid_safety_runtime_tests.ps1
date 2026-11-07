@@ -76,11 +76,14 @@ function Get-Win32ProcessById([int]$ProcessId) {
   return $null
 }
 # CRITICAL: never call the real Stop-Process cmdlet from default tests.
+# Do NOT declare -ErrorAction: PowerShell common parameters conflict with an explicit
+# ErrorAction param ("defined multiple times"). Use CmdletBinding so -ErrorAction Stop
+# from production Stop-VerifiedHf3Identity binds as a common parameter.
 function Stop-Process {
+  [CmdletBinding()]
   param(
     [Parameter(Mandatory=$true)][int]$Id,
-    [switch]$Force,
-    [System.Management.Automation.ActionPreference]$ErrorAction = $ErrorActionPreference
+    [switch]$Force
   )
   $script:__StopProcessCalls.Add([pscustomobject]@{ Id = $Id; Force = [bool]$Force; Utc = (Get-Date).ToUniversalTime().ToString("o") }) | Out-Null
   # Simulate success by removing the injected process only (never touch OS).

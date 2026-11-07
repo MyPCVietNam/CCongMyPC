@@ -58,10 +58,11 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('$script:__TcpOwners = @()')
 [void]$sb.AppendLine('$script:__StopCalls = @()')
 [void]$sb.AppendLine('$script:__StartCalls = @()')
-[void]$sb.AppendLine('function Get-CimInstance { param($ClassName,$Filter,$ErrorAction); if ($script:__CimThrow) { throw "access denied" }; $id=0; if ($Filter -match "ProcessId=(\d+)") { $id=[int]$Matches[1] }; if ($script:__CimMap.ContainsKey($id)) { return $script:__CimMap[$id] }; return $null }')
-[void]$sb.AppendLine('function Get-NetTCPConnection { param($LocalPort,$State,$ErrorAction); if ($script:__TcpThrow) { throw "provider timeout" }; if ($script:__TcpOwners.Count -eq 0) { throw "No MSFT_NetTCPConnection objects found" }; return @($script:__TcpOwners | ForEach-Object { [pscustomobject]@{ OwningProcess = $_ } }) }')
-[void]$sb.AppendLine('function Stop-Process { param($Id,$Force,$ErrorAction); $script:__StopCalls += $Id; throw "mocked-stop-should-not-run-on-negatives" }')
-[void]$sb.AppendLine('function Start-Process { param($FilePath,$ArgumentList,$WorkingDirectory,$RedirectStandardOutput,$RedirectStandardError,$PassThru,$WindowStyle); $script:__StartCalls += ,@($FilePath,$ArgumentList); return [pscustomobject]@{ Id = 99991 } }')
+# Never declare -ErrorAction on mocks: it collides with PowerShell common parameters.
+[void]$sb.AppendLine('function Get-CimInstance { [CmdletBinding()] param($ClassName,$Filter); if ($script:__CimThrow) { throw "access denied" }; $id=0; if ($Filter -match "ProcessId=(\d+)") { $id=[int]$Matches[1] }; if ($script:__CimMap.ContainsKey($id)) { return $script:__CimMap[$id] }; return $null }')
+[void]$sb.AppendLine('function Get-NetTCPConnection { [CmdletBinding()] param($LocalPort,$State); if ($script:__TcpThrow) { throw "provider timeout" }; if ($script:__TcpOwners.Count -eq 0) { throw "No MSFT_NetTCPConnection objects found" }; return @($script:__TcpOwners | ForEach-Object { [pscustomobject]@{ OwningProcess = $_ } }) }')
+[void]$sb.AppendLine('function Stop-Process { [CmdletBinding()] param($Id,[switch]$Force); $script:__StopCalls += $Id; throw "mocked-stop-should-not-run-on-negatives" }')
+[void]$sb.AppendLine('function Start-Process { [CmdletBinding()] param($FilePath,$ArgumentList,$WorkingDirectory,$RedirectStandardOutput,$RedirectStandardError,[switch]$PassThru,$WindowStyle); $script:__StartCalls += ,@($FilePath,$ArgumentList); return [pscustomobject]@{ Id = 99991 } }')
 [void]$sb.AppendLine('function Write-Log([string]$Message) { Write-Host ("[v4] " + $Message) }')
 
 foreach ($name in $names) {
