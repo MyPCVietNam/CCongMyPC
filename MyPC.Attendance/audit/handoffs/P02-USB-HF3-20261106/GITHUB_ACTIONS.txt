@@ -16,3 +16,7 @@ jobs:
   https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42354905763/job/128350739358
 
 Physical gates remain BLOCKED (not exercised by these jobs).
+
+## Tip after packaging docs (5b6661d)
+workflow_run: https://github.com/MyPCVietNam/CCongMyPC/actions/runs/42355437064
+conclusion: success (all four jobs) — packaging/docs tip; code gates unchanged from a0e88ef
