@@ -18,5 +18,8 @@
 | A14 | CoInitializeEx(flags) one-arg; DSHOW_COINIT_FAILED distinct | CI PASS (owner TypeError RED) |
 | A15 | IPropertyBag VT_BSTR + direct VARIANT Read | CI PASS (owner byref RED) |
 | A16 | Non-target missing DevicePath does not block unique match | CI PASS |
-| G-PHYS | USB_WINDOWS_PHYSICAL | **BLOCKED** until owner Diagnose |
+| A17 | Venv redirector descendant listener ownership | CI PASS (owner Start RED) |
+| A18 | Start rejects FAIL/degraded; no swallowed ownership throw | CI PASS |
+| A19 | Stop/Update never kill foreign 18878 listener | CI PASS (contract) |
+| G-PHYS | USB_WINDOWS_PHYSICAL | **BLOCKED** until owner frame evidence |
 | G-SOAK / LAB / FP / INST / PROD | physical/release | **BLOCKED** |

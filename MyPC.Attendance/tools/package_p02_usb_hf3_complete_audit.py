@@ -14,13 +14,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 pre-fix tip (VT_BSTR direct Read corrective).
+# CHANGED zip is relative to PR #27 pre-fix tip (PID ownership corrective).
 # Prior tips remain in PACKAGE_META for custody.
-BASELINE = "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e"
+BASELINE = "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc"
 BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 BASELINE_PROPERTY_BAG = "05f6ba991b4b43b3719125551298b18441578bcb"
 BASELINE_COM_RELEASE = "ff6789ecd15ede618101e6a4c4938c3290ed1748"
 BASELINE_COINIT = "98d8d40290018d688749931a9f78d4ee016b126b"
+BASELINE_VTBSTR = "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e"
 A_NAME = "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip"
 B_NAME = "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip"
 C_NAME = "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip"
@@ -168,6 +169,9 @@ def main() -> int:
         "OWNER-WINDOWS-EVIDENCE-SAFE.json",
         "INDEPENDENT_REPRO_test_hf3_owner_vtbstr_direct.py",
         "VTBSTR_REPRO_RED.txt",
+        "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
+        "PID_OWNERSHIP_BASELINE_RED.md",
+        "OWNER-PID-RESULTS-AND-RCA.md",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -177,6 +181,7 @@ def main() -> int:
         ROOT / "scripts" / "windows" / "p02_usb_hf3_readonly_diag.py",
         ROOT / "docs" / "gates" / "P02-USB-HF3-GATE-MATRIX.md",
         ROOT / "docs" / "runbooks" / "P02-USB-HF3-OWNER-RUNBOOK-VI.md",
+        ROOT / "docs" / "runbooks" / "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
     ]:
         if src.is_file():
             (evid_dir / src.name).write_bytes(src.read_bytes())
@@ -212,11 +217,12 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (IPropertyBag VT_BSTR direct VARIANT Read)",
+        "baseline_note": "PR #27 pre-fix HEAD (venv redirector PID ownership)",
         "baseline_pr26": BASELINE_PR26,
         "baseline_property_bag": BASELINE_PROPERTY_BAG,
         "baseline_com_release": BASELINE_COM_RELEASE,
         "baseline_coinit": BASELINE_COINIT,
+        "baseline_vtbstr": BASELINE_VTBSTR,
         "baseline_pr": 27,
         "feature_commit": head,
         "packaging_freeze_commit": head,
@@ -233,7 +239,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_VT_BSTR_DIRECT_READ",
+        "phase": "USB_HF3_PID_OWNERSHIP",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -273,6 +279,9 @@ def main() -> int:
         "OWNER-WINDOWS-EVIDENCE-SAFE.json",
         "INDEPENDENT_REPRO_test_hf3_owner_vtbstr_direct.py",
         "VTBSTR_REPRO_RED.txt",
+        "P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
+        "PID_OWNERSHIP_BASELINE_RED.md",
+        "OWNER-PID-RESULTS-AND-RCA.md",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),

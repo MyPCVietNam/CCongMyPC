@@ -1,23 +1,24 @@
-# P02-USB-HF3 — Hướng dẫn Windows (candidate đã Prepare)
+# P02-USB-HF3 — Owner Windows (PID ownership fix)
 
-**KHÔNG** Prepare lại. **KHÔNG** đụng 18876/18877.
+**KHÔNG** Prepare. **KHÔNG** đụng 18876/18877.
 
 ```powershell
 cd <extract>\MyPC.Attendance\scripts\windows
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Stop
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Update `
-  -FullSourceZip <path\MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip> `
-  -ExpectedSha256 <hex-lowercase>
+  -FullSourceZip <FULL.zip> -ExpectedSha256 <hex>
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Preflight
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
+# Chỉ Start sau khi Diagnose mapping PASS:
+.\p02_usb_hf3_candidate_18878.ps1 -Mode Start
 ```
 
-Kỳ vọng Diagnose trước khi Start vật lý:
-- `DSHOW_ENUM_OK=true`
-- `PROPERTY_BAG_BIND_OK_COUNT>=1`, `FRIENDLY_NAME_READ_OK_COUNT>=1`
-- `DEVICE_PATH_READ_OK_COUNT>=1`, `DEVICE_PATH_CANONICAL_OK_COUNT>=1`
-- đúng 1 cặp PnP↔DevicePath; `CAPTURE_MAPPING_VERIFIED=true`
-- `COM_RELEASE_WARNING_COUNT=0`, `MODEL_PINS_PASS=true`
+Log kỳ vọng khi Start PASS:
+- `ownership_probe rel=DIRECT|VERIFIED_DESCENDANT`
+- `HEALTH READY ownership=... listener_pid=...`
+- `uvicorn.launch.json` được ghi
 
-Chỉ khi đạt: Start trên 18878 → smoke 1080p → soak → CAMERA_LAB mới.
-Không auto-Start / không ký lab từ synthetic.
+Nếu FAIL: mã `EXIT_LISTENER_OWNERSHIP` / `EXIT_HEALTH_NOT_READY` /
+`EXIT_FOREIGN_LISTENER` / `EXIT_AMBIGUOUS_LISTENERS` — không kill process lạ.
+
+Healthy Start **không** chứng minh frame USB; gates vật lý vẫn BLOCKED.
