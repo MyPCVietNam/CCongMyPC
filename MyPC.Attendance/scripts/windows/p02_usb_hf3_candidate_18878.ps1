@@ -185,8 +185,9 @@ function Split-Hf3WindowsCommandLine([string]$CommandLine) {
     $i++
   }
   if ($cur.Length -gt 0) { $argsOut.Add($cur.ToString()) | Out-Null }
-  # Unary comma prevents pipeline enumeration; do NOT wrap again with @() (that nests).
-  return , $argsOut.ToArray()
+  # Enumerate tokens into the pipeline; callers MUST collect with @(Split-...).
+  # Do not use unary-comma wrappers (they nest Object[] and break Count checks).
+  return [string[]]$argsOut.ToArray()
 }
 
 function Get-Hf3OptionValues([string[]]$Argv, [string]$Name) {
@@ -209,7 +210,7 @@ function Get-Hf3OptionValues([string[]]$Argv, [string]$Name) {
     }
     $i++
   }
-  return , $out.ToArray()
+  return [string[]]$out.ToArray()
 }
 
 function Test-Hf3UvicornCommandLine {
@@ -220,7 +221,8 @@ function Test-Hf3UvicornCommandLine {
     [string]$HostAddr = "127.0.0.1"
   )
   if (-not $CommandLine) { return $false }
-  $argv = @(Split-Hf3WindowsCommandLine $CommandLine)
+  $argv = [string[]]@(Split-Hf3WindowsCommandLine $CommandLine)
+  if ($null -eq $argv) { $argv = [string[]]@() }
   if ($argv.Count -lt 5) { return $false }
   # Reject -c / --reload / --workers — not HF3 uvicorn interpreter entrypoints.
   # Only exact -c or -c<rest> short-form (never treat long options like --host as -c*).

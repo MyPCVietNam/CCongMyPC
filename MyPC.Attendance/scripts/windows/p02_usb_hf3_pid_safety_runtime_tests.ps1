@@ -131,17 +131,6 @@ $wrongPortCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127.0.0
 $prefixCmd = "`"C:\Python\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 --port 18878 --app-dir ${backend}2"
 
 $cmdOk = Test-Hf3UvicornCommandLine -CommandLine $goodCmd -Backend $backend -PortNum 18878
-if (-not $cmdOk) {
-  $dbgArgs = [string[]]@(Split-Hf3WindowsCommandLine $goodCmd)
-  Write-Host ("DBG goodCmd argv({0}): {1}" -f $dbgArgs.Count, ($dbgArgs -join ' || ')) -ForegroundColor Yellow
-  $h = @(Get-Hf3OptionValues -Argv $dbgArgs -Name "--host")
-  $p = @(Get-Hf3OptionValues -Argv $dbgArgs -Name "--port")
-  $a = @(Get-Hf3OptionValues -Argv $dbgArgs -Name "--app-dir")
-  Write-Host ("DBG options host={0} (n={1}) port={2} (n={3}) appdir={4} (n={5})" -f ($h -join ','), $h.Count, ($p -join ','), $p.Count, ($a -join ','), $a.Count) -ForegroundColor Yellow
-  $bn = (($backend -replace '/', '\').TrimEnd([char]'\\')).ToLowerInvariant()
-  $an = if ($a.Count -ge 1) { (([string]$a[0] -replace '/', '\').TrimEnd([char]'\\')).ToLowerInvariant() } else { "<missing>" }
-  Write-Host ("DBG backendNorm={0} appNorm={1} eq={2}" -f $bn, $an, ($an -eq $bn)) -ForegroundColor Yellow
-}
 Assert-True ($cmdOk -eq $true) "Exact tokenized cmdline accepted"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $goodCmdSpaced -Backend $backendSpaced -PortNum 18878) -eq $true) "Quoted path with spaces accepted"
 Assert-True ((Test-Hf3UvicornCommandLine -CommandLine $foreignAppDirCmd -Backend $backend -PortNum 18878) -eq $false) "Foreign --app-dir rejected despite HF3 path elsewhere"
