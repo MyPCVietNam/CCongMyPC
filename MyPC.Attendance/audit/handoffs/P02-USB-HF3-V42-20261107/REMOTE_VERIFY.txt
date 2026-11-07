@@ -1,3 +1,9 @@
-After packaging push: download COMPLETE via raw.githubusercontent.com at REMOTE_PR_TIP,
-sha256sum the bytes, compare to sidecar SHA256SUMS-COMPLETE.txt (not inside COMPLETE).
-PENDING_PUSH cleared only after match.
+VERIFIED 2026-11-07T11:50:07Z
+raw_url=https://raw.githubusercontent.com/MyPCVietNam/CCongMyPC/c2f9f2720b20aa516f113598c22d7c4240ea0541/MyPC.Attendance/audit/handoffs/P02-USB-HF3-V42-20261107/MYPC-HF3-V42-COMPLETE-AUDIT.zip
+sha256_remote=895c0b23e60cf90d9539aaaa731999d404808c8a43b526c3fff276acec58bc8c
+sha256_sidecar_expected=895c0b23e60cf90d9539aaaa731999d404808c8a43b526c3fff276acec58bc8c
+match=true
+PENDING_PUSH=cleared
+feature=
+packaging_freeze_tip=c2f9f2720b20aa516f113598c22d7c4240ea0541
+NOTE: COMPLETE archive itself does not embed this digest (sidecar SHA256SUMS-COMPLETE.txt is authoritative).
