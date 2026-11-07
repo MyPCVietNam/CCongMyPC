@@ -186,7 +186,8 @@ Assert-True ($script:__StopProcessCalls.Count -eq $before) "No Stop-Process for 
 $realPid = $PID
 $beforeAdv = $script:__StopProcessCalls.Count
 $adv = Stop-VerifiedHf3Identity -TargetPid $realPid -ExpectedCreation "no-such-creation" -Backend $backend -PortNum 18878 -Role "listener"
-Assert-True ($adv -eq $false) "Unrelated real PID refused without matching injection+creation"
+# Uninjected PID → mock ABSENT → returns true without Stop-Process (never probes/kills real OS PID).
+Assert-True ($adv -eq $true) "Unrelated real PID treated absent by mock (no OS probe/kill)"
 Assert-True ($script:__StopProcessCalls.Count -eq $beforeAdv) "Adversarial: real PID never reached mocked Stop-Process"
 # Extra: even if someone injected the real PID with wrong cmdline, creation mismatch still blocks.
 $script:__InjectedProcs[$realPid] = [pscustomobject]@{
