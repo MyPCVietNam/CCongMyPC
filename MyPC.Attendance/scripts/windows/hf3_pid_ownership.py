@@ -309,10 +309,9 @@ def classify_listener_ownership(
     ):
         return REL_UNVERIFIED, "listener_cmdline_mismatch"
     if listener.pid == launcher.pid:
-        if not is_python_process(listener.name) and listener.name:
-            # allow empty name in mocks; real Windows should be python
-            if listener.name and not is_python_process(listener.name):
-                return REL_UNVERIFIED, "direct_listener_not_python"
+        # V4.2 R11: blank/null/non-python name is NEVER DIRECT (mirrors PowerShell).
+        if not is_python_process(listener.name):
+            return REL_UNVERIFIED, "direct_listener_not_python"
         return REL_DIRECT, "listener_pid_equals_launcher"
     if not is_python_process(listener.name):
         return REL_UNVERIFIED, "descendant_not_python"

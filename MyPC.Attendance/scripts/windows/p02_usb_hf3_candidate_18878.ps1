@@ -506,6 +506,22 @@ function Validate-Hf3LaunchMetaBeforeCleanup {
   return $true
 }
 
+function Format-Hf3CreationStamp($Value) {
+  # ConvertFrom-Json on PS Core may promote ISO strings to DateTime; normalize to ISO-o.
+  if ($null -eq $Value) { return "" }
+  if ($Value -is [datetime]) {
+    return ([datetime]$Value).ToUniversalTime().ToString("o")
+  }
+  $s = [string]$Value
+  if ([string]::IsNullOrWhiteSpace($s)) { return "" }
+  $parsed = [datetime]::MinValue
+  if ([datetime]::TryParse($s, [System.Globalization.CultureInfo]::InvariantCulture,
+      [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) {
+    return $parsed.ToUniversalTime().ToString("o")
+  }
+  return $s.Trim()
+}
+
 function Get-Hf3PersistedIdentityStatus {
   <#
     .SYNOPSIS
@@ -514,7 +530,7 @@ function Get-Hf3PersistedIdentityStatus {
   #>
   param(
     [int]$TargetPid,
-    [string]$ExpectedCreation,
+    $ExpectedCreation = "",
     [string]$Role = ""
   )
   if ($TargetPid -le 0) {
@@ -527,12 +543,13 @@ function Get-Hf3PersistedIdentityStatus {
   if (-not $live) {
     return [pscustomobject]@{ Status = "ABSENT"; Pid = $TargetPid; Role = $Role; Reason = "not_running" }
   }
-  if (-not [string]$ExpectedCreation) {
+  $expectedNorm = Format-Hf3CreationStamp $ExpectedCreation
+  if (-not $expectedNorm) {
     return [pscustomobject]@{ Status = "LIVE_NO_CREATION"; Pid = $TargetPid; Role = $Role; Reason = "missing_creation" }
   }
   $liveCreate = ""
-  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
-  if (-not $liveCreate -or $liveCreate -ne [string]$ExpectedCreation) {
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = Format-Hf3CreationStamp $live.CreationDate }
+  if (-not $liveCreate -or $liveCreate -ne $expectedNorm) {
     return [pscustomobject]@{ Status = "LIVE_MISMATCH"; Pid = $TargetPid; Role = $Role; Reason = "creation_mismatch" }
   }
   return [pscustomobject]@{ Status = "LIVE_MATCH"; Pid = $TargetPid; Role = $Role; Reason = "creation_match"; Live = $live }
@@ -548,11 +565,12 @@ function Test-LiveMatchesLaunchMeta {
   if (Test-IsConhostName $live.Name) { return $false }
   if (-not (Test-IsPythonProcessName $live.Name)) { return $false }
   $liveCreate = ""
-  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = Format-Hf3CreationStamp $live.CreationDate }
   # Fail closed: blank stored or live creation never authenticates.
-  if (-not [string]$Meta.listener_creation) { return $false }
+  $metaCreate = Format-Hf3CreationStamp $Meta.listener_creation
+  if (-not $metaCreate) { return $false }
   if (-not $liveCreate) { return $false }
-  if ($liveCreate -ne [string]$Meta.listener_creation) { return $false }
+  if ($liveCreate -ne $metaCreate) { return $false }
   if (-not (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend ([string]$Meta.backend) -PortNum ([int]$Meta.port))) {
     return $false
   }
@@ -670,7 +688,283 @@ function Stop-VerifiedHf3LaunchTree {
   return ($okListener -and $okLauncher)
 }
 
+function Assert-Hf3CandidateRootSafe([string]$Root) {
+  if (-not $Root) { throw "EXIT_PREPARE_INPUT_INVALID: CandidateRoot empty" }
+  $full = [System.IO.Path]::GetFullPath($Root)
+  if ($full -match '(?i)(?:^|[\\/])(?:18876|18877)(?:[\\/]|$)') {
+    throw "EXIT_PREPARE_INPUT_INVALID: CandidateRoot must not overlap ports 18876/18877 paths"
+  }
+  if ($full -match '(?i)MyPC\.Attendance[\\/]+(?:DataDir|secrets)(?:[\\/]|$)') {
+    throw "EXIT_PREPARE_INPUT_INVALID: CandidateRoot must not target protected owner DataDir/secrets"
+  }
+  if ($full -match '(?i)p02-usb-(?:hf1|hf2)(?:-|$)|[\\/]p02-usb-staging(?:[\\/]|$)') {
+    throw "EXIT_PREPARE_INPUT_INVALID: CandidateRoot aliases a protected non-HF3 lab root"
+  }
+}
+
+function Get-Hf3PidRecordState([string]$PidPath) {
+  if (-not (Test-Path -LiteralPath $PidPath)) {
+    return [pscustomobject]@{ Status = "ABSENT"; Pid = 0; Reason = "missing" }
+  }
+  try {
+    $raw = (Get-Content -LiteralPath $PidPath -ErrorAction Stop | Select-Object -First 1)
+  } catch {
+    return [pscustomobject]@{ Status = "INVALID"; Pid = 0; Reason = "unreadable" }
+  }
+  $pidVal = 0
+  if (-not [int]::TryParse(([string]$raw).Trim(), [ref]$pidVal) -or $pidVal -le 0) {
+    return [pscustomobject]@{ Status = "INVALID"; Pid = 0; Reason = "malformed" }
+  }
+  return [pscustomobject]@{ Status = "VALID"; Pid = $pidVal; Reason = "parsed" }
+}
+
+function Test-Hf3PidRecord {
+  <#
+    .SYNOPSIS
+      V4.2 R10: uvicorn.pid consistency vs launch meta (or legacy-only). Fail closed.
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$PidPath,
+    $Meta = $null
+  )
+  $st = Get-Hf3PidRecordState $PidPath
+  if ($st.Status -eq "ABSENT") {
+    return [pscustomobject]@{ Ok = $true; Status = "ABSENT"; Pid = 0; Reason = "no_pid_file" }
+  }
+  if ($st.Status -eq "INVALID") {
+    return [pscustomobject]@{ Ok = $false; Status = "INVALID"; Pid = 0; Reason = $st.Reason }
+  }
+  if ($null -eq $Meta) {
+    $live = $null
+    try { $live = Get-Win32ProcessById ([int]$st.Pid) } catch {
+      return [pscustomobject]@{ Ok = $false; Status = "LIVE_UNKNOWN"; Pid = [int]$st.Pid; Reason = "probe_failed" }
+    }
+    if ($live) {
+      return [pscustomobject]@{ Ok = $false; Status = "MISMATCH"; Pid = [int]$st.Pid; Reason = "legacy_pid_live" }
+    }
+    return [pscustomobject]@{ Ok = $true; Status = "STALE_ABSENT"; Pid = [int]$st.Pid; Reason = "legacy_pid_absent" }
+  }
+  $launcherPid = 0; $listenerPid = 0
+  try { $launcherPid = [int]$Meta.launcher_pid } catch { $launcherPid = 0 }
+  try { $listenerPid = [int]$Meta.listener_pid } catch { $listenerPid = 0 }
+  if ($st.Pid -ne $launcherPid -and $st.Pid -ne $listenerPid) {
+    return [pscustomobject]@{ Ok = $false; Status = "MISMATCH"; Pid = [int]$st.Pid; Reason = "pid_not_in_meta" }
+  }
+  $role = $(if ($st.Pid -eq $listenerPid) { "listener" } else { "launcher" })
+  $create = $(if ($role -eq "listener") { [string]$Meta.listener_creation } else { [string]$Meta.launcher_creation })
+  $ident = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$st.Pid) -ExpectedCreation $create -Role $role
+  if ($ident.Status -eq "UNKNOWN") {
+    return [pscustomobject]@{ Ok = $false; Status = "LIVE_UNKNOWN"; Pid = [int]$st.Pid; Reason = "probe_failed" }
+  }
+  if ($ident.Status -eq "LIVE_MISMATCH" -or $ident.Status -eq "LIVE_NO_CREATION") {
+    return [pscustomobject]@{ Ok = $false; Status = "MISMATCH"; Pid = [int]$st.Pid; Reason = $ident.Reason }
+  }
+  if ($ident.Status -eq "LIVE_MATCH") {
+    return [pscustomobject]@{ Ok = $true; Status = "MATCH_LIVE"; Pid = [int]$st.Pid; Reason = ("associated_{0}_live" -f $role); Role = $role }
+  }
+  return [pscustomobject]@{ Ok = $true; Status = "MATCH_ABSENT"; Pid = [int]$st.Pid; Reason = ("associated_{0}_absent" -f $role); Role = $role }
+}
+
+function Invoke-Hf3PrepareHandler {
+  <#
+    .SYNOPSIS
+      V4.2 R9/R12: production Prepare authorization gate (no src/DataDir mutation).
+  #>
+  param(
+    [string]$FullSourceZipPath,
+    [string]$ExpectedSha,
+    [string]$ModelsSourcePath,
+    [string]$CandidateRootPath,
+    [string]$SrcPath,
+    [string]$LaunchMetaPath,
+    [string]$PidPath,
+    [int]$PortNum = 18878
+  )
+  if (-not $FullSourceZipPath -or -not (Test-Path -LiteralPath $FullSourceZipPath)) {
+    throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -FullSourceZip pointing to FULL-SOURCE ZIP"
+  }
+  if (-not $ExpectedSha) { throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -ExpectedSha256 (lowercase hex)" }
+  if (-not $ModelsSourcePath -or -not (Test-Path -LiteralPath $ModelsSourcePath)) {
+    throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -ModelsSourceDir with existing ONNX weights (owner already has PIN_MATCH models — do not redownload)"
+  }
+  Assert-Hf3CandidateRootSafe $CandidateRootPath
+  $got = Get-Sha256Lower $FullSourceZipPath
+  if ($got -ne $ExpectedSha.ToLowerInvariant()) {
+    throw ("EXIT_PREPARE_INPUT_INVALID: SHA256 mismatch: got {0} expected {1}" -f $got, $ExpectedSha.ToLowerInvariant())
+  }
+  Write-Log "SHA256 PIN_MATCH for FULL-SOURCE ZIP"
+  $owners = @(Get-Hf3PortListenerOwnerPids $PortNum)
+  if ($owners.Count -gt 0) {
+    throw ("EXIT_PREPARE_PROCESS_UNKNOWN: port {0} has listener owner(s)={1} — refuse Prepare; use Stop/Diagnose" -f $PortNum, ($owners -join ','))
+  }
+  $metaState = Get-Hf3LaunchMetaState $LaunchMetaPath
+  if ($metaState.State -ne "ABSENT") {
+    throw ("EXIT_PREPARE_EXISTING_SOURCE: launch meta present ({0}) — refuse Prepare; use Update/Stop/Diagnose" -f $metaState.State)
+  }
+  $pidCheck = Test-Hf3PidRecord -PidPath $PidPath -Meta $null
+  if (-not $pidCheck.Ok) {
+    throw ("EXIT_PREPARE_PROCESS_UNKNOWN: uvicorn.pid unsafe ({0}/{1}) — refuse Prepare" -f $pidCheck.Status, $pidCheck.Reason)
+  }
+  if (Test-Path -LiteralPath $SrcPath) {
+    throw "EXIT_PREPARE_EXISTING_SOURCE: candidate src already present — refuse destructive Prepare; use Update"
+  }
+  return [pscustomobject]@{ Ok = $true; Reason = "fresh_prepare_authorized" }
+}
+
+function Invoke-Hf3StartHandler {
+  <#
+    .SYNOPSIS
+      V4.2 R10/R12: production free-port Start authorization (no Start-Process / no meta erase).
+      Returns action CLEAR (safe to archive stale evidence) or throws.
+  #>
+  param(
+    [string]$LaunchMetaPath,
+    [string]$PidPath,
+    [int]$PortNum = 18878
+  )
+  $metaStateStart = Get-Hf3LaunchMetaState $LaunchMetaPath
+  if ($metaStateStart.State -eq "INVALID") {
+    throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
+  }
+  if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateStart)) {
+    throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
+  }
+  $prevFree = $metaStateStart.Meta
+  if ($prevFree) {
+    $pidCheck = Test-Hf3PidRecord -PidPath $PidPath -Meta $prevFree
+    if (-not $pidCheck.Ok) {
+      throw ("EXIT_START_PID_RECORD_INCONSISTENT: {0}/{1} — preserving evidence" -f $pidCheck.Status, $pidCheck.Reason)
+    }
+    if ([bool]$prevFree.cleanup_blocked -or [bool]$prevFree.start_failed) {
+      throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: inspect uvicorn.launch.json before Start"
+    }
+    foreach ($rolePidName in @(@{Pid=[int]$prevFree.launcher_pid; Create=[string]$prevFree.launcher_creation; Role="launcher"},
+                                @{Pid=[int]$prevFree.listener_pid; Create=[string]$prevFree.listener_creation; Role="listener"})) {
+      $ident = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
+        -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
+      if ($ident.Status -eq "UNKNOWN") { throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: process probe failed; owner must inspect" }
+      if ($ident.Status -eq "ABSENT") { continue }
+      if ($ident.Status -eq "LIVE_NO_CREATION") { throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: live process without creation proof" }
+      if ($ident.Status -eq "LIVE_MATCH") { throw "EXIT_START_STALE_LAUNCHER: stop/inspect prior launch before Start" }
+      throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: PID reuse suspected"
+    }
+    return [pscustomobject]@{ Action = "CLEAR_STALE_META"; Meta = $prevFree }
+  }
+  $pidCheck2 = Test-Hf3PidRecord -PidPath $PidPath -Meta $null
+  if (-not $pidCheck2.Ok) {
+    throw ("EXIT_START_STALE_IDENTITY_UNVERIFIED: uvicorn.pid unsafe ({0})" -f $pidCheck2.Reason)
+  }
+  if ($pidCheck2.Status -eq "STALE_ABSENT") {
+    return [pscustomobject]@{ Action = "CLEAR_STALE_PID"; Meta = $null }
+  }
+  return [pscustomobject]@{ Action = "CONTINUE"; Meta = $null }
+}
+
+function Invoke-Hf3UpdateHandler {
+  <#
+    .SYNOPSIS
+      V4.2 R10/R12: production free-port Update authorization (zero Stop-Process / Rename).
+  #>
+  param(
+    [string]$LaunchMetaPath,
+    [string]$PidPath,
+    [int]$PortNum = 18878
+  )
+  $metaStateFree = Get-Hf3LaunchMetaState $LaunchMetaPath
+  if ($metaStateFree.State -eq "INVALID") {
+    throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
+  }
+  if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateFree)) {
+    throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
+  }
+  $metaFree = $metaStateFree.Meta
+  if ($metaFree) {
+    $pidCheck = Test-Hf3PidRecord -PidPath $PidPath -Meta $metaFree
+    if (-not $pidCheck.Ok) {
+      throw ("EXIT_UPDATE_PID_RECORD_INCONSISTENT: {0}/{1} — refuse source swap" -f $pidCheck.Status, $pidCheck.Reason)
+    }
+    foreach ($rolePidName in @(@{Pid=[int]$metaFree.launcher_pid; Create=[string]$metaFree.launcher_creation; Role="launcher"},
+                                @{Pid=[int]$metaFree.listener_pid; Create=[string]$metaFree.listener_creation; Role="listener"})) {
+      $probe = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
+        -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
+      if ($probe.Status -eq "UNKNOWN") {
+        throw ("EXIT_PROCESS_PROBE_UNKNOWN: Update cannot prove prior {0} absent" -f $probe.Role)
+      }
+      if ($probe.Status -eq "LIVE_NO_CREATION") {
+        throw ("EXIT_STOP_INCOMPLETE: port free but prior {0} live without creation proof — refuse Update" -f $probe.Role)
+      }
+      if ($probe.Status -eq "LIVE_MISMATCH") {
+        throw ("EXIT_FOREIGN_LISTENER: port free but {0} PID reused/mismatched — refuse Update" -f $probe.Role)
+      }
+      if ($probe.Status -eq "LIVE_MATCH") {
+        if ($rolePidName.Role -eq "listener") {
+          throw "EXIT_UPDATE_STALE_LISTENER: stop/inspect prior listener before Update"
+        }
+        throw "EXIT_UPDATE_STALE_LAUNCHER: stop prior launcher via Stop mode before Update"
+      }
+    }
+    return [pscustomobject]@{ Action = "CONTINUE"; Meta = $metaFree }
+  }
+  $pidCheck2 = Test-Hf3PidRecord -PidPath $PidPath -Meta $null
+  if (-not $pidCheck2.Ok) {
+    throw ("EXIT_UPDATE_BLOCKED_LEGACY_PID: {0}/{1}" -f $pidCheck2.Status, $pidCheck2.Reason)
+  }
+  return [pscustomobject]@{ Action = "CONTINUE"; Meta = $null }
+}
+
+function Invoke-Hf3StopHandler {
+  <#
+    .SYNOPSIS
+      V4.2 R12: production Stop gate for free-port / no-listener path (no Remove-Item yet).
+  #>
+  param(
+    [string]$LaunchMetaPath,
+    [string]$PidPath,
+    [int]$PortNum = 18878
+  )
+  $metaStateStop = Get-Hf3LaunchMetaState $LaunchMetaPath
+  if ($metaStateStop.State -eq "INVALID") {
+    throw "EXIT_STOP_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Stop"
+  }
+  $meta = $metaStateStop.Meta
+  if ($metaStateStop.State -eq "ABSENT" -or -not $meta) {
+    if (Test-Path -LiteralPath $PidPath) {
+      throw "EXIT_STOP_BLOCKED_LEGACY_PID: launch meta required; will not terminate by numeric PID alone"
+    }
+    return [pscustomobject]@{ Action = "NOTHING"; Meta = $null }
+  }
+  if (-not (Test-Hf3LaunchMetaSchema $meta)) {
+    throw "EXIT_STOP_BLOCKED: incomplete launch meta"
+  }
+  $pidCheck = Test-Hf3PidRecord -PidPath $PidPath -Meta $meta
+  if (-not $pidCheck.Ok) {
+    throw ("EXIT_STOP_PID_RECORD_INCONSISTENT: {0}/{1} — preserving evidence" -f $pidCheck.Status, $pidCheck.Reason)
+  }
+  $listeners = @(Get-Hf3PortListenerOwnerPids $PortNum)
+  if ($listeners.Count -gt 1) { throw "EXIT_AMBIGUOUS_LISTENERS: Stop refused" }
+  if ($listeners.Count -eq 1) {
+    return [pscustomobject]@{ Action = "STOP_LISTENER"; Meta = $meta; LivePid = [int]$listeners[0] }
+  }
+  # No listener: still verify persisted listener_pid + launcher.
+  $listenerPidStop = [int]$meta.listener_pid
+  if ($listenerPidStop -gt 0) {
+    try { $null = Get-Win32ProcessById $listenerPidStop } catch {
+      throw "EXIT_PROCESS_PROBE_UNKNOWN: listener probe failed; owner must inspect"
+    }
+  }
+  $listenerIdent = Get-Hf3PersistedIdentityStatus -TargetPid $listenerPidStop `
+    -ExpectedCreation ([string]$meta.listener_creation) -Role "listener"
+  if ($listenerIdent.Status -eq "LIVE_MATCH") {
+    throw "EXIT_STOP_STALE_LISTENER: stop/inspect off-port listener before clearing meta"
+  }
+  if ($listenerIdent.Status -eq "UNKNOWN" -or $listenerIdent.Status -eq "LIVE_NO_CREATION" -or $listenerIdent.Status -eq "LIVE_MISMATCH") {
+    throw ("EXIT_STOP_INCOMPLETE: listener status={0}" -f $listenerIdent.Status)
+  }
+  return [pscustomobject]@{ Action = "STOP_LAUNCHER_OR_CLEAR"; Meta = $meta }
+}
+
 Assert-PortSafe
+Assert-Hf3CandidateRootSafe $CandidateRoot
 New-Item -ItemType Directory -Force -Path $CandidateRoot | Out-Null
 $dataDir = Join-Path $CandidateRoot "DataDir"
 $srcDir = Join-Path $CandidateRoot "src"
@@ -686,18 +980,69 @@ if ($Mode -eq "Export") { $Mode = "SafeExport" }
 
 switch ($Mode) {
   "Prepare" {
-    if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {
-      throw "Prepare requires -FullSourceZip pointing to FULL-SOURCE ZIP"
+    # V4.2 R9: authorize BEFORE any src/DataDir/models mutation; never wipe existing src.
+    # Explicit TCP/meta/model probes in-mode (handler also enforces) before any staging.
+    if (-not $ModelsSourceDir -or -not (Test-Path -LiteralPath $ModelsSourceDir)) {
+      throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -ModelsSourceDir with existing ONNX weights (owner already has PIN_MATCH models — do not redownload)"
     }
-    if (-not $ExpectedSha256) { throw "Prepare requires -ExpectedSha256 (lowercase hex)" }
-    $got = Get-Sha256Lower $FullSourceZip
-    if ($got -ne $ExpectedSha256.ToLowerInvariant()) {
-      throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"
+    if (-not $FullSourceZip -or -not (Test-Path -LiteralPath $FullSourceZip)) {
+      throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -FullSourceZip pointing to FULL-SOURCE ZIP"
     }
-    Write-Log "SHA256 PIN_MATCH for FULL-SOURCE ZIP"
-    if (Test-Path $srcDir) { Remove-Item -Recurse -Force $srcDir }
-    New-Item -ItemType Directory -Force -Path $srcDir | Out-Null
-    Expand-Archive -Path $FullSourceZip -DestinationPath $srcDir -Force
+    if (-not $ExpectedSha256) {
+      throw "EXIT_PREPARE_INPUT_INVALID: Prepare requires -ExpectedSha256 (lowercase hex)"
+    }
+    [void](Get-Hf3PortListenerOwnerPids $Port)
+    [void](Get-Hf3LaunchMetaState $launchMetaFile)
+    [void](Test-Hf3PidRecord -PidPath $pidFile -Meta $null)
+    [void](Invoke-Hf3PrepareHandler -FullSourceZipPath $FullSourceZip -ExpectedSha $ExpectedSha256 `
+      -ModelsSourcePath $ModelsSourceDir -CandidateRootPath $CandidateRoot `
+      -SrcPath $srcDir -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
+
+    $stageSrc = Join-Path $CandidateRoot ("src-prepare-staging-" + [guid]::NewGuid().ToString("N"))
+    try {
+      New-Item -ItemType Directory -Force -Path $stageSrc | Out-Null
+      Expand-Archive -Path $FullSourceZip -DestinationPath $stageSrc -Force
+      $stagedBackend = Find-BackendDir $stageSrc
+      if (-not (Test-Path (Join-Path $stagedBackend "app\main.py"))) {
+        throw "EXIT_PREPARE_INPUT_INVALID: staged backend layout invalid"
+      }
+      $manifestPath = Resolve-ManifestPath $stageSrc $ModelsSourceDir $CandidateRoot
+      if (-not $manifestPath) {
+        throw "EXIT_PREPARE_INPUT_INVALID: models/manifest.json not found — refuse silent model install"
+      }
+      $pins = Get-ManifestPinMap $manifestPath
+      if ($pins.Count -lt 2) {
+        throw "EXIT_PREPARE_INPUT_INVALID: manifest must pin at least YuNet + SFace ONNX filenames"
+      }
+      $required = @(
+        "face_detection_yunet_2023mar.onnx",
+        "face_recognition_sface_2021dec.onnx"
+      )
+      foreach ($name in $required) {
+        if (-not $pins.ContainsKey($name)) { throw ("EXIT_PREPARE_INPUT_INVALID: manifest missing pin for {0}" -f $name) }
+        $srcFile = Join-Path $ModelsSourceDir $name
+        if (-not (Test-Path -LiteralPath $srcFile)) { throw ("EXIT_PREPARE_INPUT_INVALID: Missing weight file: {0}" -f $srcFile) }
+        $shaSrc = Get-Sha256Lower $srcFile
+        if ($shaSrc -ne $pins[$name]) {
+          throw ("EXIT_PREPARE_INPUT_INVALID: MODEL PIN_MISMATCH (source) {0} got={1} expected={2}" -f $name, $shaSrc, $pins[$name])
+        }
+      }
+      # TOCTOU: re-check gates before promotion.
+      [void](Invoke-Hf3PrepareHandler -FullSourceZipPath $FullSourceZip -ExpectedSha $ExpectedSha256 `
+        -ModelsSourcePath $ModelsSourceDir -CandidateRootPath $CandidateRoot `
+        -SrcPath $srcDir -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
+      if (Test-Path -LiteralPath $srcDir) {
+        throw "EXIT_PREPARE_EXISTING_SOURCE: src appeared during staging — refuse promotion"
+      }
+      Rename-Item -LiteralPath $stageSrc -NewName "src"
+      $stageSrc = $null
+    } catch {
+      if ($stageSrc -and (Test-Path -LiteralPath $stageSrc)) {
+        Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+      }
+      throw
+    }
+
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
@@ -712,7 +1057,6 @@ switch ($Mode) {
     $venvPy = Join-Path $venvDir "Scripts\python.exe"
     if (-not (Test-Path $venvPy)) { throw "venv python missing at $venvPy" }
 
-    # Prefer python -m pip (avoids pip.exe self-upgrade path quirks)
     try {
       Invoke-VenvPip $venvPy @("install", "--upgrade", "pip")
     } catch {
@@ -732,26 +1076,14 @@ switch ($Mode) {
     }
 
     $manifestPath = Resolve-ManifestPath $srcDir $ModelsSourceDir $CandidateRoot
-    if (-not $manifestPath) {
-      throw "models/manifest.json not found — refuse silent model install"
-    }
     Write-Log "Using manifest: $manifestPath"
     $pins = Get-ManifestPinMap $manifestPath
-    if ($pins.Count -lt 2) {
-      throw "manifest must pin at least YuNet + SFace ONNX filenames"
-    }
-
-    if (-not $ModelsSourceDir -or -not (Test-Path $ModelsSourceDir)) {
-      throw "Prepare requires -ModelsSourceDir with existing ONNX weights (owner already has PIN_MATCH models — do not redownload)"
-    }
     $required = @(
       "face_detection_yunet_2023mar.onnx",
       "face_recognition_sface_2021dec.onnx"
     )
     foreach ($name in $required) {
-      if (-not $pins.ContainsKey($name)) { throw "manifest missing pin for $name" }
       $srcFile = Join-Path $ModelsSourceDir $name
-      if (-not (Test-Path $srcFile)) { throw "Missing weight file: $srcFile" }
       $dst = Join-Path $modelsDir $name
       Copy-Item $srcFile -Destination $dst -Force
       $sha = Get-Sha256Lower $dst
@@ -826,70 +1158,60 @@ switch ($Mode) {
         throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
       }
     } else {
-      # Port free: refuse Update on INVALID/incomplete schema or live/unverifiable identities.
+      # Port free: production free-port Update gate (R10 pid+meta; R8 decision-only).
       $metaStateFree = Get-Hf3LaunchMetaState $launchMetaFile
-      if ($metaStateFree.State -eq "INVALID") {
-        Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-        Write-Log ("EXIT_UPDATE_INVALID_LAUNCH_META: {0} — preserving evidence; refuse source swap" -f $metaStateFree.Reason)
-        throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
-      }
       if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateFree)) {
         Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-        Write-Log "EXIT_UPDATE_INVALID_LAUNCH_META: schema/identity incomplete — preserving evidence; refuse source swap"
         throw "EXIT_UPDATE_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Update"
       }
-      $metaFree = $metaStateFree.Meta
-      if ($metaFree) {
-        # V4.1 R8: decision-only foreach — probe ALL roles; never kill/rename here.
-        # Any LIVE_MATCH (launcher or listener) refuses Update; owner must Stop first.
-        foreach ($rolePidName in @(@{Pid=[int]$metaFree.launcher_pid; Create=[string]$metaFree.launcher_creation; Role="launcher"},
-                                    @{Pid=[int]$metaFree.listener_pid; Create=[string]$metaFree.listener_creation; Role="listener"})) {
+      if ($metaStateFree.Meta) {
+        $pidGate = Test-Hf3PidRecord -PidPath $pidFile -Meta $metaStateFree.Meta
+        if (-not $pidGate.Ok) {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+          throw ("EXIT_UPDATE_PID_RECORD_INCONSISTENT: {0}/{1} — refuse source swap" -f $pidGate.Status, $pidGate.Reason)
+        }
+        # Decision-only foreach — never Stop-VerifiedHf3Identity here (R8).
+        foreach ($rolePidName in @(@{Pid=[int]$metaStateFree.Meta.launcher_pid; Create=[string]$metaStateFree.Meta.launcher_creation; Role="launcher"},
+                                    @{Pid=[int]$metaStateFree.Meta.listener_pid; Create=[string]$metaStateFree.Meta.listener_creation; Role="listener"})) {
           $probe = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
             -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
-          if ($probe.Status -eq "UNKNOWN") {
-            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_PROCESS_PROBE_UNKNOWN: Update cannot prove prior {0} absent" -f $probe.Role)
-          }
-          if ($probe.Status -eq "LIVE_NO_CREATION") {
-            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_STOP_INCOMPLETE: port free but prior {0} live without creation proof — refuse Update" -f $probe.Role)
-          }
-          if ($probe.Status -eq "LIVE_MISMATCH") {
-            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-            throw ("EXIT_FOREIGN_LISTENER: port free but {0} PID reused/mismatched — refuse Update" -f $probe.Role)
-          }
           if ($probe.Status -eq "LIVE_MATCH") {
             Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
             if ($rolePidName.Role -eq "listener") {
-              Write-Log ("EXIT_UPDATE_STALE_LISTENER: port free but listener pid={0} still live — refuse source swap (zero Stop-Process)" -f $probe.Pid)
               throw "EXIT_UPDATE_STALE_LISTENER: stop/inspect prior listener before Update"
             }
-            Write-Log ("EXIT_UPDATE_STALE_LAUNCHER: port free but launcher pid={0} still live — refuse source swap (zero Stop-Process)" -f $probe.Pid)
             throw "EXIT_UPDATE_STALE_LAUNCHER: stop prior launcher via Stop mode before Update"
           }
+          if ($probe.Status -eq "UNKNOWN" -or $probe.Status -eq "LIVE_NO_CREATION" -or $probe.Status -eq "LIVE_MISMATCH") {
+            Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+            throw ("EXIT_PROCESS_PROBE_UNKNOWN: Update cannot prove prior {0} absent" -f $rolePidName.Role)
+          }
+        }
+        try {
+          [void](Invoke-Hf3UpdateHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
+        } catch {
+          Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
+          throw
         }
       } elseif (Test-Path -LiteralPath $pidFile) {
-        # V4.1 R4: absent launch meta + legacy uvicorn.pid — never source-swap while live/UNKNOWN.
-        $rawPidTxt = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
-        $legacyPid = 0
-        $parsedOk = [int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
-        if (-not $parsedOk -or $legacyPid -le 0) {
+        $pidGate = Test-Hf3PidRecord -PidPath $pidFile -Meta $null
+        if (-not $pidGate.Ok) {
           Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-          Write-Log "EXIT_UPDATE_BLOCKED_LEGACY_PID: uvicorn.pid present but unreadable — preserving file; refuse source swap"
-          throw "EXIT_UPDATE_BLOCKED_LEGACY_PID: legacy PID file unreadable; owner must inspect"
+          throw ("EXIT_UPDATE_BLOCKED_LEGACY_PID: {0}/{1}" -f $pidGate.Status, $pidGate.Reason)
         }
-        $liveLegacy = $null
-        try { $liveLegacy = Get-Win32ProcessById $legacyPid } catch {
+        try {
+          [void](Invoke-Hf3UpdateHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
+        } catch {
           Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-          Write-Log ("EXIT_PROCESS_PROBE_UNKNOWN: cannot prove uvicorn.pid={0} absent — refuse Update" -f $legacyPid)
-          throw "EXIT_PROCESS_PROBE_UNKNOWN: legacy PID probe failed; owner must inspect"
+          throw
         }
-        if ($liveLegacy) {
+      } else {
+        try {
+          [void](Invoke-Hf3UpdateHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
+        } catch {
           Remove-Item -Recurse -Force $stageSrc -ErrorAction SilentlyContinue
-          Write-Log ("EXIT_UPDATE_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — refuse source swap" -f $legacyPid)
-          throw "EXIT_UPDATE_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
+          throw
         }
-        Write-Log "Update: legacy uvicorn.pid proven absent (no kill); proceeding with source swap gate"
       }
     }
 
@@ -981,71 +1303,66 @@ switch ($Mode) {
       }
     } else {
       # Stale metadata with free port — free TCP ≠ absent launcher. Never kill; fail closed.
-      # Stale metadata with free port — probe launcher/listener identity before any cleanup.
       $metaStateStart = Get-Hf3LaunchMetaState $launchMetaFile
       if ($metaStateStart.State -eq "INVALID") {
-        Write-Log ("EXIT_START_INVALID_LAUNCH_META: {0} — preserving file; refuse Start (no Start-Process/Remove-Item)" -f $metaStateStart.Reason)
         throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
       }
-      # V4.1 R1: parseable foreign/incomplete schema must NOT authorize archive+Start.
       if (-not (Validate-Hf3LaunchMetaBeforeCleanup $metaStateStart)) {
-        Write-Log "EXIT_START_INVALID_LAUNCH_META: schema/identity incomplete — preserving file; refuse Start (no Start-Process/Remove-Item)"
         throw "EXIT_START_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Start"
       }
-      $prevFree = $metaStateStart.Meta
-      if ($prevFree) {
-        if ([bool]$prevFree.cleanup_blocked -or [bool]$prevFree.start_failed) {
-          Write-Log "EXIT_START_STALE_IDENTITY_UNVERIFIED: prior start evidence cleanup_blocked/start_failed — preserving files"
+      if ($metaStateStart.Meta) {
+        $pidGate = Test-Hf3PidRecord -PidPath $pidFile -Meta $metaStateStart.Meta
+        if (-not $pidGate.Ok) {
+          throw ("EXIT_START_PID_RECORD_INCONSISTENT: {0}/{1} — preserving evidence" -f $pidGate.Status, $pidGate.Reason)
+        }
+        if ([bool]$metaStateStart.Meta.cleanup_blocked -or [bool]$metaStateStart.Meta.start_failed) {
           throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: inspect uvicorn.launch.json before Start"
         }
-        foreach ($rolePidName in @(@{Pid=[int]$prevFree.launcher_pid; Create=[string]$prevFree.launcher_creation; Role="launcher"},
-                                    @{Pid=[int]$prevFree.listener_pid; Create=[string]$prevFree.listener_creation; Role="listener"})) {
-          $ident = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
-            -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
-          if ($ident.Status -eq "UNKNOWN") {
-            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} probe failed — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
+        # Decision-only identity probes (no Stop-Process) before production handler.
+        foreach ($rolePidName in @(@{Pid=[int]$metaStateStart.Meta.launcher_pid; Create=[string]$metaStateStart.Meta.launcher_creation; Role="launcher"},
+                                    @{Pid=[int]$metaStateStart.Meta.listener_pid; Create=[string]$metaStateStart.Meta.listener_creation; Role="listener"})) {
+          try { $null = Get-Win32ProcessById ([int]$rolePidName.Pid) } catch {
             throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: process probe failed; owner must inspect"
           }
+          $ident = Get-Hf3PersistedIdentityStatus -TargetPid ([int]$rolePidName.Pid) `
+            -ExpectedCreation ([string]$rolePidName.Create) -Role ([string]$rolePidName.Role)
+          if ($ident.Status -eq "UNKNOWN") { throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: process probe failed; owner must inspect" }
           if ($ident.Status -eq "ABSENT") { continue }
-          if ($ident.Status -eq "LIVE_NO_CREATION") {
-            Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} live without creation — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
-            throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: live process without creation proof"
-          }
-          if ($ident.Status -eq "LIVE_MATCH") {
-            Write-Log ("EXIT_START_STALE_LAUNCHER: prior {0} still live pid={1} — refuse Start; preserving evidence (no kill)" -f $rolePidName.Role, $rolePidName.Pid)
-            throw "EXIT_START_STALE_LAUNCHER: stop/inspect prior launch before Start"
-          }
-          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: {0} pid={1} creation mismatch (possible reuse) — preserving evidence" -f $rolePidName.Role, $rolePidName.Pid)
+          if ($ident.Status -eq "LIVE_NO_CREATION") { throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: live process without creation proof" }
+          if ($ident.Status -eq "LIVE_MATCH") { throw "EXIT_START_STALE_LAUNCHER: stop/inspect prior launch before Start" }
           throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: PID reuse suspected"
         }
-        # Proven absent — archive redacted meta then clear (no kill performed).
-        $archiveDir = Join-Path $CandidateRoot "logs\launch-meta-archive"
-        New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
-        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        Copy-Item -LiteralPath $launchMetaFile -Destination (Join-Path $archiveDir ("uvicorn.launch.archived-{0}.json" -f $stamp)) -Force
-        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
-        if (Test-Path $pidFile) { Remove-Item $pidFile -Force -ErrorAction SilentlyContinue }
-        Write-Log "Start: prior launch identities proven absent; archived redacted meta then cleared"
+        $startGate = Invoke-Hf3StartHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port
+        if ($startGate.Action -eq "CLEAR_STALE_META") {
+          $archiveDir = Join-Path $CandidateRoot "logs\launch-meta-archive"
+          New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          Copy-Item -LiteralPath $launchMetaFile -Destination (Join-Path $archiveDir ("uvicorn.launch.archived-{0}.json" -f $stamp)) -Force
+          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          if (Test-Path $pidFile) { Remove-Item $pidFile -Force -ErrorAction SilentlyContinue }
+          Write-Log "Start: prior launch identities proven absent; archived redacted meta then cleared"
+        }
       } elseif (Test-Path $pidFile) {
-        # Legacy pid-only evidence: probe before discard; never silent erase if live/unverifiable.
-        $rawPidTxt = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
-        $legacyPid = 0
-        $parsedOk = [int]::TryParse(([string]$rawPidTxt).Trim(), [ref]$legacyPid)
-        if (-not $parsedOk -or $legacyPid -le 0) {
-          Write-Log "EXIT_START_STALE_IDENTITY_UNVERIFIED: uvicorn.pid present but unreadable — preserving file; refuse Start"
-          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy PID file unreadable; owner must inspect"
+        $pidGate = Test-Hf3PidRecord -PidPath $pidFile -Meta $null
+        if (-not $pidGate.Ok) {
+          throw ("EXIT_START_STALE_IDENTITY_UNVERIFIED: uvicorn.pid unsafe ({0}/{1})" -f $pidGate.Status, $pidGate.Reason)
         }
-        $liveLegacy = $null
-        try { $liveLegacy = Get-Win32ProcessById $legacyPid } catch {
-          Write-Log ("EXIT_START_STALE_IDENTITY_UNVERIFIED: cannot prove uvicorn.pid={0} absent — preserving file" -f $legacyPid)
-          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy PID probe failed; owner must inspect"
+        # Legacy pid-only: prove absent via CIM before discarding (never kill by number).
+        $legacyPidStart = 0
+        $rawLegacy = (Get-Content -LiteralPath $pidFile | Select-Object -First 1)
+        if (-not [int]::TryParse(([string]$rawLegacy).Trim(), [ref]$legacyPidStart) -or $legacyPidStart -le 0) {
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: malformed uvicorn.pid"
         }
-        if ($liveLegacy) {
-          Write-Log ("EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid={0} still live without launch meta — preserve file; refuse Start" -f $legacyPid)
-          throw "EXIT_STOP_BLOCKED_LEGACY_PID: legacy PID live/unverifiable; owner must inspect"
+        try { $null = Get-Win32ProcessById $legacyPidStart } catch {
+          throw "EXIT_START_STALE_IDENTITY_UNVERIFIED: legacy pid probe failed"
         }
-        Write-Log "Ignoring stale uvicorn.pid while port is free and PID proven absent (no kill)"
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+        $startGate = Invoke-Hf3StartHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port
+        if ($startGate.Action -eq "CLEAR_STALE_PID") {
+          Write-Log "Ignoring stale uvicorn.pid while port is free and PID proven absent (no kill)"
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+        }
+      } else {
+        [void](Invoke-Hf3StartHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port)
       }
     }
 
@@ -1261,33 +1578,21 @@ switch ($Mode) {
   "Stop" {
     $metaStateStop = Get-Hf3LaunchMetaState $launchMetaFile
     if ($metaStateStop.State -eq "INVALID") {
-      Write-Log ("EXIT_STOP_INVALID_LAUNCH_META: {0} — preserving evidence; refuse kill (not 'nothing to stop')" -f $metaStateStop.Reason)
       throw "EXIT_STOP_INVALID_LAUNCH_META: inspect uvicorn.launch.json before Stop"
     }
-    $meta = $metaStateStop.Meta
-    $listeners = @(Get-Hf3PortListenerOwnerPids $Port)
-
-    if ($metaStateStop.State -eq "ABSENT" -or -not $meta) {
-      if (Test-Path $pidFile) {
-        Write-Log "EXIT_STOP_BLOCKED_LEGACY_PID: uvicorn.pid present without uvicorn.launch.json — refuse kill; preserving evidence"
+    if ($metaStateStop.State -eq "ABSENT" -or -not $metaStateStop.Meta) {
+      if (Test-Path -LiteralPath $pidFile) {
         throw "EXIT_STOP_BLOCKED_LEGACY_PID: launch meta required; will not terminate by numeric PID alone"
       }
+    }
+    $stopGate = Invoke-Hf3StopHandler -LaunchMetaPath $launchMetaFile -PidPath $pidFile -PortNum $Port
+    if ($stopGate.Action -eq "NOTHING") {
       Write-Log "No launch meta / pid file — nothing to stop"
       return
     }
-
-    if (-not (Test-Hf3LaunchMetaSchema $meta)) {
-      Write-Log "EXIT_STOP_BLOCKED: launch meta incomplete (schema/port/backend/listener_creation) — preserving files"
-      throw "EXIT_STOP_BLOCKED: incomplete launch meta"
-    }
-
-    if ($listeners.Count -gt 1) {
-      Write-Log ("EXIT_AMBIGUOUS_LISTENERS: refusing kill; preserving launch meta. owners={0}" -f ($listeners -join ','))
-      throw "EXIT_AMBIGUOUS_LISTENERS: Stop refused"
-    }
-
-    if ($listeners.Count -eq 1) {
-      $livePid = [int]$listeners[0]
+    $meta = $stopGate.Meta
+    if ($stopGate.Action -eq "STOP_LISTENER") {
+      $livePid = [int]$stopGate.LivePid
       if (-not (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid))) {
         Write-Log ("EXIT_FOREIGN_LISTENER: port listener pid={0} does not match launch meta — refuse kill; preserving evidence" -f $livePid)
         throw "EXIT_FOREIGN_LISTENER: Stop refused"
