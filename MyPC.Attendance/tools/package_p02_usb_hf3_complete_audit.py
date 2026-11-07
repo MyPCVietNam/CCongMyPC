@@ -46,9 +46,20 @@ def sha256(p: Path) -> str:
     return h.hexdigest()
 
 
+# Repo-root quality-control plane paths (Quality Guard v1.0 overlay).
+ROOT_SCOPES = (
+    "MyPC.Attendance",
+    "AGENTS.md",
+    ".gitignore",
+    ".cursor",
+    ".github",
+    "quality_guard",
+)
+
+
 def git_diff_names(base: str) -> list[str]:
     out = subprocess.check_output(
-        ["git", "diff", "--name-only", "--diff-filter=ACMRT", f"{base}...HEAD", "--", "MyPC.Attendance"],
+        ["git", "diff", "--name-only", "--diff-filter=ACMRT", f"{base}...HEAD", "--", *ROOT_SCOPES],
         cwd=REPO,
         text=True,
     )
@@ -57,7 +68,7 @@ def git_diff_names(base: str) -> list[str]:
 
 def git_deleted_names(base: str) -> list[str]:
     out = subprocess.check_output(
-        ["git", "diff", "--name-only", "--diff-filter=D", f"{base}...HEAD", "--", "MyPC.Attendance"],
+        ["git", "diff", "--name-only", "--diff-filter=D", f"{base}...HEAD", "--", *ROOT_SCOPES],
         cwd=REPO,
         text=True,
     )
@@ -65,7 +76,7 @@ def git_deleted_names(base: str) -> list[str]:
 
 
 def git_ls_files() -> list[str]:
-    out = subprocess.check_output(["git", "ls-files", "-z", "MyPC.Attendance"], cwd=REPO)
+    out = subprocess.check_output(["git", "ls-files", "-z", "--", *ROOT_SCOPES], cwd=REPO)
     files = []
     for raw in out.split(b"\0"):
         if not raw:
@@ -73,6 +84,8 @@ def git_ls_files() -> list[str]:
         rel = raw.decode()
         low = rel.lower().replace("\\", "/")
         if low.endswith(".zip") or "/release/" in low or low.endswith(".onnx") or low.endswith(".pyc"):
+            continue
+        if "/__pycache__/" in low or low.endswith(".pyo"):
             continue
         if "/data/" in low or "/secrets/" in low or low.endswith(".sqlite3"):
             raise SystemExit(f"REFUSE tracked sensitive: {rel}")
