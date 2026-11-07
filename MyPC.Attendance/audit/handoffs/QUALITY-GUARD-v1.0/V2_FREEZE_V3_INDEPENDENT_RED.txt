@@ -1,0 +1,16 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:51: AssertionError: UNSAFE: default runtime harness routes synthetic PID 4242 to real Stop-Process; replace with a DI-isolated mock or pure simulation before any Windows run
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:59: AssertionError: Synthetic lab records PASS without validating child ownership or cleanup
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:69: AssertionError: Synthetic listener blocks waiting for a request; launcher-only kill may orphan venv Python child
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:82: AssertionError: Python ownership mirror accepted a FOREIGN --app-dir due to unrelated path substring
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:89: AssertionError: Production PowerShell accepts backend path in a different argument when --app-dir is foreign
+/workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py:97: AssertionError: Stop ignores failed launcher cleanup and can report Stop OK solely because the port is free
+=========================== short test summary info ============================
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_default_harness_must_not_call_real_stop_on_hardcoded_fake_pid
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_synthetic_lab_must_not_mark_pass_unconditionally
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_synthetic_lab_cannot_leave_blocked_handle_request_without_request
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_python_command_verification_rejects_wrong_app_dir_even_if_other_arg_mentions_hf3
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_production_ps_powershell_has_no_anywhere_path_fallback_for_app_dir
+FAILED ../../workspace/MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_safety_v3_independent.py::test_stop_without_listener_cannot_ignore_failed_launcher_stop
+6 failed in 0.02s

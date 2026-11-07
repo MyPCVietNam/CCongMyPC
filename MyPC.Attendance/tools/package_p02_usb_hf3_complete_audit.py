@@ -14,9 +14,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 tip before this PID-safety V3 corrective.
+# CHANGED zip is relative to PR #27 tip before Quality Guard v1.0 integration.
 # Prior tips remain in PACKAGE_META for custody; do not rewrite immutable pins.
-BASELINE = "a3b995ef4e78d67830192b22b2b6cc0e69a5beb5"
+BASELINE = "ab1161dd87f0f363ea3974cf68c79b095ec11f03"
+BASELINE_PID_SAFETY_V3_FEATURE = "97c1e9df2d54314098066eca7c88c7e82edc4c79"
+BASELINE_PID_SAFETY_V3_FREEZE = "00858e3f78325517c43c4d688e5547748928b3a0"
 BASELINE_PID_SAFETY_V2_FREEZE = "0ea4264440bf330f005af7447bbd6bdb6cfabb46"
 BASELINE_PID_SAFETY_V2_FEATURE = "ae003b8f703e62144feb1eed77e0462b536d74dd"
 BASELINE_PID_OWNERSHIP = "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc"
@@ -232,7 +234,9 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (PID safety V3; tip a3b995e / V2 freeze 0ea4264)",
+        "baseline_note": "PR #27 pre-fix HEAD (Quality Guard v1.0 on tip ab1161d; V3 freeze 00858e3)",
+        "baseline_pid_safety_v3_feature": BASELINE_PID_SAFETY_V3_FEATURE,
+        "baseline_pid_safety_v3_freeze": BASELINE_PID_SAFETY_V3_FREEZE,
         "baseline_pid_safety_v2_freeze": BASELINE_PID_SAFETY_V2_FREEZE,
         "baseline_pid_safety_v2_feature": BASELINE_PID_SAFETY_V2_FEATURE,
         "baseline_pid_ownership": BASELINE_PID_OWNERSHIP,
@@ -260,7 +264,8 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_PID_SAFETY_V3",
+        "phase": "USB_HF3_QUALITY_GUARD_V1",
+        "github_actions": "UNRUN_UNTIL_WORKFLOW_APPEARS",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 

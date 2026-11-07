@@ -1,0 +1,13 @@
+---
+description: Mandatory MyPC Attendance safety, process, evidence and change-management contract
+alwaysApply: true
+---
+Read `AGENTS.md` and the applicable `MyPC.Attendance/docs/quality/` documents before a code change. First identify active HEAD and base ref; do not assume `main` includes source.
+
+Never execute destructive host commands, fake PID kills, camera capture, realtime attendance, owner migrations, physical lab signing, or access owner secrets without specific human-controlled lab steps. CI never touches actual owner hardware or data.
+
+Keep HF3 sandbox port 18878 isolated from 18876/18877; never run `Prepare` when candidate is already prepared; do not reset DataDir, model pins or HMAC. Never mark physical gates PASS based on synthetic/CI/session-only evidence.
+
+For bug fixes require baseline RED -> smallest code change -> GREEN regression and negative tests; check adjacent dependent code and rollback; run source-integrity checks. Distinguish verified results, inferred results, skipped tests, and physical unknowns. Never suppress a failing check by weakening assertions.
+
+Every Cursor prompt must be English; owner instructions may be Vietnamese. Deliver full source, changed source, evidence and complete audit ZIPs when source changes, with cryptographic manifests.

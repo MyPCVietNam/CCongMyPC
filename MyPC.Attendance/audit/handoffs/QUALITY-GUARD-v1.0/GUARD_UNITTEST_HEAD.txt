@@ -1,0 +1,21 @@
+test_basic_crc_manifest_and_nested (test_archive_verifier.ArchiveContract.test_basic_crc_manifest_and_nested) ... ok
+test_refuses_bad_digest (test_archive_verifier.ArchiveContract.test_refuses_bad_digest) ... ok
+test_refuses_secret_path (test_archive_verifier.ArchiveContract.test_refuses_secret_path) ... ok
+test_refuses_traversal (test_archive_verifier.ArchiveContract.test_refuses_traversal) ... ok
+test_hook_restricts_shell_and_fails_closed (test_framework.FrameworkContract.test_hook_restricts_shell_and_fails_closed) ... ok
+test_no_user_data_in_quality_overlay (test_framework.FrameworkContract.test_no_user_data_in_quality_overlay) ... ok
+test_required_gates_not_mislabeled_as_physical (test_framework.FrameworkContract.test_required_gates_not_mislabeled_as_physical) ... ok
+test_selftest_contract (test_framework.FrameworkContract.test_selftest_contract) ... ok
+test_accepts_exact_appdir_positive (test_hf3_safety.Hf3Safety.test_accepts_exact_appdir_positive) ... ok
+test_health_fail_closed (test_hf3_safety.Hf3Safety.test_health_fail_closed) ... ok
+test_pid_creation_required (test_hf3_safety.Hf3Safety.test_pid_creation_required) ... ok
+test_ps_has_no_substring_backend_authorization (test_hf3_safety.Hf3Safety.test_ps_has_no_substring_backend_authorization) ... ok
+test_rejects_foreign_appdir_even_with_hf3_in_log_config (test_hf3_safety.Hf3Safety.test_rejects_foreign_appdir_even_with_hf3_in_log_config) ... ok
+test_rejects_wrong_appdir_with_backend_as_unrelated_token (test_hf3_safety.Hf3Safety.test_rejects_wrong_appdir_with_backend_as_unrelated_token) ... ok
+test_synthetic_does_not_call_fake_numeric_pid_stop (test_hf3_safety.Hf3Safety.test_synthetic_does_not_call_fake_numeric_pid_stop) ... ok
+test_synthetic_never_executes_real_stop_process (test_hf3_safety.Hf3Safety.test_synthetic_never_executes_real_stop_process) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.006s
+
+OK

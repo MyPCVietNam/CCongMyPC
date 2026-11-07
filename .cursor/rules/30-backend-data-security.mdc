@@ -1,0 +1,10 @@
+---
+description: Backend API, auth, database, evidence chain, biometric privacy, migrations and attendance rules
+alwaysApply: false
+globs: "MyPC.Attendance/backend/**/*.py, MyPC.Attendance/tests/**/*.py"
+---
+Preserve local-only design, explicit permissions, CSRF, safe credential handling, immutable raw observations, encrypted biometric storage, audit trail and camera-trust revocation on material configuration changes.
+
+Do not mutate SQLite or owner data from read-only diagnostics. All migrations require a reversible plan and tests against an isolated test database; never auto-run production migrations from CI. Hash/nonce/HMAC must not be reused between EZVIZ RTSP and USB subjects.
+
+Attendance: Monday-Saturday 08:30-18:00, no late tolerance, lunch 12:00-13:30; morning 08:15-08:45; afternoon recognition 17:00-23:55 (interval endpoint per source code); reference 18:00; prefer photo 17:55-18:00. Separate observed timestamps from inferred attendance conclusions. Statistics only, no payroll. If implementation and business rules diverge, surface a decision rather than silently rewriting.

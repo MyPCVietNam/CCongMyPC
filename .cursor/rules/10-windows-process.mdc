@@ -1,0 +1,12 @@
+---
+description: Rules for Windows PowerShell 5.1, venv redirector, process identity, Stop/Update and real OS side effects
+alwaysApply: false
+globs: "MyPC.Attendance/scripts/windows/**/*.ps1, MyPC.Attendance/scripts/windows/**/*pid*.py, quality_guard/powershell/**/*.ps1"
+---
+Target Windows PowerShell 5.1. Test parsed AST and PSScriptAnalyzer, then Pester on the Windows GitHub runner. Never assign to case-insensitive automatic variables (`$PID`, `$Host`, `$PSHome`, `$Error`, etc.); use names such as `$listenerProcessId`.
+
+Never use `Stop-Process`, `taskkill`, filesystem removal or actual localhost camera launches inside synthetic tests. Extract pure decision functions and inject the process/clock/network adapter. Any live operation belongs to an owner-approved Windows runbook, not CI.
+
+HF3 process trust: require exact `-m uvicorn`, `app.main:app`, `--host`, `--port`, and `--app-dir` token/value equality (with path normalization). A backend path appearing in `--log-config` or arbitrary text NEVER counts. Require creation time for each PID, same launch ancestry/session, exact listener PID and no foreign/ambiguous owner. `conhost.exe` is never listener trust. Treat PID reuse as hostile.
+
+For `Start`, HTTP 200 is insufficient: JSON top-level `status == ok` and `startup_phase == READY`; listener ownership must be separately verified. For `Stop` and `Update`, refuse if metadata insufficient; never kill a PID from a legacy PID file alone. Roll back staged source changes without touching DataDir/weights/venv. Preserve original errors, don't swallow them into generic health failures.

@@ -1,5 +1,13 @@
 # P02-USB-HF3 changelog
 
+## Patch on PR #27 — Engineering Quality Guard v1.0 (in-place)
+
+- Installed `repository-overlay/` at repo root: `AGENTS.md`, `.cursor/` rules/hooks/skill,
+  `quality_guard/`, `.github/workflows/mypc-quality-guard.yml` (4 jobs).
+- Guard selftests GREEN; V2 freeze RED preserved in disposable checkout; V3 tip remains GREEN
+  without rewriting HF3 PID safety.
+- GitHub Actions labeled UNRUN until workflow runs appear on the commit.
+
 ## Patch on PR #27 — PID safety corrective V3 (in-place)
 
 - Mocked Stop-Process in default Windows PID runtime harness; no real kill of synthetic PIDs.
