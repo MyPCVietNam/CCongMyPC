@@ -1,2 +1,3 @@
-51b2ee9 fix(packaging): include Quality Guard root paths in FULL/CHANGED ZIPs
-daef383 chore(quality): integrate MyPC Engineering Quality Guard v1.0
+30d93f1 docs(hf3): record Actions SUCCESS and independent V3 additional evidence
+a0e88ef fix(hf3): harden legacy PID Start path and Windows Pester gates
+0c2bcad fix(hf3): V3 additional — stale Start probe, -c entrypoint, no lab kill

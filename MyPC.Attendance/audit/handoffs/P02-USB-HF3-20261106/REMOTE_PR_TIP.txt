@@ -1,1 +1,3 @@
-PR #27 tip after Quality Guard v1.0 packaging freeze 66de411f35bcb2f4c011568524d7b0ce7fea9684
+Will be filled after packaging zip commit push.
+feature_tip_ci=a0e88efb74c850c21526501f3f343357965f649c
+packaging_freeze=30d93f1d0baaafce433828deb426cc2673830dd4
