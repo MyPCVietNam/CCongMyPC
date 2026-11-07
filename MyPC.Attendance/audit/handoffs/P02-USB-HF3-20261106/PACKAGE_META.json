@@ -1,26 +1,30 @@
 {
   "schema": "mypc.package-meta.v2",
-  "baseline": "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e",
-  "baseline_note": "PR #27 pre-fix HEAD (IPropertyBag VT_BSTR direct VARIANT Read)",
+  "baseline": "2fcb5bf05cd61d47be93cbfbbbbb62ec4e16bddc",
+  "baseline_note": "PR #27 pre-fix HEAD (venv redirector PID ownership)",
   "baseline_pr26": "146d04cb930a446f891f48178a33672f0537b95e",
   "baseline_property_bag": "05f6ba991b4b43b3719125551298b18441578bcb",
   "baseline_com_release": "ff6789ecd15ede618101e6a4c4938c3290ed1748",
   "baseline_coinit": "98d8d40290018d688749931a9f78d4ee016b126b",
+  "baseline_vtbstr": "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e",
   "baseline_pr": 27,
-  "feature_commit": "861b90390fa3e6f877306d9a2b79ff703f29c8b0",
-  "packaging_freeze_commit": "861b90390fa3e6f877306d9a2b79ff703f29c8b0",
-  "generated_at_utc": "2026-11-07T04:11:14.589887+00:00",
+  "feature_commit": "b86555f529d31b66383c1e9628d44bb6c3d73717",
+  "packaging_freeze_commit": "b86555f529d31b66383c1e9628d44bb6c3d73717",
+  "generated_at_utc": "2026-11-07T04:58:59.705623+00:00",
   "code_paths": [
-    "MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py",
-    "MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md",
-    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_owner_vtbstr_direct.py",
+    "MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-PID-OWNERSHIP-VI.md",
+    "MyPC.Attendance/scripts/windows/MYPC-HF3-PID-OWNER-READONLY.ps1",
+    "MyPC.Attendance/scripts/windows/hf3_pid_ownership.py",
+    "MyPC.Attendance/scripts/windows/p02_usb_hf3_candidate_18878.ps1",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_candidate_script.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_pid_ownership.py",
     "MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py"
   ],
   "deleted_paths": [],
   "sha256": {
-    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "8822e1ec135ba8032c8c72c895cb66a040f1181cb11e5af03f760e36e8218b14",
-    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "f65ded14ed2d3319c1c11957b17298e259a4db82036afa98bbe1abdfb20b1e3c",
-    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "65a56329db141c3358bcef84fc0d605359a48024cb5d93b2dfe4bd5a9c896cc9"
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "d01bd31e9a283035228acf4e1e23416f99ee99370f986aaa3b4bb703b6727f11",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "4a847207a6076efe62921198ae6bee317443da12ff099ef4b602f08366f7bbd4",
+    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "fda8559925ba3e750f8bd9157d5f8a750711717db9a261ed505e78474b93296a"
   },
   "gates_blocked": [
     "USB_WINDOWS_PHYSICAL",
@@ -31,5 +35,5 @@
     "PRODUCTION_READY"
   ],
   "candidate_port": 18878,
-  "phase": "USB_HF3_VT_BSTR_DIRECT_READ"
+  "phase": "USB_HF3_PID_OWNERSHIP"
 }

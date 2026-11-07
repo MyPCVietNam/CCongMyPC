@@ -1,17 +1,16 @@
-P02-USB-HF3 VT_BSTR direct Read corrective — local agent CI
+P02-USB-HF3 PID ownership corrective — local agent CI
 Owner zone Asia/Bangkok (UTC+7).
 
 Command: PYTHONPATH=backend python -m pytest -q
-Result: 501 passed, 3 skipped
+Result: 512 passed, 3 skipped
 
-Independent VT_BSTR repro: tests/unit/test_p02_usb_hf3_owner_vtbstr_direct.py → 6 PASS
-(was 2 FAIL / 1 PASS on tip aa0c385)
-
-NOT claimed: USB_WINDOWS_PHYSICAL, soak, CAMERA_LAB, FACE_PILOT, INSTALLER, PRODUCTION
-(owner session-only in-memory mapping is NOT production PASS)
+PID ownership unit matrix: tests/unit/test_p02_usb_hf3_pid_ownership.py PASS
+NOT claimed: USB_WINDOWS_PHYSICAL / soak / CAMERA_LAB / FACE_PILOT / INSTALLER / PRODUCTION
+Healthy Start on owner Windows still required before any frame claim.
 
 Tail:
-........................................................................ [ 71%]
-........................................................................ [ 85%]
-........................................................................ [100%]
-501 passed, 3 skipped in 89.12s (0:01:29)
+........................................................................ [ 69%]
+........................................................................ [ 83%]
+........................................................................ [ 97%]
+...........                                                              [100%]
+512 passed, 3 skipped in 89.96s (0:01:29)

@@ -124,6 +124,226 @@ function Get-ManifestPinMap([string]$ManifestPath) {
   return $map
 }
 
+# --- HF3 PID ownership (venv redirector → real python.exe child) ---
+# Trust model: HTTP 200 alone never proves ownership. Accept listener owned by
+# launcher OR a verified python.exe descendant with exact uvicorn cmdline.
+# conhost.exe is NEVER a server. Persist listener PID + CreationDate + nonce.
+
+function Get-Win32ProcessById([int]$ProcessId) {
+  if ($ProcessId -le 0) { return $null }
+  return Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $ProcessId) -ErrorAction SilentlyContinue
+}
+
+function Test-Hf3UvicornCommandLine {
+  param(
+    [string]$CommandLine,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$HostAddr = "127.0.0.1"
+  )
+  if (-not $CommandLine) { return $false }
+  if ($CommandLine -notmatch 'uvicorn') { return $false }
+  if ($CommandLine -notmatch 'app\.main:app') { return $false }
+  if ($CommandLine -notmatch [regex]::Escape($HostAddr)) { return $false }
+  if ($CommandLine -notmatch [regex]::Escape("$PortNum")) { return $false }
+  $backendNorm = ($Backend -replace '/', '\').TrimEnd('\')
+  if (-not $backendNorm) { return $false }
+  if ($CommandLine.IndexOf($backendNorm, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    return $false
+  }
+  return $true
+}
+
+function Test-IsPythonProcessName([string]$Name) {
+  $n = ([string]$Name).ToLowerInvariant()
+  return @("python.exe", "python", "pythonw.exe", "pythonw") -contains $n
+}
+
+function Test-IsConhostName([string]$Name) {
+  $n = ([string]$Name).ToLowerInvariant()
+  return @("conhost.exe", "conhost") -contains $n
+}
+
+function Test-IsProcessDescendantOf {
+  param([int]$ChildPid, [int]$AncestorPid, [int]$MaxDepth = 8)
+  if ($ChildPid -le 0 -or $AncestorPid -le 0) { return $false }
+  if ($ChildPid -eq $AncestorPid) { return $true }
+  $cur = $ChildPid
+  $seen = @{}
+  for ($i = 0; $i -lt $MaxDepth; $i++) {
+    if ($seen.ContainsKey("$cur")) { return $false }
+    $seen["$cur"] = $true
+    $p = Get-Win32ProcessById $cur
+    if (-not $p) { return $false }
+    $pp = [int]$p.ParentProcessId
+    if ($pp -eq $AncestorPid) { return $true }
+    if ($pp -le 0) { return $false }
+    $cur = $pp
+  }
+  return $false
+}
+
+function Get-Hf3PortListenerOwnerPids([int]$PortNum) {
+  $ls = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue)
+  return @($ls | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
+}
+
+function Resolve-Hf3ListenerOwnership {
+  param(
+    [int]$LauncherPid,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$HostAddr = "127.0.0.1"
+  )
+  $owners = @(Get-Hf3PortListenerOwnerPids $PortNum)
+  if ($owners.Count -eq 0) {
+    return [pscustomobject]@{
+      Relationship = "NONE"; ListenerPid = 0; Reason = "no_listener"; ListenerCreation = ""
+    }
+  }
+  if ($owners.Count -gt 1) {
+    return [pscustomobject]@{
+      Relationship = "AMBIGUOUS"; ListenerPid = 0; Reason = "multiple_listener_owners"; ListenerCreation = ""
+    }
+  }
+  $listenerPid = [int]$owners[0]
+  $listener = Get-Win32ProcessById $listenerPid
+  if (-not $listener) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_process_missing"; ListenerCreation = ""
+    }
+  }
+  if (Test-IsConhostName $listener.Name) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_is_conhost"; ListenerCreation = ""
+    }
+  }
+  $cmd = [string]$listener.CommandLine
+  if (-not (Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum -HostAddr $HostAddr)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_cmdline_mismatch"; ListenerCreation = ""
+    }
+  }
+  $creation = ""
+  try { $creation = ([datetime]$listener.CreationDate).ToUniversalTime().ToString("o") } catch { $creation = [string]$listener.CreationDate }
+
+  if ($listenerPid -eq $LauncherPid) {
+    return [pscustomobject]@{
+      Relationship = "DIRECT"; ListenerPid = $listenerPid; Reason = "listener_pid_equals_launcher"; ListenerCreation = $creation
+    }
+  }
+  if (-not (Test-IsPythonProcessName $listener.Name)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "descendant_not_python"; ListenerCreation = ""
+    }
+  }
+  if (-not (Test-IsProcessDescendantOf -ChildPid $listenerPid -AncestorPid $LauncherPid)) {
+    return [pscustomobject]@{
+      Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "not_in_launcher_tree"; ListenerCreation = ""
+    }
+  }
+  $launcher = Get-Win32ProcessById $LauncherPid
+  if ($launcher) {
+    $lCreate = ""
+    try { $lCreate = ([datetime]$launcher.CreationDate).ToUniversalTime().ToString("o") } catch { $lCreate = [string]$launcher.CreationDate }
+    if ($lCreate -and $creation -and ($creation -lt $lCreate)) {
+      return [pscustomobject]@{
+        Relationship = "UNVERIFIED"; ListenerPid = 0; Reason = "listener_creation_before_launcher"; ListenerCreation = ""
+      }
+    }
+  }
+  return [pscustomobject]@{
+    Relationship = "VERIFIED_DESCENDANT"; ListenerPid = $listenerPid; Reason = "python_descendant_with_uvicorn_cmdline"; ListenerCreation = $creation
+  }
+}
+
+function Test-Hf3HealthStartPass([int]$StatusCode, [string]$Body) {
+  if ($StatusCode -ne 200) { return $false }
+  if ($Body -notmatch '"status"\s*:\s*"ok"') { return $false }
+  if ($Body -notmatch '"startup_phase"\s*:\s*"READY"') { return $false }
+  if ($Body -match '"status"\s*:\s*"degraded"') { return $false }
+  if ($Body -match '"startup_phase"\s*:\s*"FAIL"') { return $false }
+  return $true
+}
+
+function Save-Hf3LaunchMeta {
+  param(
+    [string]$Path,
+    [hashtable]$Meta
+  )
+  ($Meta | ConvertTo-Json -Depth 6) | Set-Content -Path $Path -Encoding UTF8
+}
+
+function Read-Hf3LaunchMeta([string]$Path) {
+  if (-not (Test-Path $Path)) { return $null }
+  try {
+    return (Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
+  } catch {
+    return $null
+  }
+}
+
+function Test-LiveMatchesLaunchMeta {
+  param($Meta, [int]$LivePid)
+  if (-not $Meta) { return $false }
+  $live = Get-Win32ProcessById $LivePid
+  if (-not $live) { return $false }
+  $liveCreate = ""
+  try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+  if ([string]$Meta.listener_creation -and $liveCreate -ne [string]$Meta.listener_creation) {
+    return $false
+  }
+  if (-not (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend ([string]$Meta.backend) -PortNum ([int]$Meta.port))) {
+    return $false
+  }
+  if (Test-IsConhostName $live.Name) { return $false }
+  return $true
+}
+
+function Stop-VerifiedHf3Pids {
+  param(
+    [int[]]$Pids,
+    [string]$Backend,
+    [int]$PortNum,
+    [string]$ExpectedCreation = ""
+  )
+  $stopped = @()
+  foreach ($pid in ($Pids | Select-Object -Unique)) {
+    if ($pid -le 0) { continue }
+    $p = Get-Win32ProcessById $pid
+    if (-not $p) { continue }
+    if (Test-IsConhostName $p.Name) {
+      Write-Log ("Refusing to kill conhost pid={0}" -f $pid)
+      continue
+    }
+    $cmd = [string]$p.CommandLine
+    $okCmd = Test-Hf3UvicornCommandLine -CommandLine $cmd -Backend $Backend -PortNum $PortNum
+    # Launcher may be a short redirector without full uvicorn args — allow python under candidate venv path
+    $venvMarker = "p02-usb-hf3-candidate"
+    $okLauncher = (Test-IsPythonProcessName $p.Name) -and ($cmd.Contains($venvMarker) -or $cmd.Contains("uvicorn"))
+    if (-not ($okCmd -or $okLauncher)) {
+      Write-Log ("Refusing to kill unverified pid={0} name={1}" -f $pid, $p.Name)
+      continue
+    }
+    if ($ExpectedCreation -and $okCmd) {
+      $liveCreate = ""
+      try { $liveCreate = ([datetime]$p.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$p.CreationDate }
+      if ($liveCreate -ne $ExpectedCreation) {
+        Write-Log ("Refusing to kill pid={0} — creation-time mismatch (possible PID reuse)" -f $pid)
+        continue
+      }
+    }
+    try {
+      Stop-Process -Id $pid -Force -ErrorAction Stop
+      $stopped += $pid
+      Write-Log ("Stopped verified pid={0} name={1}" -f $pid, $p.Name)
+    } catch {
+      Write-Log ("Stop-Process failed pid={0}: {1}" -f $pid, $_.Exception.Message)
+    }
+  }
+  return $stopped
+}
+
 Assert-PortSafe
 New-Item -ItemType Directory -Force -Path $CandidateRoot | Out-Null
 $dataDir = Join-Path $CandidateRoot "DataDir"
@@ -132,6 +352,7 @@ $venvDir = Join-Path $CandidateRoot "venv"
 $modelsDir = Join-Path $CandidateRoot "models\weights"
 $exportDir = Join-Path $CandidateRoot "export"
 $pidFile = Join-Path $CandidateRoot "uvicorn.pid"
+$launchMetaFile = Join-Path $CandidateRoot "uvicorn.launch.json"
 $outLog = Join-Path $CandidateRoot "logs\uvicorn.out.log"
 $errLog = Join-Path $CandidateRoot "logs\uvicorn.err.log"
 
@@ -229,30 +450,27 @@ switch ($Mode) {
     if (-not (Test-Path $venvPy)) { throw "venv missing — run Prepare once before Update" }
     if (-not (Test-Path $dataDir)) { throw "DataDir missing — run Prepare first (Update will not create secrets)" }
 
-    # Refuse Update while 18878 is listening unless it is our verified candidate uvicorn.
-    $busy = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-    if ($busy.Count -gt 0) {
-      $owners = @($busy | ForEach-Object { $_.OwningProcess } | Select-Object -Unique)
+    # Refuse Update while 18878 is listening unless ownership re-validates against launch meta.
+    $owners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($owners.Count -gt 0) {
+      $meta = Read-Hf3LaunchMeta $launchMetaFile
+      $backendGuess = $null
+      try { $backendGuess = Find-BackendDir $srcDir } catch {}
       $stoppedOwn = $false
-      if ((Test-Path $pidFile) -and $owners.Count -eq 1) {
-        $filePid = 0
-        try { $filePid = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
-        if ($filePid -gt 0 -and $owners[0] -eq $filePid) {
-          $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $filePid) -ErrorAction SilentlyContinue
-          $cmd = [string]($procMatch.CommandLine)
-          if ($cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains("$Port")) {
-            Write-Log "Update: stopping verified own uvicorn pid=$filePid before source swap"
-            try { Stop-Process -Id $filePid -Force -ErrorAction Stop } catch {
-              throw "Cannot stop our uvicorn pid=$filePid safely before Update"
-            }
-            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 1
-            $stoppedOwn = $true
-          }
+      if ($meta -and $backendGuess -and $owners.Count -eq 1) {
+        $livePid = [int]$owners[0]
+        if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
+          Write-Log ("Update: stopping verified listener pid={0} (rel={1}) before source swap" -f $livePid, $meta.relationship)
+          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend ([string]$meta.backend) -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          $still = @(Get-Hf3PortListenerOwnerPids $Port)
+          if ($still.Count -eq 0) { $stoppedOwn = $true }
         }
       }
       if (-not $stoppedOwn) {
-        throw ("Port 18878 in use by process(es): {0}. Stop the candidate (or unrelated listener) before Update." -f ($owners -join ','))
+        throw ("EXIT_FOREIGN_LISTENER: Port 18878 in use by process(es): {0}. Stop the candidate first; refusing Update (DataDir untouched)." -f ($owners -join ','))
       }
     }
 
@@ -344,52 +562,43 @@ switch ($Mode) {
     $backend = Find-BackendDir $srcDir
     New-Item -ItemType Directory -Force -Path (Split-Path $outLog) | Out-Null
 
-    # Refuse if 18878 already owned by an unrelated listener
-    $busy = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-    if ($busy.Count -gt 0) {
-      $owners = @($busy | ForEach-Object { $_.OwningProcess } | Select-Object -Unique)
-      $ownedByUs = $false
-      if ((Test-Path $pidFile) -and $owners.Count -eq 1) {
-        $filePid = 0
-        try { $filePid = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
-        if ($filePid -gt 0 -and $owners[0] -eq $filePid) {
-          $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $filePid) -ErrorAction SilentlyContinue
-          $cmd = [string]($procMatch.CommandLine)
-          if ($cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains("$Port")) {
-            $ownedByUs = $true
-            Write-Log "Port $Port already owned by our previous uvicorn pid=$filePid — restarting it"
-            try { Stop-Process -Id $filePid -Force -ErrorAction Stop } catch {
-              throw "Cannot stop our previous uvicorn pid=$filePid safely"
-            }
-            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 1
-          }
+    # Require uncontested 18878, or stop only a re-validated previous candidate launch.
+    $preOwners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($preOwners.Count -gt 0) {
+      $prevMeta = Read-Hf3LaunchMeta $launchMetaFile
+      $restarted = $false
+      if ($prevMeta -and $preOwners.Count -eq 1) {
+        $livePid = [int]$preOwners[0]
+        if (([int]$prevMeta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $prevMeta -LivePid $livePid)) {
+          Write-Log ("Port $Port owned by previous verified listener pid={0} — stopping before relaunch" -f $livePid)
+          [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$prevMeta.launcher_pid) -Backend ([string]$prevMeta.backend) -PortNum $Port -ExpectedCreation ([string]$prevMeta.listener_creation))
+          Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          if (@(Get-Hf3PortListenerOwnerPids $Port).Count -eq 0) { $restarted = $true }
         }
       }
-      if (-not $ownedByUs) {
-        throw ("Port 18878 already in use by unrelated process(es): {0}. Refusing Start." -f ($owners -join ','))
+      if (-not $restarted) {
+        throw ("EXIT_FOREIGN_LISTENER: Port 18878 already in use by process(es): {0}. Refusing Start (no kill)." -f ($preOwners -join ','))
       }
-    } elseif (Test-Path $pidFile) {
-      # Stale pid file with free port — never Stop-Process an unrelated reused PID
-      $stale = 0
-      try { $stale = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
-      if ($stale -gt 0) {
-        $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $stale) -ErrorAction SilentlyContinue
-        $cmd = [string]($procMatch.CommandLine)
-        if ($procMatch -and $cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app") -and $cmd.Contains((Join-Path $venvDir "Scripts"))) {
-          Write-Log "Stopping verified stale candidate uvicorn pid=$stale"
-          try { Stop-Process -Id $stale -Force -ErrorAction SilentlyContinue } catch {}
-        } else {
-          Write-Log ("Ignoring stale pid file entry {0} (not our uvicorn) — not killing" -f $stale)
-        }
+    } else {
+      # Stale metadata with free port — never kill by PID alone
+      if (Test-Path $pidFile) {
+        Write-Log "Ignoring stale uvicorn.pid while port is free (no kill)"
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
       }
-      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      if (Test-Path $launchMetaFile) {
+        Write-Log "Clearing stale uvicorn.launch.json while port is free"
+        Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+      }
     }
 
+    $launchNonce = [guid]::NewGuid().ToString("N")
     $env:MYPC_DATA_DIR = $dataDir
     $env:DATA_DIR = $dataDir
     $env:MYPC_MODELS_DIR = $modelsDir
-    Write-Log "Starting uvicorn cwd=$backend DATA_DIR=$dataDir MODELS_DIR=$modelsDir bind=127.0.0.1:$Port"
+    $env:MYPC_HF3_LAUNCH_NONCE = $launchNonce
+    Write-Log "Starting uvicorn cwd=$backend DATA_DIR=$dataDir MODELS_DIR=$modelsDir bind=127.0.0.1:$Port nonce=$launchNonce"
     $argList = @(
       "-m", "uvicorn", "app.main:app",
       "--host", "127.0.0.1",
@@ -401,67 +610,187 @@ switch ($Mode) {
       -RedirectStandardOutput $outLog `
       -RedirectStandardError $errLog `
       -PassThru -WindowStyle Hidden
-    Set-Content -Path $pidFile -Value $proc.Id -Encoding ASCII
-    Write-Log "uvicorn pid=$($proc.Id) — waiting for health"
+    $launcherPid = [int]$proc.Id
+    Set-Content -Path $pidFile -Value $launcherPid -Encoding ASCII
+    Write-Log ("launcher_pid={0} — waiting for READY + verified listener ownership" -f $launcherPid)
+
     $ok = $false
+    $failCode = "EXIT_HEALTH_NOT_READY"
+    $acceptedRel = ""
+    $acceptedListener = 0
+    $acceptedCreation = ""
+    # Capture parent→child proof while the venv redirector is still alive; after the
+    # launcher exits Windows may reparent the child, so live PPID walks can fail.
+    $sessionProofPid = 0
+    $sessionProofCreation = ""
+    $sessionProofRel = ""
     for ($i = 0; $i -lt 40; $i++) {
       Start-Sleep -Seconds 1
-      if ($proc.HasExited) {
-        Write-Log ("uvicorn exited early code={0}" -f $proc.ExitCode)
+
+      $own = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      Write-Log ("ownership_probe rel={0} listener_pid={1} reason={2}" -f $own.Relationship, $own.ListenerPid, $own.Reason)
+
+      if ($own.Relationship -eq "AMBIGUOUS") {
+        $failCode = "EXIT_AMBIGUOUS_LISTENERS"
         break
       }
+      if ($own.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $own.ListenerPid -gt 0) {
+        $sessionProofPid = [int]$own.ListenerPid
+        $sessionProofCreation = [string]$own.ListenerCreation
+        $sessionProofRel = [string]$own.Relationship
+      }
+
+      $body = ""
+      $statusCode = 0
       try {
         $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/health" -UseBasicParsing -TimeoutSec 2
-        # Only HTTP 200 + documented health payload counts as success (not any <500)
-        if ($r.StatusCode -eq 200) {
-          $body = [string]$r.Content
-          if ($body -match '"status"\s*:\s*"(ok|degraded)"' -and $body -match '"startup_phase"\s*:\s*"(READY|FAIL)"') {
-            # Confirm listener PID is still our process
-            $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-            $ownerOk = $false
-            foreach ($l in $listeners) {
-              if ([int]$l.OwningProcess -eq [int]$proc.Id) { $ownerOk = $true; break }
+        $statusCode = [int]$r.StatusCode
+        $body = [string]$r.Content
+      } catch [System.Net.WebException], [System.IO.IOException], [System.TimeoutException] {
+        # Transient connect errors while server boots — do not swallow ownership failures.
+        continue
+      } catch {
+        Write-Log ("health_transport_error class={0}" -f $_.Exception.GetType().FullName)
+        continue
+      }
+
+      if (-not (Test-Hf3HealthStartPass -StatusCode $statusCode -Body $body)) {
+        if ($statusCode -eq 200) {
+          Write-Log "HEALTH 200 but payload not status=ok + startup_phase=READY (FAIL/degraded rejected)"
+          $failCode = "EXIT_HEALTH_NOT_READY"
+        }
+        continue
+      }
+
+      # Re-check ownership AFTER successful health payload (race-safe).
+      $own2 = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      $relOk = $false
+      if ($own2.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $own2.ListenerPid -gt 0) {
+        $relOk = $true
+        $acceptedRel = [string]$own2.Relationship
+        $acceptedListener = [int]$own2.ListenerPid
+        $acceptedCreation = [string]$own2.ListenerCreation
+      } elseif (
+        $sessionProofPid -gt 0 -and
+        $own2.Relationship -ne "AMBIGUOUS"
+      ) {
+        # Launcher may have exited; accept sole listener only if it matches session proof.
+        $ownersNow = @(Get-Hf3PortListenerOwnerPids $Port)
+        if ($ownersNow.Count -eq 1 -and [int]$ownersNow[0] -eq $sessionProofPid) {
+          $live = Get-Win32ProcessById $sessionProofPid
+          if ($live -and -not (Test-IsConhostName $live.Name) -and
+              (Test-Hf3UvicornCommandLine -CommandLine ([string]$live.CommandLine) -Backend $backend -PortNum $Port)) {
+            $liveCreate = ""
+            try { $liveCreate = ([datetime]$live.CreationDate).ToUniversalTime().ToString("o") } catch { $liveCreate = [string]$live.CreationDate }
+            if ($sessionProofCreation -and $liveCreate -eq $sessionProofCreation) {
+              $relOk = $true
+              $acceptedRel = if ($sessionProofRel) { $sessionProofRel } else { "VERIFIED_DESCENDANT" }
+              $acceptedListener = $sessionProofPid
+              $acceptedCreation = $sessionProofCreation
+              Write-Log ("ownership_session_proof_ok listener_pid={0} (launcher may have exited)" -f $sessionProofPid)
             }
-            if (-not $ownerOk) {
-              Write-Log "HEALTH 200 but listening PID is not our uvicorn — abort"
-              try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
-              Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-              throw "Port $Port health responded from unrelated process"
-            }
-            Write-Log ("HEALTH status=200 payload_ok owner_pid={0}" -f $proc.Id)
-            $ok = $true
-            break
           }
         }
-      } catch {}
-    }
-    if (-not $ok) {
-      Write-Log "HEALTH failed — see $errLog"
-      if (-not $proc.HasExited) {
-        try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
       }
-      Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-      throw "Backend did not become healthy on 127.0.0.1:$Port"
+      if (-not $relOk) {
+        Write-Log ("EXIT_LISTENER_OWNERSHIP: HEALTH READY but ownership rel={0} reason={1}" -f $own2.Relationship, $own2.Reason)
+        $failCode = "EXIT_LISTENER_OWNERSHIP"
+        break
+      }
+      Write-Log ("HEALTH READY ownership={0} launcher_pid={1} listener_pid={2}" -f $acceptedRel, $launcherPid, $acceptedListener)
+      $ok = $true
+      break
     }
-    Write-Log "Start OK — open http://127.0.0.1:$Port"
-  }
-  "Stop" {
-    if (Test-Path $pidFile) {
-      $old = 0
-      try { $old = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
-      if ($old -gt 0) {
-        $procMatch = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $old) -ErrorAction SilentlyContinue
-        $cmd = [string]($procMatch.CommandLine)
-        if ($procMatch -and $cmd -and $cmd.Contains("uvicorn") -and $cmd.Contains("app.main:app")) {
-          try { Stop-Process -Id $old -Force -ErrorAction SilentlyContinue } catch {}
-          Write-Log "Stopped verified uvicorn pid=$old"
-        } else {
-          Write-Log ("Refusing to kill pid={0} — not our uvicorn command line" -f $old)
+
+    if (-not $ok) {
+      Write-Log ("Start FAILED code={0} — see {1}" -f $failCode, $errLog)
+      # Cleanup: only stop proven members of THIS launch tree (incl. session-proof child).
+      $ownFail = Resolve-Hf3ListenerOwnership -LauncherPid $launcherPid -Backend $backend -PortNum $Port
+      $killList = @($launcherPid)
+      $expectCreate = ""
+      if ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT") -and $ownFail.ListenerPid -gt 0) {
+        $killList += [int]$ownFail.ListenerPid
+        $expectCreate = [string]$ownFail.ListenerCreation
+      } elseif ($sessionProofPid -gt 0) {
+        $killList += $sessionProofPid
+        $expectCreate = $sessionProofCreation
+      }
+      if ($killList.Count -gt 1 -or ($ownFail.Relationship -in @("DIRECT", "VERIFIED_DESCENDANT")) -or $sessionProofPid -gt 0) {
+        [void](Stop-VerifiedHf3Pids -Pids $killList -Backend $backend -PortNum $Port -ExpectedCreation $expectCreate)
+      } else {
+        [void](Stop-VerifiedHf3Pids -Pids @($launcherPid) -Backend $backend -PortNum $Port)
+        $foreignOwners = @(Get-Hf3PortListenerOwnerPids $Port)
+        if ($foreignOwners.Count -gt 0) {
+          Write-Log ("BLOCKED cleanup: listener owner(s)={0} unverified — not killing; manual resolution required" -f ($foreignOwners -join ','))
         }
       }
       Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+      throw ("{0}: Backend Start failed on 127.0.0.1:{1}" -f $failCode, $Port)
+    }
+
+    # Persist durable launch identity (listener PID + creation + nonce). PID file alone is insufficient.
+    $meta = @{
+      schema = "mypc.hf3.launch.v1"
+      port = $Port
+      host = "127.0.0.1"
+      backend = $backend
+      venv_python = $venvPy
+      launcher_pid = $launcherPid
+      listener_pid = $acceptedListener
+      listener_creation = $acceptedCreation
+      relationship = $acceptedRel
+      nonce = $launchNonce
+      started_utc = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    Save-Hf3LaunchMeta -Path $launchMetaFile -Meta $meta
+    Set-Content -Path $pidFile -Value $acceptedListener -Encoding ASCII
+    Write-Log ("Start OK — http://127.0.0.1:{0} listener_pid={1} rel={2}" -f $Port, $acceptedListener, $acceptedRel)
+  }
+  "Stop" {
+    $meta = Read-Hf3LaunchMeta $launchMetaFile
+    $backend = $null
+    try { $backend = Find-BackendDir $srcDir } catch {}
+    if (-not $backend -and $meta) { $backend = [string]$meta.backend }
+    if (-not $backend) { $backend = "" }
+
+    $listeners = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($meta -and $listeners.Count -eq 1) {
+      $livePid = [int]$listeners[0]
+      if (([int]$meta.listener_pid -eq $livePid) -and (Test-LiveMatchesLaunchMeta -Meta $meta -LivePid $livePid)) {
+        Write-Log ("Stop: verified listener_pid={0} rel={1} creation_match=true" -f $livePid, $meta.relationship)
+        [void](Stop-VerifiedHf3Pids -Pids @($livePid, [int]$meta.launcher_pid) -Backend $backend -PortNum $Port -ExpectedCreation ([string]$meta.listener_creation))
+      } else {
+        Write-Log ("Stop: port listener pid={0} does not match launch meta — refusing kill" -f $livePid)
+      }
+    } elseif ($meta -and $listeners.Count -gt 1) {
+      Write-Log "Stop: AMBIGUOUS listeners — refusing kill"
+    } elseif ($meta -and $listeners.Count -eq 0) {
+      # No listener; still try launcher if alive and matches candidate python
+      Write-Log "Stop: no listener; attempting verified launcher cleanup only"
+      [void](Stop-VerifiedHf3Pids -Pids @([int]$meta.launcher_pid) -Backend $backend -PortNum $Port)
+    } elseif (Test-Path $pidFile) {
+      # Legacy pid file without meta — only stop if live process still matches exact uvicorn cmdline
+      $old = 0
+      try { $old = [int](Get-Content $pidFile -ErrorAction SilentlyContinue) } catch {}
+      if ($old -gt 0 -and $backend) {
+        $p = Get-Win32ProcessById $old
+        if ($p -and (Test-Hf3UvicornCommandLine -CommandLine ([string]$p.CommandLine) -Backend $backend -PortNum $Port)) {
+          [void](Stop-VerifiedHf3Pids -Pids @($old) -Backend $backend -PortNum $Port)
+        } else {
+          Write-Log ("Stop: refusing legacy pid={0} without launch meta / cmdline proof" -f $old)
+        }
+      }
     } else {
-      Write-Log "No pid file — nothing to stop"
+      Write-Log "No launch meta / pid file — nothing to stop"
+    }
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $launchMetaFile -Force -ErrorAction SilentlyContinue
+    $left = @(Get-Hf3PortListenerOwnerPids $Port)
+    if ($left.Count -eq 0) {
+      Write-Log "Stop OK — port 18878 has no listener"
+    } else {
+      Write-Log ("Stop finished with remaining listener owner pid(s): {0} (manual check if foreign)" -f ($left -join ','))
     }
   }
   "Diagnose" {

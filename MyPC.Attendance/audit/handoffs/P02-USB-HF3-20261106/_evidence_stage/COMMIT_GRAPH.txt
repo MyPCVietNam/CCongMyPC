@@ -1,2 +1,2 @@
-861b903 docs(audit): HF3 VT_BSTR direct Read evidence and packaging baseline aa0c385
-d173b02 fix(usb): P02-USB-HF3 IPropertyBag.Read VT_BSTR with direct VARIANT
+b86555f docs(audit): HF3 PID ownership evidence and packaging baseline 2fcb5bf
+3c989fa fix(usb): P02-USB-HF3 verify venv redirector descendant listener ownership

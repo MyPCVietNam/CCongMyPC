@@ -9,3 +9,4 @@
 7. **Update rename:** PowerShell 5.1 `Rename-Item -NewName` is a same-parent leaf only; stage+validate before swap; rollback on failure.
 8. **CoInitializeEx:** call comtypes 1.4.17 wrapper as `CoInitializeEx(flags)` only; apartment-init failures use `DSHOW_COINIT_FAILED` (never mislabel as CoCreate).
 9. **IPropertyBag.Read:** request `VT_BSTR` and pass the VARIANT instance directly; never byref-first or TypeError fallback. Absent DevicePath (`0x80070002`) leaves that moniker unverified only.
+10. **PID ownership:** venv `Start-Process` PID may be a redirector; accept DirectShow uvicorn listener only as DIRECT or VERIFIED_DESCENDANT python with exact cmdline + creation-time meta. Never trust HTTP 200 alone; never kill foreign 18878 owners.
