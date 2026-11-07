@@ -1,0 +1,62 @@
+test_r10_update_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10_update_checks_pid_file_even_with_valid_meta) ... FAIL
+test_r10b_start_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10b_start_checks_pid_file_even_with_valid_meta) ... FAIL
+test_r11_python_mirror_direct_listener_blank_name_is_unverified (__main__.ResidualSafety.test_r11_python_mirror_direct_listener_blank_name_is_unverified) ... FAIL
+test_r12_real_mode_handler_coverage_not_duplicate_facades (__main__.ResidualSafety.test_r12_real_mode_handler_coverage_not_duplicate_facades) ... FAIL
+test_r9_prepare_process_guard_before_destructive_source_replace (__main__.ResidualSafety.test_r9_prepare_process_guard_before_destructive_source_replace) ... FAIL
+test_r9b_prepare_essential_model_inputs_checked_before_deletion (__main__.ResidualSafety.test_r9b_prepare_essential_model_inputs_checked_before_deletion) ... FAIL
+
+======================================================================
+FAIL: test_r10_update_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10_update_checks_pid_file_even_with_valid_meta)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 45, in test_r10_update_checks_pid_file_even_with_valid_meta
+    self.assertTrue(contains_pid_consistency_check(before_else),
+AssertionError: False is not true : R10: Update examines uvicorn.pid only when meta ABSENT, not when VALID
+
+======================================================================
+FAIL: test_r10b_start_checks_pid_file_even_with_valid_meta (__main__.ResidualSafety.test_r10b_start_checks_pid_file_even_with_valid_meta)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 51, in test_r10b_start_checks_pid_file_even_with_valid_meta
+    self.assertTrue(contains_pid_consistency_check(before_else),
+AssertionError: False is not true : R10b: Start discards uvicorn.pid without consistency verification if meta VALID
+
+======================================================================
+FAIL: test_r11_python_mirror_direct_listener_blank_name_is_unverified (__main__.ResidualSafety.test_r11_python_mirror_direct_listener_blank_name_is_unverified)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 59, in test_r11_python_mirror_direct_listener_blank_name_is_unverified
+    self.assertEqual(classification,helper.REL_UNVERIFIED,
+AssertionError: 'DIRECT' != 'UNVERIFIED'
+- DIRECT
++ UNVERIFIED
+ : R11: helper accepts blank process name as DIRECT unlike production PowerShell
+
+======================================================================
+FAIL: test_r12_real_mode_handler_coverage_not_duplicate_facades (__main__.ResidualSafety.test_r12_real_mode_handler_coverage_not_duplicate_facades)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 68, in test_r12_real_mode_handler_coverage_not_duplicate_facades
+    self.assertTrue(not facades or production or extracts_modes,
+AssertionError: False is not true : R12: test harness exercises synthetic copied handlers, not production mode branches
+
+======================================================================
+FAIL: test_r9_prepare_process_guard_before_destructive_source_replace (__main__.ResidualSafety.test_r9_prepare_process_guard_before_destructive_source_replace)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 34, in test_r9_prepare_process_guard_before_destructive_source_replace
+    self.assertTrue('Get-Hf3PortListenerOwnerPids' in before and 'Get-Hf3LaunchMetaState' in before,
+AssertionError: False is not true : R9: Prepare may remove existing src without TCP and PID/meta identity safety gate
+
+======================================================================
+FAIL: test_r9b_prepare_essential_model_inputs_checked_before_deletion (__main__.ResidualSafety.test_r9b_prepare_essential_model_inputs_checked_before_deletion)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/hf3-v42-reaudit/independent_v41_residual_canaries.py", line 39, in test_r9b_prepare_essential_model_inputs_checked_before_deletion
+    self.assertIn('Prepare requires -ModelsSourceDir',before,
+AssertionError: 'Prepare requires -ModelsSourceDir' not found in '\n    if (-not $FullSourceZip -or -not (Test-Path $FullSourceZip)) {\n      throw "Prepare requires -FullSourceZip pointing to FULL-SOURCE ZIP"\n    }\n    if (-not $ExpectedSha256) { throw "Prepare requires -ExpectedSha256 (lowercase hex)" }\n    $got = Get-Sha256Lower $FullSourceZip\n    if ($got -ne $ExpectedSha256.ToLowerInvariant()) {\n      throw "SHA256 mismatch: got $got expected $($ExpectedSha256.ToLowerInvariant())"\n    }\n    Write-Log "SHA256 PIN_MATCH for FULL-SOURCE ZIP"\n    if (Test-Path $srcDir) { ' : R9b: missing models source can fail after existing source is deleted
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+FAILED (failures=6)

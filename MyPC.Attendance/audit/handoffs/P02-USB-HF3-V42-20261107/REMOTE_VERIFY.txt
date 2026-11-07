@@ -1,0 +1,3 @@
+After packaging push: download COMPLETE via raw.githubusercontent.com at REMOTE_PR_TIP,
+sha256sum the bytes, compare to sidecar SHA256SUMS-COMPLETE.txt (not inside COMPLETE).
+PENDING_PUSH cleared only after match.

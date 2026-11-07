@@ -1,0 +1,35 @@
+HF3 V4.2 test matrix (agent environment; Asia/Bangkok wall clock ~2026-11-07)
+
+1) Independent canaries on V4.1 baseline tree (979349f archive)
+   cmd: HF3_REPO_ROOT=/tmp/hf3-v41-baseline python3 independent_v41_residual_canaries.py
+   result: 6 FAILED (RED) — see V42_INDEPENDENT_CANARIES_BASELINE_RED.txt
+
+2) Independent canaries on V4.2 working tree / feature
+   cmd: HF3_REPO_ROOT=/workspace python3 independent_v41_residual_canaries.py
+   result: 6 PASSED (GREEN) — see V42_INDEPENDENT_CANARIES_GREEN.txt
+
+3) Injected PS fail-closed harness (production handlers extracted)
+   cmd: pwsh -NoProfile -File MyPC.Attendance/scripts/windows/p02_usb_hf3_v4_fail_closed_runtime_tests.ps1
+   result: PASS — see V42_HARNESS_GREEN.txt
+   note: OS side effects mocked; fake PID 4242 inert; zero Stop-Process on negatives
+
+4) python quality_guard/check.py --root . --strict
+   result: PASS issue_count=0
+
+5) pytest quality_guard/tests
+   result: 22 passed
+
+6) Focused HF3 unit+integration
+   cmd: pytest MyPC.Attendance/tests/unit/test_p02_usb_hf3_*.py MyPC.Attendance/tests/integration/test_p02_usb_hf3_*.py
+   result: 141 passed, 5 skipped
+
+7) Backend unit+integration+acceptance
+   result: 564 passed, 5 skipped
+
+8) Frontend npm ci && npm run ci
+   result: typecheck + vitest 13 + vite build PASS
+
+9) GitHub Actions (feature SHA)
+   result: see GITHUB_ACTIONS.txt (must be 4/4 GREEN on immutable feature commit)
+
+SKIPS: Windows physical camera / real CIM ownership / owner DataDir — SKIP (not PASS).

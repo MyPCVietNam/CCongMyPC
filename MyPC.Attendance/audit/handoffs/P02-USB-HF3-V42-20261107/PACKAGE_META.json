@@ -1,0 +1,27 @@
+{
+  "schema": "mypc.package-meta.v2",
+  "phase": "HF3_PID_SAFETY_V42_PREPARE_PID_RECORD",
+  "baseline": "979349f52c755474ab3cecd7ab8c701bf43acd5b",
+  "feature_commit": "98ee96e3ec1c44eb54cf4f0293cfd0a63b7e2a8b",
+  "packaging_freeze_commit": "a7df391159c192bfb557b3d674cfa6b61888f0e3",
+  "prior_v41_feature": "979349f52c755474ab3cecd7ab8c701bf43acd5b",
+  "prior_v41_packaging_freeze": "66abdc8664a43e82dba1592e4d276e58db270aea",
+  "prior_v41_complete_sha256": "ebcaf153c4eafa3c46646f2bd93f85c91b8823e9f8d64fb19619d8d1062b7654",
+  "generated_at_utc": "2026-11-07T11:49:25.971157+00:00",
+  "sha256": {
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-HF3-V42.zip": "ea13aa63c98a420f966c028d641a72242960ad40e96ab029c5788845604d393e",
+    "MyPC.Attendance-FULL-SOURCE-HF3-V42.zip": "f31f180be1c22b59b8daafc3da93830ba5681735a566d8d813f72de80393b56e",
+    "MYPC-HF3-V42-WINDOWS-SAFE-EVIDENCE.zip": "fff45e8b9d730825b1bc854a7931ca0efec11a69f0a92e660c91fd2a37568cf0"
+  },
+  "gates_blocked": [
+    "USB_WINDOWS_PHYSICAL",
+    "USB_STABILITY_30_MIN",
+    "USB_CAMERA_LAB_OWNER_SIGN",
+    "FACE_PILOT",
+    "INSTALLER",
+    "PRODUCTION_READY"
+  ],
+  "verdict": "READY_FOR_INDEPENDENT_REAUDIT",
+  "owner_start_approved": false,
+  "candidate_port": 18878
+}
