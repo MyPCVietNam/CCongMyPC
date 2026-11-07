@@ -3,12 +3,12 @@
   "phase": "HF3_PID_SAFETY_V4_FAIL_CLOSED",
   "baseline": "8dc2dfed68464eb7ba98db6fc4efae90ee3f07a4",
   "feature_commit": "a915445289132cec50466ee616c90baa8d2f0cac",
-  "packaging_freeze_commit": "b3f31fd552eb251a7337204015926d80b7da0923",
-  "generated_at_utc": "2026-11-07T10:22:21.025981+00:00",
+  "packaging_freeze_commit": "77031eea399759dd75ade5687ea068bee89ad5c1",
+  "generated_at_utc": "2026-11-07T10:22:55.868566+00:00",
   "sha256": {
-    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-HF3-V4.zip": "b7cb321476180fa86d2848f3701a8bf0b0eab3d402ed6bc346f1a2d6bf1e6a45",
-    "MyPC.Attendance-FULL-SOURCE-HF3-V4.zip": "21db764b069b57d9ae87da708e5afe7eb8a61eeda96ea8d4adc34a535241e717",
-    "MYPC-HF3-V4-WINDOWS-SAFE-EVIDENCE.zip": "78941d1d4bb140888f90685d47fa1bcb07fb08d27af2b8655acb40eb84bcc4a1"
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-HF3-V4.zip": "46e544151b9918a5c47595aff2f43ebc30eb30fb96955ef1576f6047dc926a91",
+    "MyPC.Attendance-FULL-SOURCE-HF3-V4.zip": "fa28811538b90f2a3f592d27e86b8cb7cd595d4b5f09bd6827cc6febf7d3d4d0",
+    "MYPC-HF3-V4-WINDOWS-SAFE-EVIDENCE.zip": "50a09d5b37989c0a35406a81eb0b5250ae5307bd18be9a7609822db84450cf95"
   },
   "gates_blocked": [
     "USB_WINDOWS_PHYSICAL",
