@@ -1,6 +1,5 @@
-Owner Diagnose RED on tip 98d8d40 / freeze e0ad4aa:
-DSHOW_ENUM_OK=false monikers=0
-DSHOW_BLOCKER_CODE=DSHOW_COCREATE_FAILED (mislabeled)
-FIRST_EXCEPTION_CLASS=TypeError
-stage_notes=["coinit:TypeError"]
-Root: CoInitializeEx(None, flags) vs comtypes 1.4.17 CoInitializeEx(flags=None)
+Owner disk source on tip aa0c385 / freeze bd8aaf0 still used byref/VT_EMPTY Read:
+FriendlyName original 0/3 HRESULT 0x80070057
+VT_BSTR+byref 0/3 same
+VT_BSTR+direct VARIANT 3/3 FriendlyName; DevicePath 1/3 (others 0x80070002)
+Independent synthetic: 2 FAIL / 1 PASS before fix

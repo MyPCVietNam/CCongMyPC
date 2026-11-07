@@ -16,5 +16,7 @@
 | A12 | COM_RELEASE_WARNING_COUNT finalized after root cleanup | CI PASS (repro was RED) |
 | A13 | Update leaf Rename-Item + rollback fake-directory | CI PASS (repro was RED) |
 | A14 | CoInitializeEx(flags) one-arg; DSHOW_COINIT_FAILED distinct | CI PASS (owner TypeError RED) |
+| A15 | IPropertyBag VT_BSTR + direct VARIANT Read | CI PASS (owner byref RED) |
+| A16 | Non-target missing DevicePath does not block unique match | CI PASS |
 | G-PHYS | USB_WINDOWS_PHYSICAL | **BLOCKED** until owner Diagnose |
 | G-SOAK / LAB / FP / INST / PROD | physical/release | **BLOCKED** |

@@ -14,12 +14,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "MyPC.Attendance"
 HANDOFF = ROOT / "audit" / "handoffs" / "P02-USB-HF3-20261106"
-# CHANGED zip is relative to PR #27 pre-fix tip (CoInitializeEx signature corrective).
+# CHANGED zip is relative to PR #27 pre-fix tip (VT_BSTR direct Read corrective).
 # Prior tips remain in PACKAGE_META for custody.
-BASELINE = "98d8d40290018d688749931a9f78d4ee016b126b"
+BASELINE = "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e"
 BASELINE_PR26 = "146d04cb930a446f891f48178a33672f0537b95e"
 BASELINE_PROPERTY_BAG = "05f6ba991b4b43b3719125551298b18441578bcb"
 BASELINE_COM_RELEASE = "ff6789ecd15ede618101e6a4c4938c3290ed1748"
+BASELINE_COINIT = "98d8d40290018d688749931a9f78d4ee016b126b"
 A_NAME = "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip"
 B_NAME = "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip"
 C_NAME = "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip"
@@ -164,6 +165,9 @@ def main() -> int:
         "INDEPENDENT_REPRO_test_p02_usb_hf3_com_release_update.py",
         "INDEPENDENT_REPRO_test_p02_usb_hf3_coinit_signature.py",
         "COINIT_REPRO_RED.txt",
+        "OWNER-WINDOWS-EVIDENCE-SAFE.json",
+        "INDEPENDENT_REPRO_test_hf3_owner_vtbstr_direct.py",
+        "VTBSTR_REPRO_RED.txt",
     ]:
         p = HANDOFF / name
         if p.exists():
@@ -208,10 +212,11 @@ def main() -> int:
     meta = {
         "schema": "mypc.package-meta.v2",
         "baseline": BASELINE,
-        "baseline_note": "PR #27 pre-fix HEAD (comtypes CoInitializeEx flags-only signature)",
+        "baseline_note": "PR #27 pre-fix HEAD (IPropertyBag VT_BSTR direct VARIANT Read)",
         "baseline_pr26": BASELINE_PR26,
         "baseline_property_bag": BASELINE_PROPERTY_BAG,
         "baseline_com_release": BASELINE_COM_RELEASE,
+        "baseline_coinit": BASELINE_COINIT,
         "baseline_pr": 27,
         "feature_commit": head,
         "packaging_freeze_commit": head,
@@ -228,7 +233,7 @@ def main() -> int:
             "PRODUCTION_READY",
         ],
         "candidate_port": 18878,
-        "phase": "USB_HF3_COINIT_SIGNATURE",
+        "phase": "USB_HF3_VT_BSTR_DIRECT_READ",
     }
     (HANDOFF / "PACKAGE_META.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -265,6 +270,9 @@ def main() -> int:
         "INDEPENDENT_REPRO_test_p02_usb_hf3_com_release_update.py",
         "INDEPENDENT_REPRO_test_p02_usb_hf3_coinit_signature.py",
         "COINIT_REPRO_RED.txt",
+        "OWNER-WINDOWS-EVIDENCE-SAFE.json",
+        "INDEPENDENT_REPRO_test_hf3_owner_vtbstr_direct.py",
+        "VTBSTR_REPRO_RED.txt",
     ]
     outer_members = [(n, HANDOFF / n) for n in docs if (HANDOFF / n).exists()] + [
         (A_NAME, a_zip),
