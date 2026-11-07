@@ -1,18 +1,20 @@
 # P02-USB-HF3 changelog
 
-## Patch on PR #27 — CoInitializeEx(flags) signature (in-place)
+## Patch on PR #27 — IPropertyBag VT_BSTR direct VARIANT (in-place)
 
-- Fix `CoInitializeEx(_COINIT_APARTMENTTHREADED)` for comtypes 1.4.17 (one arg).
-- Classify init failures as `DSHOW_COINIT_FAILED` (not `DSHOW_COCREATE_FAILED`).
-- Independent repro: `tests/unit/test_p02_usb_hf3_coinit_signature.py`.
-- Owner Windows STA init/bag guard extended (still SKIP in CI without flag).
+- `_read_propbag_str`: set `VT_BSTR`, pass VARIANT instance directly (not byref).
+- No TypeError→byref fallback.
+- Missing DevicePath (`0x80070002`) on non-target monikers → unverified row only.
+- Independent repro: `tests/unit/test_p02_usb_hf3_owner_vtbstr_direct.py`.
+
+## Prior — CoInitializeEx(flags) signature
+
+- One-arg `CoInitializeEx(_COINIT_APARTMENTTHREADED)`; `DSHOW_COINIT_FAILED`.
 
 ## Prior — COM exactly-once release + PS5.1 Update
 
-- No manual `Release()` on comtypes-owned pointers; warning count after cleanup.
-- Update leaf Rename-Item + rollback + port guard.
+- No manual Release; warning count after cleanup; leaf Rename-Item + rollback.
 
-## Prior — IPropertyBag + identity
+## Prior — identity / IPropertyBag stages
 
-- STA worker, CreateBindCtx, BindToStorage stage telemetry.
 - Strict VID+PID+MI+instance + 1:1 bijection retained.

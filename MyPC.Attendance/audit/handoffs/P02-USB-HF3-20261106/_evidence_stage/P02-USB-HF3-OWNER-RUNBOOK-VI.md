@@ -17,6 +17,10 @@
 (`CoInitializeEx(COINIT_APARTMENTTHREADED)`). Lỗi init → `DSHOW_COINIT_FAILED` (không nhầm
 `DSHOW_COCREATE_FAILED`). `COM_RELEASE_WARNING_COUNT=0` lúc fail sớm **không** phải physical PASS.
 
+**IPropertyBag.Read (PR #27 corrective):** `var.vt = VT_BSTR` rồi `Read(name, var, None)`
+(VARIANT trực tiếp, không `byref`). Owner chứng minh byref/VT_EMPTY → `0x80070057`.
+`0x80070002` trên moniker không phải target = thiếu DevicePath (unverified), không chặn cặp khớp duy nhất.
+
 **Update PS 5.1:** `Rename-Item -NewName` chỉ nhận leaf cùng thư mục cha; validate ZIP/layout trước
 khi đổi `src`; rollback nếu promote/pip lỗi; từ chối khi cổng 18878 bị process lạ giữ.
 

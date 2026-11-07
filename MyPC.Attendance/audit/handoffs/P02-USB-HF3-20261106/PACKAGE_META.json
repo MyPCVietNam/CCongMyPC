@@ -1,26 +1,26 @@
 {
   "schema": "mypc.package-meta.v2",
-  "baseline": "98d8d40290018d688749931a9f78d4ee016b126b",
-  "baseline_note": "PR #27 pre-fix HEAD (comtypes CoInitializeEx flags-only signature)",
+  "baseline": "aa0c385f414d410d2c6aa0cdec7d676fb8f2ac7e",
+  "baseline_note": "PR #27 pre-fix HEAD (IPropertyBag VT_BSTR direct VARIANT Read)",
   "baseline_pr26": "146d04cb930a446f891f48178a33672f0537b95e",
   "baseline_property_bag": "05f6ba991b4b43b3719125551298b18441578bcb",
   "baseline_com_release": "ff6789ecd15ede618101e6a4c4938c3290ed1748",
+  "baseline_coinit": "98d8d40290018d688749931a9f78d4ee016b126b",
   "baseline_pr": 27,
-  "feature_commit": "efa15937f588337bf810eb92e5fc8a7c19cc3afe",
-  "packaging_freeze_commit": "efa15937f588337bf810eb92e5fc8a7c19cc3afe",
-  "generated_at_utc": "2026-11-07T03:53:18.914374+00:00",
+  "feature_commit": "861b90390fa3e6f877306d9a2b79ff703f29c8b0",
+  "packaging_freeze_commit": "861b90390fa3e6f877306d9a2b79ff703f29c8b0",
+  "generated_at_utc": "2026-11-07T04:11:14.589887+00:00",
   "code_paths": [
     "MyPC.Attendance/backend/app/vision/camera/dshow_com_enum.py",
     "MyPC.Attendance/docs/runbooks/P02-USB-HF3-OWNER-RUNBOOK-VI.md",
-    "MyPC.Attendance/tests/integration/test_p02_usb_hf3_windows_owner_guard.py",
-    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_coinit_signature.py",
+    "MyPC.Attendance/tests/unit/test_p02_usb_hf3_owner_vtbstr_direct.py",
     "MyPC.Attendance/tools/package_p02_usb_hf3_complete_audit.py"
   ],
   "deleted_paths": [],
   "sha256": {
-    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "f3242596ca61ff3a700394e0f404bccf5d5071ddda2fc7c4c28374a4c7ccdf2b",
-    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "00359f5ec679dcbaca5e29354044be7edf8c84cd889746bde275199b8a5db265",
-    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "fd856daa1f06aac1c74e51a07cfda3b1dddc2a843eec8d81f86a54bdb89d89d3"
+    "MyPC.Attendance-CHANGED-SOURCE-AUDIT-P02-USB-HF3.zip": "8822e1ec135ba8032c8c72c895cb66a040f1181cb11e5af03f760e36e8218b14",
+    "MyPC.Attendance-FULL-SOURCE-P02-USB-HF3.zip": "f65ded14ed2d3319c1c11957b17298e259a4db82036afa98bbe1abdfb20b1e3c",
+    "MYPC-P02-USB-HF3-WINDOWS-SAFE-EVIDENCE.zip": "65a56329db141c3358bcef84fc0d605359a48024cb5d93b2dfe4bd5a9c896cc9"
   },
   "gates_blocked": [
     "USB_WINDOWS_PHYSICAL",
@@ -31,5 +31,5 @@
     "PRODUCTION_READY"
   ],
   "candidate_port": 18878,
-  "phase": "USB_HF3_COINIT_SIGNATURE"
+  "phase": "USB_HF3_VT_BSTR_DIRECT_READ"
 }

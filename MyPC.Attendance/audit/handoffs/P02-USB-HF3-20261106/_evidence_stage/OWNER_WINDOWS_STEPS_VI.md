@@ -1,9 +1,6 @@
-# P02-USB-HF3 — Hướng dẫn Windows (candidate đã Prepare + đã Update trước đó)
+# P02-USB-HF3 — Hướng dẫn Windows (candidate đã Prepare)
 
-**KHÔNG** chạy lại Prepare. **KHÔNG** đụng HF5/18876 hay HF1/18877.
-
-1. Tải COMPLETE ZIP (pin + SHA256 trong README sau push freeze).
-2. Lấy FULL-SOURCE + SHA256; Update source-only trên HF3 `127.0.0.1:18878`:
+**KHÔNG** Prepare lại. **KHÔNG** đụng 18876/18877.
 
 ```powershell
 cd <extract>\MyPC.Attendance\scripts\windows
@@ -15,12 +12,12 @@ cd <extract>\MyPC.Attendance\scripts\windows
 .\p02_usb_hf3_candidate_18878.ps1 -Mode Diagnose
 ```
 
-3. Kỳ vọng Diagnose (nếu chưa đạt → BLOCKED + SafeExport):
-   - Không còn `coinit:TypeError` / `DSHOW_COINIT_FAILED`
-   - `DSHOW_ENUM_OK=true`, `DSHOW_VIDEO_MONIKER_COUNT>=1`
-   - `PROPERTY_BAG_BIND_OK_COUNT>=1`, `DEVICE_PATH_READ_OK_COUNT>=1`
-   - `VIDEO_DEVICE_PATH_MATCH_COUNT=1`, `CAPTURE_MAPPING_VERIFIED=true`
-   - `COM_RELEASE_WARNING_COUNT=0`
-4. Chỉ khi mapping PASS: Start → smoke 1080p → soak → CAMERA_LAB **mới**.
+Kỳ vọng Diagnose trước khi Start vật lý:
+- `DSHOW_ENUM_OK=true`
+- `PROPERTY_BAG_BIND_OK_COUNT>=1`, `FRIENDLY_NAME_READ_OK_COUNT>=1`
+- `DEVICE_PATH_READ_OK_COUNT>=1`, `DEVICE_PATH_CANONICAL_OK_COUNT>=1`
+- đúng 1 cặp PnP↔DevicePath; `CAPTURE_MAPPING_VERIFIED=true`
+- `COM_RELEASE_WARNING_COUNT=0`, `MODEL_PINS_PASS=true`
 
-Gates vật lý vẫn BLOCKED cho đến khi owner xác nhận.
+Chỉ khi đạt: Start trên 18878 → smoke 1080p → soak → CAMERA_LAB mới.
+Không auto-Start / không ký lab từ synthetic.

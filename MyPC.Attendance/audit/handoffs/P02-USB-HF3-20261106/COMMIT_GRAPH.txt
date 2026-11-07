@@ -1,2 +1,2 @@
-efa1593 docs(audit): HF3 CoInit signature evidence and packaging baseline 98d8d40
-29e76e4 fix(usb): P02-USB-HF3 CoInitializeEx(flags) per comtypes 1.4.17
+861b903 docs(audit): HF3 VT_BSTR direct Read evidence and packaging baseline aa0c385
+d173b02 fix(usb): P02-USB-HF3 IPropertyBag.Read VT_BSTR with direct VARIANT
